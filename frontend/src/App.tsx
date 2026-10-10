@@ -3,7 +3,8 @@ import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { chiavi, usePersone } from './api/queries';
+import { invalidaDopoAcquisizione } from './api/invalidazioni';
+import { usePersone } from './api/queries';
 import type { LottoCaricamento } from './api/types';
 import { CaricamentoModal } from './components/CaricamentoModal';
 import { ErroreConRiprova } from './components/ErroreConRiprova';
@@ -54,13 +55,7 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
 
   const caricamentoCompletato = useCallback(
     async (lotto: LottoCaricamento) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: chiavi.persone }),
-        queryClient.invalidateQueries({ queryKey: chiavi.rapportiTutti }),
-        queryClient.invalidateQueries({ queryKey: chiavi.rapportoTutti }),
-        // un nuovo cedolino puo' riclassificare quelli gia' presenti (progressivo TFR e nome del file)
-        queryClient.invalidateQueries({ queryKey: chiavi.cedolinoTutti }),
-      ]);
+      await invalidaDopoAcquisizione(queryClient);
       notifications.show({
         color: lotto.caricamenti.some((c) => c.stato === 'ERRORE') ? 'orange' : 'teal',
         title: testi.caricamento.completato,

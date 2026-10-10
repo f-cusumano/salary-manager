@@ -1,21 +1,12 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { chiavi } from './chiavi';
 import type { ApiClient } from './client';
 import { useApiClient } from './context';
 import { esito } from './errors';
-import type { LottoCaricamento, RapportoDettaglio } from './types';
+import { invalidaDopoAcquisizione, invalidaDopoModificaFileInErrore } from './invalidazioni';
+import type { CedolinoManuale, LottoCaricamento, RapportoDettaglio, RichiestaAttribuzione } from './types';
 
-/** Chiavi di cache di TanStack Query. */
-export const chiavi = {
-  persone: ['persone'] as const,
-  rapportiTutti: ['rapporti'] as const,
-  rapporti: (personaId: number) => ['rapporti', personaId] as const,
-  rapportoTutti: ['rapporto'] as const,
-  rapporto: (rapportoId: number) => ['rapporto', rapportoId] as const,
-  cedolinoTutti: ['cedolino'] as const,
-  cedolino: (cedolinoId: number) => ['cedolino', cedolinoId] as const,
-  ccnl: ['ccnl'] as const,
-  lotto: (lotto: string) => ['lotto', lotto] as const,
-};
+export { chiavi };
 
 // ------------------------------------------------------------------ letture
 
@@ -189,4 +180,133 @@ export async function avviaCaricamento(
 
 export async function leggiLotto(api: ApiClient, lotto: string, signal?: AbortSignal) {
   return esito(await api.GET('/api/v1/caricamenti/lotti/{lotto}', { params: { path: { lotto } }, signal }));
+}
+
+// ------------------------------------------------------------------ cedolini caricati con errore
+
+/** File caricati ma non letti, ancora da risolvere: uno per file, dal piu' recente. */
+export function useCaricamentiInErrore() {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: chiavi.caricamentiInErrore,
+    queryFn: async ({ signal }) => esito(await api.GET('/api/v1/caricamenti/in-errore', { signal })),
+  });
+}
+
+/**
+ * Rilegge il PDF conservato di un file in errore in un nuovo lotto di un solo file (eventualmente con la password,
+ * mai salvata). Il lotto restituito si segue con `useCaricamento().segui`; alla fine del lotto l'elenco dei file in
+ * errore viene riletto con le altre invalidazioni.
+ */
+export async function rileggiCaricamento(
+  api: ApiClient,
+  caricamentoId: number,
+  password: string | null,
+): Promise<LottoCaricamento> {
+  return esito(
+    await api.POST('/api/v1/caricamenti/{caricamentoId}/rilettura', {
+      params: { path: { caricamentoId } },
+      body: { password: password !== null && password.length > 0 ? password : null },
+    }),
+  );
+}
+
+export interface RichiestaCedolinoManuale {
+  caricamentoId: number;
+  dati: CedolinoManuale;
+}
+
+/** Prova dell'inserimento a mano: nessun dato salvato, quindi nessuna invalidazione. */
+export function useVerificaCedolinoManuale() {
+  const api = useApiClient();
+  return useMutation({
+    mutationFn: async ({ caricamentoId, dati }: RichiestaCedolinoManuale) =>
+      esito(
+        await api.POST('/api/v1/caricamenti/{caricamentoId}/cedolino/verifica', {
+          params: { path: { caricamentoId } },
+          body: dati,
+        }),
+      ),
+  });
+}
+
+/**
+ * Inserimento a mano del cedolino di un file in errore. A salvataggio riuscito rilegge tutto cio' che un'acquisizione
+ * cambia e il lotto del file (che ora risulta ACQUISITO), prima di risolvere la mutazione.
+ */
+export function useInserisciCedolinoManuale() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ caricamentoId, dati }: RichiestaCedolinoManuale) =>
+      esito(
+        await api.POST('/api/v1/caricamenti/{caricamentoId}/cedolino', {
+          params: { path: { caricamentoId } },
+          body: dati,
+        }),
+      ),
+    onSuccess: async (caricamento, { caricamentoId }) => {
+      queryClient.removeQueries({ queryKey: chiavi.pdfCaricamento(caricamentoId) });
+      await Promise.all([
+        invalidaDopoAcquisizione(queryClient),
+        queryClient.invalidateQueries({ queryKey: chiavi.lotto(caricamento.lotto) }),
+      ]);
+    },
+  });
+}
+
+export interface RichiestaAssociazione {
+  caricamentoId: number;
+  attribuzione: RichiestaAttribuzione;
+}
+
+/** Associa (o sposta) un file in errore a una mensilita' di un rapporto. */
+export function useAssociaCaricamento() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ caricamentoId, attribuzione }: RichiestaAssociazione) =>
+      esito(
+        await api.PUT('/api/v1/caricamenti/{caricamentoId}/attribuzione', {
+          params: { path: { caricamentoId } },
+          body: attribuzione,
+        }),
+      ),
+    onSuccess: () => invalidaDopoModificaFileInErrore(queryClient),
+  });
+}
+
+export function useRimuoviAssociazione() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (caricamentoId: number) =>
+      esito(
+        await api.DELETE('/api/v1/caricamenti/{caricamentoId}/attribuzione', {
+          params: { path: { caricamentoId } },
+        }),
+      ),
+    onSuccess: () => invalidaDopoModificaFileInErrore(queryClient),
+  });
+}
+
+/** Rimuove un file in errore: tentativi in errore, PDF conservato e associazione. */
+export function useRimuoviCaricamento() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (caricamentoId: number) => {
+      const risposta = await api.DELETE('/api/v1/caricamenti/{caricamentoId}', {
+        params: { path: { caricamentoId } },
+      });
+      if (!risposta.response.ok) {
+        esito(risposta);
+      }
+      return caricamentoId;
+    },
+    onSuccess: async (caricamentoId) => {
+      queryClient.removeQueries({ queryKey: chiavi.pdfCaricamento(caricamentoId) });
+      await invalidaDopoModificaFileInErrore(queryClient);
+    },
+  });
 }

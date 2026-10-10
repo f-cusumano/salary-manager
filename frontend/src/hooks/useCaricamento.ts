@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiClient } from '../api/context';
 import { avviaCaricamento, chiavi, leggiLotto, type RichiestaCaricamento } from '../api/queries';
@@ -14,6 +14,8 @@ export interface StatoCaricamentoLotto {
   errorePolling: unknown;
   inElaborazione: boolean;
   avvia: (richiesta: RichiestaCaricamento) => void;
+  /** Segue un lotto avviato altrove (rilettura di un file in errore): polling e notifica di fine come per un invio. */
+  segui: (lotto: LottoCaricamento) => void;
   /** Torna alla selezione dei file per un nuovo lotto. */
   azzera: () => void;
 }
@@ -27,6 +29,7 @@ export function useCaricamento(
   intervalloMs: number = INTERVALLO_POLLING_MS,
 ): StatoCaricamentoLotto {
   const api = useApiClient();
+  const queryClient = useQueryClient();
   const [idLotto, setIdLotto] = useState<string | null>(null);
   const notificati = useRef(new Set<string>());
   const callback = useRef(onCompletato);
@@ -66,6 +69,15 @@ export function useCaricamento(
     reset();
     setIdLotto(null);
   }, [reset]);
+  const segui = useCallback(
+    (nuovo: LottoCaricamento) => {
+      reset();
+      // lo stato appena ricevuto e' gia' in cache: niente attesa del primo polling
+      queryClient.setQueryData(chiavi.lotto(nuovo.lotto), nuovo);
+      setIdLotto(nuovo.lotto);
+    },
+    [queryClient, reset],
+  );
 
   return {
     lotto,
@@ -74,6 +86,7 @@ export function useCaricamento(
     errorePolling: stato.error,
     inElaborazione: invio.isPending || (lotto !== null && !lotto.completato),
     avvia,
+    segui,
     azzera,
   };
 }

@@ -27,9 +27,14 @@ accettarla in CORS, `salary-manager.web.cors-allowed-origins`).
 npm run dev:mock     # dati inventati in memoria (Mario Rossi, Laura Bianchi, aziende fittizie)
 ```
 
-Con `?mock=vuoto` nell'URL si parte senza dati, come al primo avvio. Nel caricamento simulato l'esito dipende dal
-nome del file: `duplicato` → Duplicato, `aggiuntivo` → Aggiuntivo non gestito, `errore` → Errore, `protetto` →
-Errore "PDF protetto da password" se non si indica una password; ogni altro file viene acquisito.
+Con `?mock=vuoto` nell'URL si parte senza dati, come al primo avvio; con `?mock=errori` ai dati dimostrativi si
+aggiungono tre cedolini caricati con errore (`busta-scansione.pdf`, `cedolino-protetto.pdf` e `ristampa.pdf`,
+quest'ultimo associato alla mensilità mancante di Agosto 2025 di Mario Rossi). Nel caricamento simulato l'esito
+dipende dal nome del file: `duplicato` → Duplicato, `aggiuntivo` → Aggiuntivo non gestito; in Errore, con il PDF
+conservato (inseribile a mano e rileggibile), `scansione` (scansione senza testo), `ristampa` (layout non
+riconosciuto) e `protetto` se non si indica una password; in Errore senza PDF conservato `danneggiato` (file
+danneggiato) ed `errore` (più cedolini nello stesso PDF). Ogni altro file viene acquisito. Lo stesso file (stesso
+nome e stessa dimensione) caricato più volte compare una volta sola tra i cedolini caricati con errore.
 
 I mock esistono solo con `--mode mock` (`.env.mock` imposta `VITE_USE_MOCKS=true`): nella build di produzione il
 modulo `src/mocks` non viene incluso nel bundle. `npm run build:mock` + `npm run preview:mock` servono la build

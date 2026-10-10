@@ -1,5 +1,6 @@
 import type {
   AziendaSintesi,
+  Caricamento,
   CedolinoDettaglio,
   Ccnl,
   Competenza,
@@ -8,6 +9,7 @@ import type {
   RateoCedolino,
   Riepilogo,
   RigaMensilita,
+  MotivoErrore,
   Segnalazione,
   TipoRateo,
   UnitaMisura,
@@ -141,7 +143,7 @@ function arrotonda(valore: number): number {
   return Math.round(valore * 100) / 100;
 }
 
-function mese(anno: number, m: number): string {
+export function mese(anno: number, m: number): string {
   return `${anno}-${String(m).padStart(2, '0')}`;
 }
 
@@ -160,7 +162,7 @@ function intervalloMesi(da: [number, number], a: [number, number]): [number, num
   return risultato;
 }
 
-function competenzaOrdinaria(anno: number, m: number): Competenza {
+export function competenzaOrdinaria(anno: number, m: number): Competenza {
   return {
     chiave: `${anno}.${String(m).padStart(2, '0')}`,
     tipo: 'ORDINARIA',
@@ -170,12 +172,12 @@ function competenzaOrdinaria(anno: number, m: number): Competenza {
   };
 }
 
-function competenzaSpeciale(anno: number, tipo: 'TREDICESIMA' | 'QUATTORDICESIMA'): Competenza {
+export function competenzaSpeciale(anno: number, tipo: 'TREDICESIMA' | 'QUATTORDICESIMA'): Competenza {
   const m = tipo === 'TREDICESIMA' ? 13 : 14;
   return { chiave: `${anno}.${m}`, tipo, anno, mese: m, progressivoTfr: null };
 }
 
-function competenzaFineRapporto(anno: number, progressivo: number): Competenza {
+export function competenzaFineRapporto(anno: number, progressivo: number): Competenza {
   return {
     chiave: `${anno}.TFR${String(progressivo).padStart(2, '0')}`,
     tipo: 'FINE_RAPPORTO',
@@ -236,6 +238,9 @@ interface ProfiloRapporto {
 
 interface Contatori {
   prossimoIdCedolino: number;
+  prossimoIdCaricamento: number;
+  /** Persone, aziende e rapporti creati dall'inserimento a mano (lontani dagli id dei dati dimostrativi). */
+  prossimoIdAnagrafica: number;
 }
 
 function generaCedolino(
@@ -568,11 +573,32 @@ export function ordineCompetenza(riga: Pick<RigaMensilita, 'competenza' | 'perio
 
 // ------------------------------------------------------------------ database in memoria
 
+/** Mensilita' (rapporto + anno + mese 1..14, 13 e 14 tredicesima e quattordicesima) associata a un file in errore. */
+export interface AssociazioneMock {
+  rapportoId: number;
+  anno: number;
+  mese: number;
+}
+
 export interface MockDb {
   persone: PersonaSintesi[];
   rapporti: Map<number, RapportoDettaglio>;
   cedolini: Map<number, CedolinoDettaglio>;
   contatori: Contatori;
+  /** Tutti i tentativi di caricamento, dal piu' recente. */
+  caricamenti: Caricamento[];
+  /** PDF conservati dei file in errore completabili a mano, per file (vedi chiaveFile). */
+  pdfFile: Map<string, Blob>;
+  /** Mensilita' a cui l'utente ha associato un file in errore, per file (vedi chiaveFile). */
+  associazioni: Map<string, AssociazioneMock>;
+}
+
+/**
+ * Surrogato dell'hash del contenuto con cui il backend identifica un file: nel mock stesso nome e stessa dimensione
+ * sono lo stesso file.
+ */
+export function chiaveFile(caricamento: Pick<Caricamento, 'nomeFileOriginale' | 'dimensione'>): string {
+  return `${caricamento.nomeFileOriginale}:${caricamento.dimensione}`;
 }
 
 function segnalazione(
@@ -1062,7 +1088,7 @@ export function ordinaMensilita(righe: RigaMensilita[]): RigaMensilita[] {
   return [...righe].sort((a, b) => ordineCompetenza(b) - ordineCompetenza(a));
 }
 
-function aggiungiRapporto(db: MockDb, rapporto: RapportoDettaglio) {
+export function aggiungiRapporto(db: MockDb, rapporto: RapportoDettaglio) {
   rapporto.mensilita = ordinaMensilita(rapporto.mensilita);
   db.rapporti.set(rapporto.id, rapporto);
   if (!db.persone.some((p) => p.id === rapporto.persona.id)) {
@@ -1081,19 +1107,81 @@ export function popolaMario(db: MockDb): void {
   }
 }
 
-export function creaDbMock(datiIniziali: 'demo' | 'vuoto'): MockDb {
+/**
+ * Tre file caricati ma non letti, con il PDF conservato: una scansione non associata, un PDF protetto da password e
+ * una ristampa associata dall'utente alla mensilita' mancante di Agosto 2025 di Alfa Software.
+ */
+function aggiungiFileInErrore(db: MockDb): void {
+  const contenuto = new Blob([PDF_MINIMO], { type: 'application/pdf' });
+  const lotto = '5a3d2c1b-0000-4000-8000-00000000e770';
+  const falliti: { nome: string; motivo: keyof typeof MESSAGGI_ERRORE; creatoIl: string }[] = [
+    { nome: 'ristampa.pdf', motivo: 'LAYOUT_NON_RICONOSCIUTO', creatoIl: '2026-10-01T09:20:00Z' },
+    { nome: 'cedolino-protetto.pdf', motivo: 'PDF_PROTETTO', creatoIl: '2026-10-01T09:20:05Z' },
+    { nome: 'busta-scansione.pdf', motivo: 'PDF_SENZA_TESTO', creatoIl: '2026-10-01T09:20:10Z' },
+  ];
+  for (const { nome, motivo, creatoIl } of falliti) {
+    const caricamento: Caricamento = {
+      id: db.contatori.prossimoIdCaricamento++,
+      lotto,
+      nomeFileOriginale: nome,
+      dimensione: contenuto.size,
+      stato: 'ERRORE',
+      messaggio: MESSAGGI_ERRORE[motivo],
+      motivo,
+      pdfDisponibile: true,
+      cedolinoId: null,
+      cedolinoEsistenteId: null,
+      personaId: null,
+      rapportoId: null,
+      creatoIl,
+      aggiornatoIl: creatoIl,
+    };
+    db.caricamenti.unshift(caricamento);
+    db.pdfFile.set(chiaveFile(caricamento), contenuto);
+    if (nome === 'ristampa.pdf') {
+      db.associazioni.set(chiaveFile(caricamento), { rapportoId: 1, anno: 2025, mese: 8 });
+    }
+  }
+}
+
+/** Dati iniziali: dimostrativi, vuoti (primo avvio) o dimostrativi con tre cedolini caricati con errore. */
+export type DatiIniziali = 'demo' | 'vuoto' | 'errori';
+
+export function creaDbMock(datiIniziali: DatiIniziali): MockDb {
   const db: MockDb = {
     persone: [],
     rapporti: new Map(),
     cedolini: new Map(),
-    contatori: { prossimoIdCedolino: 101 },
+    contatori: { prossimoIdCedolino: 101, prossimoIdCaricamento: 1, prossimoIdAnagrafica: 101 },
+    caricamenti: [],
+    pdfFile: new Map(),
+    associazioni: new Map(),
   };
-  if (datiIniziali === 'demo') {
+  if (datiIniziali !== 'vuoto') {
     popolaMario(db);
     aggiungiRapporto(db, rapportoLaura(db));
+  }
+  if (datiIniziali === 'errori') {
+    aggiungiFileInErrore(db);
   }
   return db;
 }
 
 /** Testo usato nei messaggi del caricamento simulato. */
 export const MESSAGGIO_PDF_PROTETTO = 'PDF protetto da password: indica la password e ricarica';
+
+/** PDF valido di una pagina vuota, servito come contenuto dei PDF simulati. */
+export const PDF_MINIMO =
+  '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+  '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n';
+
+/** Messaggi del backend per i motivi d'errore simulati (testi dei lettori, mai dati personali). */
+export const MESSAGGI_ERRORE = {
+  PDF_PROTETTO: MESSAGGIO_PDF_PROTETTO,
+  PDF_SENZA_TESTO:
+    "Il PDF non contiene testo selezionabile (probabilmente è una scansione o un'immagine) e il lettore locale non " +
+    'può interpretarlo.',
+  LAYOUT_NON_RICONOSCIUTO: 'Il lettore locale non riconosce il layout di questo cedolino.',
+  PDF_NON_VALIDO: 'Il PDF è danneggiato o non leggibile',
+  PIU_CEDOLINI: 'Il documento contiene più cedolini distinti: caricali come file separati.',
+} as const satisfies Partial<Record<MotivoErrore, string>>;
