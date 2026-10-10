@@ -10,6 +10,8 @@ function caricamento(valori: Partial<Caricamento>): Caricamento {
     dimensione: 100,
     stato: 'ERRORE',
     messaggio: null,
+    motivo: null,
+    pdfDisponibile: false,
     cedolinoId: null,
     cedolinoEsistenteId: null,
     personaId: null,

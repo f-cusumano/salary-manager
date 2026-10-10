@@ -302,6 +302,8 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
           dimensione: file.size,
           stato: 'IN_CODA',
           messaggio: null,
+          motivo: null,
+          pdfDisponibile: false,
           cedolinoId: null,
           cedolinoEsistenteId: null,
           personaId: null,

@@ -429,6 +429,7 @@ function generaCedolino(
     nomeFile: `${competenza.chiave}_${profilo.aziendaId}_${profilo.personaId}.pdf`,
     acquisitoIl: '2026-10-01T09:30:00Z',
     confidenza: arrotonda(0.86 + rumore(seme + 11) * 0.13),
+    inseritoAMano: false,
     campiNonTrovati: profilo.ccnlTesto ? [] : ['datiContrattuali.ccnl', 'datiContrattuali.codiceCnel'],
     avvisiEstrazione: profilo.avvisiEstrazione,
     inquadramento: {
@@ -524,6 +525,8 @@ export function rigaDaCedolino(
     scattoInBusta: indicatori.scattoInBusta,
     aumentoFuoriScatti: indicatori.aumentoFuoriScatti,
     nomeFile: cedolino.nomeFile,
+    caricamentoId: null,
+    motivoErrore: null,
   };
 }
 
@@ -541,6 +544,8 @@ function rigaMancante(competenza: Competenza, periodo: string): RigaMensilita {
     scattoInBusta: false,
     aumentoFuoriScatti: false,
     nomeFile: null,
+    caricamentoId: null,
+    motivoErrore: null,
   };
 }
 
