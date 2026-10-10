@@ -6,6 +6,9 @@
  * {@link com.fcusumano.sam.cedolini.CaricamentiInErroreModificati}.
  * <p>
  * API pubblica: {@link com.fcusumano.sam.cedolini.CaricamentoCedolini}, {@link com.fcusumano.sam.cedolini.ArchivioCedolini},
+ * {@link com.fcusumano.sam.cedolini.CaricamentiInErrore} (file in errore: elenco, PDF, rimozione, nuova lettura,
+ * associazione a una mensilita', inserimento a mano con {@link com.fcusumano.sam.cedolini.CedolinoManuale}, che segue
+ * lo stesso percorso dei lettori, e prova senza salvataggio {@link com.fcusumano.sam.cedolini.VerificaCedolinoManuale}),
  * {@link com.fcusumano.sam.cedolini.CedolinoNormalizzato} e record collegati.
  * Porte interne: {@code application.estrazione.LettoreCedolini} (adapter locale / Claude / fixture),
  * {@code application.estrazione.LettorePdf} (apertura e decifratura dei PDF),

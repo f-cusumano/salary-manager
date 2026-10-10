@@ -6,12 +6,15 @@ import static com.fcusumano.sam.shared.db.jooq.Tables.CARICAMENTO_PDF;
 import static com.fcusumano.sam.shared.db.jooq.Tables.CEDOLINO;
 
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
+import com.fcusumano.sam.cedolini.AttribuzioneCaricamento;
 import com.fcusumano.sam.cedolini.Caricamento;
 import com.fcusumano.sam.cedolini.CaricamentoId;
+import com.fcusumano.sam.cedolini.CaricamentoInErrore;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository;
+import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.WorkspaceId;
 import com.fcusumano.sam.shared.db.jooq.tables.records.CaricamentoRecord;
 import java.time.Clock;
@@ -46,6 +49,8 @@ class JooqCaricamentiRepository implements CaricamentiRepository {
             CARICAMENTO.STATO.eq(StatoCaricamento.ERRORE.name()).and(DSL.exists(DSL.selectOne().from(CARICAMENTO_PDF)
                     .where(CARICAMENTO_PDF.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
                             CARICAMENTO_PDF.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO))))).as("pdf_disponibile");
+    /** Un tentativo dello stesso file del caricamento e' in coda o in lettura. */
+    private static final Field<Boolean> IN_ELABORAZIONE = inElaborazione();
 
     private final DSLContext dsl;
     private final Clock clock;
@@ -189,6 +194,42 @@ class JooqCaricamentiRepository implements CaricamentiRepository {
     }
 
     @Override
+    public Optional<AttribuzioneSalvata> attribuzione(WorkspaceId workspace, String hash) {
+        return dsl.select(CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID, CARICAMENTO_ATTRIBUZIONE.COMPETENZA_ANNO,
+                        CARICAMENTO_ATTRIBUZIONE.COMPETENZA_MESE)
+                .from(CARICAMENTO_ATTRIBUZIONE)
+                .where(CARICAMENTO_ATTRIBUZIONE.WORKSPACE_ID.eq(workspace.valore()),
+                        CARICAMENTO_ATTRIBUZIONE.HASH_CONTENUTO.eq(hash))
+                .fetchOptional(r -> new AttribuzioneSalvata(new RapportoLavoroId(r.value1()),
+                        new Competenza.Mensilita(r.value2(), r.value3())));
+    }
+
+    @Override
+    public void attribuisci(WorkspaceId workspace, String hash, RapportoLavoroId rapportoId,
+                            Competenza.Mensilita competenza) {
+        dsl.insertInto(CARICAMENTO_ATTRIBUZIONE)
+                .set(CARICAMENTO_ATTRIBUZIONE.WORKSPACE_ID, workspace.valore())
+                .set(CARICAMENTO_ATTRIBUZIONE.HASH_CONTENUTO, hash)
+                .set(CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID, rapportoId.valore())
+                .set(CARICAMENTO_ATTRIBUZIONE.COMPETENZA_ANNO, competenza.anno())
+                .set(CARICAMENTO_ATTRIBUZIONE.COMPETENZA_MESE, competenza.mese())
+                .set(CARICAMENTO_ATTRIBUZIONE.ATTRIBUITO_IL, OffsetDateTime.now(clock))
+                .execute();
+    }
+
+    @Override
+    public Optional<String> hashAssociatoA(WorkspaceId workspace, RapportoLavoroId rapportoId,
+                                           Competenza.Mensilita competenza) {
+        return dsl.select(CARICAMENTO_ATTRIBUZIONE.HASH_CONTENUTO)
+                .from(CARICAMENTO_ATTRIBUZIONE)
+                .where(CARICAMENTO_ATTRIBUZIONE.WORKSPACE_ID.eq(workspace.valore()),
+                        CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID.eq(rapportoId.valore()),
+                        CARICAMENTO_ATTRIBUZIONE.COMPETENZA_ANNO.eq(competenza.anno()),
+                        CARICAMENTO_ATTRIBUZIONE.COMPETENZA_MESE.eq(competenza.mese()))
+                .fetchOptional(Record1::value1);
+    }
+
+    @Override
     public int ripulisciFileNonInErrore() {
         int pdf = dsl.deleteFrom(CARICAMENTO_PDF)
                 .where(DSL.not(fileInErrore(CARICAMENTO_PDF.WORKSPACE_ID, CARICAMENTO_PDF.HASH_CONTENUTO)))
@@ -198,6 +239,97 @@ class JooqCaricamentiRepository implements CaricamentiRepository {
                         CARICAMENTO_ATTRIBUZIONE.HASH_CONTENUTO)))
                 .execute();
         return pdf + attribuzioni;
+    }
+
+    @Override
+    public List<CaricamentoInErrore> inErrore(WorkspaceId workspace) {
+        return righeInErrore(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore()));
+    }
+
+    @Override
+    public List<CaricamentoInErrore> inErroreDiRapporto(WorkspaceId workspace, RapportoLavoroId rapportoId) {
+        return righeInErrore(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore())
+                .and(CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID.eq(rapportoId.valore())));
+    }
+
+    @Override
+    public Optional<CaricamentoInErrore> inErrore(WorkspaceId workspace, String hash) {
+        return righeInErrore(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore())
+                .and(CARICAMENTO.HASH_CONTENUTO.eq(hash))).stream().findFirst();
+    }
+
+    @Override
+    public Optional<FileDelCaricamento> fileDelCaricamento(WorkspaceId workspace, CaricamentoId id) {
+        var inErrore = DSL.field(fileInErrore(CARICAMENTO.WORKSPACE_ID, CARICAMENTO.HASH_CONTENUTO)).as("in_errore");
+        var pdfPresente = DSL.field(DSL.exists(DSL.selectOne().from(CARICAMENTO_PDF)
+                .where(CARICAMENTO_PDF.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
+                        CARICAMENTO_PDF.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO)))).as("pdf_presente");
+        return dsl.select(CARICAMENTO.STATO, CARICAMENTO.NOME_FILE_ORIGINALE, CARICAMENTO.DIMENSIONE,
+                        CARICAMENTO.HASH_CONTENUTO, inErrore, IN_ELABORAZIONE, pdfPresente)
+                .from(CARICAMENTO)
+                .where(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore()), CARICAMENTO.ID.eq(id.valore()))
+                .fetchOptional(r -> new FileDelCaricamento(StatoCaricamento.valueOf(r.value1()), r.value2(),
+                        r.value3(), r.value4(), Boolean.TRUE.equals(r.value5()), Boolean.TRUE.equals(r.value6()),
+                        Boolean.TRUE.equals(r.value7())));
+    }
+
+    @Override
+    public int eliminaErroriDelFile(WorkspaceId workspace, String hash) {
+        return dsl.deleteFrom(CARICAMENTO)
+                .where(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore()), CARICAMENTO.HASH_CONTENUTO.eq(hash),
+                        CARICAMENTO.STATO.eq(StatoCaricamento.ERRORE.name()))
+                .execute();
+    }
+
+    /**
+     * Righe dei file in errore: tentativi in ERRORE senza tentativi successivi conclusi, di file non archiviati, con
+     * l'associazione del file e se nel frattempo e' stato archiviato un cedolino della mensilita' associata.
+     */
+    private List<CaricamentoInErrore> righeInErrore(Condition condizione) {
+        var successivo = CARICAMENTO.as("successivo");
+        var competenzaPresente = DSL.field(DSL.exists(DSL.selectOne().from(CEDOLINO)
+                .where(CEDOLINO.RAPPORTO_ID.eq(CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID),
+                        CEDOLINO.ANNO.eq(CARICAMENTO_ATTRIBUZIONE.COMPETENZA_ANNO),
+                        CEDOLINO.MESE.eq(CARICAMENTO_ATTRIBUZIONE.COMPETENZA_MESE)))).as("competenza_presente");
+        return dsl.select(CARICAMENTO.fields())
+                .select(PDF_DISPONIBILE, IN_ELABORAZIONE, CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID,
+                        CARICAMENTO_ATTRIBUZIONE.COMPETENZA_ANNO, CARICAMENTO_ATTRIBUZIONE.COMPETENZA_MESE,
+                        competenzaPresente)
+                .from(CARICAMENTO)
+                .leftJoin(CARICAMENTO_ATTRIBUZIONE)
+                .on(CARICAMENTO_ATTRIBUZIONE.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
+                        CARICAMENTO_ATTRIBUZIONE.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO))
+                .where(condizione, CARICAMENTO.STATO.eq(StatoCaricamento.ERRORE.name()))
+                .andNotExists(DSL.selectOne().from(CEDOLINO)
+                        .where(CEDOLINO.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
+                                CEDOLINO.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO)))
+                .andNotExists(DSL.selectOne().from(successivo)
+                        .where(successivo.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
+                                successivo.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO),
+                                successivo.ID.gt(CARICAMENTO.ID),
+                                successivo.STATO.notIn(StatoCaricamento.IN_CODA.name(),
+                                        StatoCaricamento.IN_LETTURA.name())))
+                .orderBy(CARICAMENTO.CREATO_IL.desc(), CARICAMENTO.ID.desc())
+                .fetch(riga -> {
+                    var r = riga.into(CARICAMENTO);
+                    var rapporto = riga.get(CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID);
+                    var attribuzione = rapporto == null ? null : new AttribuzioneCaricamento(
+                            new RapportoLavoroId(rapporto),
+                            new Competenza.Mensilita(riga.get(CARICAMENTO_ATTRIBUZIONE.COMPETENZA_ANNO),
+                                    riga.get(CARICAMENTO_ATTRIBUZIONE.COMPETENZA_MESE)),
+                            Boolean.TRUE.equals(riga.get(competenzaPresente)));
+                    return new CaricamentoInErrore(
+                            new CaricamentoId(r.getId()),
+                            r.getLotto(),
+                            r.getNomeFileOriginale(),
+                            r.getDimensione(),
+                            r.getMotivo() == null ? null : MotivoErrore.valueOf(r.getMotivo()),
+                            r.getMessaggio(),
+                            Boolean.TRUE.equals(riga.get(PDF_DISPONIBILE)),
+                            Boolean.TRUE.equals(riga.get(IN_ELABORAZIONE)),
+                            attribuzione,
+                            r.getCreatoIl());
+                });
     }
 
     /**
@@ -217,6 +349,15 @@ class JooqCaricamentiRepository implements CaricamentiRepository {
                                                 StatoCaricamento.IN_LETTURA.name()))))
                 .andNotExists(DSL.selectOne().from(CEDOLINO)
                         .where(CEDOLINO.WORKSPACE_ID.eq(workspace), CEDOLINO.HASH_CONTENUTO.eq(hash)));
+    }
+
+    private static Field<Boolean> inElaborazione() {
+        var tentativo = CARICAMENTO.as("tentativo");
+        return DSL.field(DSL.exists(DSL.selectOne().from(tentativo)
+                .where(tentativo.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
+                        tentativo.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO),
+                        tentativo.STATO.in(StatoCaricamento.IN_CODA.name(), StatoCaricamento.IN_LETTURA.name()))))
+                .as("in_elaborazione");
     }
 
     private static Caricamento comeCaricamento(CaricamentoRecord r) {

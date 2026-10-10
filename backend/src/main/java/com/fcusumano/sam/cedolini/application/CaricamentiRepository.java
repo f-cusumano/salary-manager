@@ -3,9 +3,11 @@ package com.fcusumano.sam.cedolini.application;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.cedolini.Caricamento;
 import com.fcusumano.sam.cedolini.CaricamentoId;
+import com.fcusumano.sam.cedolini.CaricamentoInErrore;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
+import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.WorkspaceId;
 import java.util.Collection;
 import java.util.List;
@@ -64,6 +66,15 @@ public interface CaricamentiRepository {
      */
     Optional<RapportoLavoroId> eliminaAttribuzione(WorkspaceId workspace, String hash);
 
+    /** Associazione del file a una mensilita'. */
+    Optional<AttribuzioneSalvata> attribuzione(WorkspaceId workspace, String hash);
+
+    /** Associa il file alla mensilita' del rapporto (il file non deve essere gia' associato). */
+    void attribuisci(WorkspaceId workspace, String hash, RapportoLavoroId rapportoId, Competenza.Mensilita competenza);
+
+    /** Hash del file associato alla mensilita' del rapporto (al piu' uno). */
+    Optional<String> hashAssociatoA(WorkspaceId workspace, RapportoLavoroId rapportoId, Competenza.Mensilita competenza);
+
     /**
      * Elimina, in tutti i workspace, PDF conservati e associazioni di file che non sono piu' in errore (rete di
      * sicurezza all'avvio: di norma spariscono nella transazione che risolve il file).
@@ -72,7 +83,45 @@ public interface CaricamentiRepository {
      */
     int ripulisciFileNonInErrore();
 
+    /**
+     * File in errore del workspace, uno per file (la riga e' il suo ultimo tentativo concluso, in ERRORE), dal piu'
+     * recente, con PDF conservato, elaborazione in corso e associazione.
+     */
+    List<CaricamentoInErrore> inErrore(WorkspaceId workspace);
+
+    /** Come {@link #inErrore(WorkspaceId)}, solo i file associati a una mensilita' del rapporto. */
+    List<CaricamentoInErrore> inErroreDiRapporto(WorkspaceId workspace, RapportoLavoroId rapportoId);
+
+    /** Il file con l'hash indicato, se in errore. */
+    Optional<CaricamentoInErrore> inErrore(WorkspaceId workspace, String hash);
+
+    /** Caricamento con lo stato del suo file. */
+    Optional<FileDelCaricamento> fileDelCaricamento(WorkspaceId workspace, CaricamentoId id);
+
+    /**
+     * Elimina i tentativi in ERRORE del file (gli altri tentativi restano).
+     *
+     * @return numero di caricamenti eliminati
+     */
+    int eliminaErroriDelFile(WorkspaceId workspace, String hash);
+
     /** File da registrare: nome come caricato, dimensione in byte, hash SHA-256 esadecimale. */
     record FileInCoda(String nomeFileOriginale, long dimensione, String hash) {
+    }
+
+    /** Mensilita' a cui l'utente ha associato un file in errore. */
+    record AttribuzioneSalvata(RapportoLavoroId rapportoId, Competenza.Mensilita competenza) {
+    }
+
+    /**
+     * Un caricamento e lo stato del suo file (workspace + hash).
+     *
+     * @param stato          stato del caricamento indicato
+     * @param inErrore       il file e' in errore (ultimo tentativo concluso in ERRORE, contenuto non archiviato)
+     * @param inElaborazione un tentativo del file e' IN_CODA o IN_LETTURA
+     * @param pdfPresente    il PDF originale del file e' conservato
+     */
+    record FileDelCaricamento(StatoCaricamento stato, String nomeFileOriginale, long dimensione, String hash,
+                              boolean inErrore, boolean inElaborazione, boolean pdfPresente) {
     }
 }

@@ -1,14 +1,19 @@
 package com.fcusumano.sam.cedolini.application;
 
 import com.fcusumano.sam.anagrafica.CensimentoAnagrafica;
+import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
 import com.fcusumano.sam.anagrafica.DatiAzienda;
 import com.fcusumano.sam.anagrafica.DatiPersona;
 import com.fcusumano.sam.anagrafica.DatiRapporto;
+import com.fcusumano.sam.anagrafica.PersonaSintesi;
 import com.fcusumano.sam.anagrafica.RapportoLavoro;
+import com.fcusumano.sam.anagrafica.RapportoLavoroId;
+import com.fcusumano.sam.anagrafica.RapportoSintesi;
 import com.fcusumano.sam.cedolini.CaricamentiInErroreModificati;
 import com.fcusumano.sam.cedolini.CaricamentoId;
 import com.fcusumano.sam.cedolini.CedolinoAcquisito;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
+import com.fcusumano.sam.cedolini.application.CaricamentiRepository.AttribuzioneSalvata;
 import com.fcusumano.sam.cedolini.application.CedoliniRepository.CedolinoConImporti;
 import com.fcusumano.sam.cedolini.application.CedoliniRepository.NuovoCedolino;
 import com.fcusumano.sam.cedolini.application.CedolinoNonAcquisibileException.Dato;
@@ -28,9 +33,12 @@ import com.fcusumano.sam.cedolini.domain.TipoDichiarato;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
 import com.fcusumano.sam.ccnl.Ccnl;
 import com.fcusumano.sam.shared.Competenza;
+import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
 import com.fcusumano.sam.shared.WorkspaceId;
 import java.time.YearMonth;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -44,6 +52,10 @@ import org.springframework.stereotype.Component;
  * associazione del file (non piu' in errore) e infine pubblicazione di {@link CedolinoAcquisito} (i ricalcoli dei
  * moduli calcoli e segnalazioni avvengono nella stessa transazione e vedono uno stato gia' coerente).
  * Un cedolino scartato annulla la transazione: non resta alcuna anagrafica creata per lui.
+ * <p>
+ * L'inserimento a mano di un file in errore ({@link #acquisisciManuale}) passa dalla stessa registrazione con il PDF
+ * originale conservato; la sua prova esegue l'acquisizione per intero e annulla la transazione (i listener degli
+ * eventi sono sincroni: anche i loro ricalcoli vengono annullati).
  * Nei log compaiono solo id.
  */
 @Component
@@ -55,19 +67,21 @@ class AcquisizioneCedolino {
     private final CedoliniRepository cedolini;
     private final CaricamentiRepository caricamenti;
     private final CensimentoAnagrafica censimento;
+    private final ConsultazioneAnagrafica consultazione;
     private final CatalogoCcnl catalogoCcnl;
     private final ClassificazioneCedolini classificazioneCedolini;
     private final NomeFileCedolinoStrategy nomeFile;
     private final ApplicationEventPublisher eventi;
 
     AcquisizioneCedolino(ScrittureSerializzate scritture, CedoliniRepository cedolini, CaricamentiRepository caricamenti,
-                         CensimentoAnagrafica censimento, CatalogoCcnl catalogoCcnl,
-                         ClassificazioneCedolini classificazioneCedolini,
+                         CensimentoAnagrafica censimento, ConsultazioneAnagrafica consultazione,
+                         CatalogoCcnl catalogoCcnl, ClassificazioneCedolini classificazioneCedolini,
                          NomeFileCedolinoStrategy nomeFile, ApplicationEventPublisher eventi) {
         this.scritture = scritture;
         this.cedolini = cedolini;
         this.caricamenti = caricamenti;
         this.censimento = censimento;
+        this.consultazione = consultazione;
         this.catalogoCcnl = catalogoCcnl;
         this.classificazioneCedolini = classificazioneCedolini;
         this.nomeFile = nomeFile;
@@ -90,6 +104,19 @@ class AcquisizioneCedolino {
     }
 
     /**
+     * Esito di un inserimento a mano. Persona, rapporti e associazione precedenti alla registrazione sono rilevati solo
+     * nelle prove (altrimenti valgono null e false).
+     *
+     * @param personaPrima  persona con lo stesso codice fiscale gia' presente, null se assente
+     * @param nuovaPersona  la registrazione crea (o creerebbe) la persona
+     * @param nuovoRapporto la registrazione crea (o creerebbe) il rapporto di lavoro
+     * @param attribuzione  mensilita' a cui l'utente aveva associato il file, null se assente
+     */
+    record RegistrazioneManuale(Registrazione registrazione, PersonaSintesi personaPrima, boolean nuovaPersona,
+                                boolean nuovoRapporto, AttribuzioneSalvata attribuzione) {
+    }
+
+    /**
      * Salva il cedolino estratto. Se acquisito, lo stato del caricamento diventa ACQUISITO nella stessa transazione;
      * se scartato, l'esito va registrato dal chiamante.
      *
@@ -103,6 +130,52 @@ class AcquisizioneCedolino {
                 stato.setRollbackOnly();
             }
             return esito;
+        });
+    }
+
+    /**
+     * Inserimento a mano: registra il cedolino del file in errore a cui appartiene il caricamento, con il PDF originale
+     * conservato del file e il suo hash, in una sola transazione serializzata. La transazione e' annullata se il
+     * cedolino e' scartato e sempre nelle prove.
+     *
+     * @param prova true per la prova: acquisizione completa poi annullata, senza log dell'acquisizione
+     * @throws com.fcusumano.sam.shared.RisorsaNonTrovataException se il caricamento non esiste nel workspace
+     * @throws OperazioneNonConsentitaException                    se il file non e' piu' in errore, e' in
+     *                                                             elaborazione o non ha il PDF conservato
+     * @throws CedolinoNonAcquisibileException                     se mancano dati indispensabili
+     */
+    RegistrazioneManuale acquisisciManuale(WorkspaceId workspace, CaricamentoId caricamentoId,
+                                           RisultatoEstrazione estrazione, boolean prova) {
+        return scritture.inTransazione(workspace, stato -> {
+            var file = ControlliFileInErrore.daRisolvere(caricamenti, workspace, caricamentoId);
+            var pdf = caricamenti.pdf(workspace, file.hash())
+                    .orElseThrow(() -> new OperazioneNonConsentitaException(MessaggiCaricamento.PDF_NON_CONSERVATO));
+            Optional<PersonaSintesi> personaPrima = Optional.empty();
+            Set<RapportoLavoroId> rapportiPrima = Set.of();
+            AttribuzioneSalvata attribuzione = null;
+            if (prova) {
+                var dipendente = estrazione.cedolino().dipendente();
+                var codiceFiscale = dipendente == null ? null : dipendente.codiceFiscale();
+                personaPrima = consultazione.elencoPersone().stream()
+                        .filter(p -> p.codiceFiscale().equals(codiceFiscale))
+                        .findFirst();
+                rapportiPrima = personaPrima
+                        .map(p -> consultazione.rapportiDiPersona(p.id()).stream().map(RapportoSintesi::id)
+                                .collect(Collectors.toSet()))
+                        .orElse(Set.of());
+                attribuzione = caricamenti.attribuzione(workspace, file.hash()).orElse(null);
+            }
+            var registrazione = registra(new DocumentoCaricato(workspace, caricamentoId, pdf, file.hash()), estrazione,
+                    !prova);
+            if (prova || registrazione.esito() instanceof Scartato) {
+                stato.setRollbackOnly();
+            }
+            if (!prova) {
+                return new RegistrazioneManuale(registrazione, null, false, false, null);
+            }
+            var rapporto = registrazione.rapporto();
+            return new RegistrazioneManuale(registrazione, personaPrima.orElse(null), personaPrima.isEmpty(),
+                    rapporto != null && !rapportiPrima.contains(rapporto.id()), attribuzione);
         });
     }
 

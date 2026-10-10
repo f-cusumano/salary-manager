@@ -231,7 +231,7 @@ class CedoliniApiTest extends ApiWebMvcTest {
                         new BigDecimal("160.00000")),
                 false, false,
                 new ProgressiviAnnui(new BigDecimal("2400.00000"), null, null));
-        return new CedolinoDettaglio(dati, "2024.01_3_1.pdf", DatiDiProva.ISTANTE, new BigDecimal("0.95"),
+        return new CedolinoDettaglio(dati, "2024.01_3_1.pdf", DatiDiProva.ISTANTE, new BigDecimal("0.95"), false,
                 List.of("codiceDipendente"), List.of("Partita IVA dell'azienda formalmente non valida"));
     }
 }

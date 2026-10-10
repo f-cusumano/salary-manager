@@ -1,29 +1,59 @@
 package com.fcusumano.sam.cedolini.application;
 
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.CF_GIOVANNA;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.PIVA_GAMMA;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conDatore;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conDipendente;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conPeriodo;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conTotali;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.essenziale;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.n;
 import static com.fcusumano.sam.cedolini.application.SupportoCaricamenti.pdfConTesto;
 import static com.fcusumano.sam.cedolini.application.SupportoCaricamenti.pdfFixture;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
+import com.fcusumano.sam.cedolini.ArchivioCedolini;
+import com.fcusumano.sam.cedolini.AttribuzioneCaricamento;
+import com.fcusumano.sam.cedolini.CaricamentiInErrore;
 import com.fcusumano.sam.cedolini.CaricamentiInErroreModificati;
 import com.fcusumano.sam.cedolini.Caricamento;
 import com.fcusumano.sam.cedolini.CaricamentoCedolini;
+import com.fcusumano.sam.cedolini.CaricamentoId;
+import com.fcusumano.sam.cedolini.CaricamentoInErrore;
+import com.fcusumano.sam.cedolini.CedolinoAcquisito;
+import com.fcusumano.sam.cedolini.CedolinoManuale;
 import com.fcusumano.sam.cedolini.FileCaricato;
 import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
+import com.fcusumano.sam.cedolini.VerificaCedolinoManuale;
+import com.fcusumano.sam.cedolini.VerificaCedolinoManuale.Esito;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.FileInCoda;
 import com.fcusumano.sam.cedolini.application.SupportoCaricamenti.EventiRegistrati;
 import com.fcusumano.sam.cedolini.application.SupportoCaricamenti.LettoreProgrammabile;
 import com.fcusumano.sam.cedolini.application.estrazione.EstrazioneCedolinoException;
 import com.fcusumano.sam.cedolini.application.estrazione.EstrazioneCedolinoException.Motivo;
 import com.fcusumano.sam.shared.Competenza;
+import com.fcusumano.sam.shared.DatiNonValidiException;
+import com.fcusumano.sam.shared.DatiNonValidiException.ErroreCampo;
+import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
+import com.fcusumano.sam.shared.RisorsaNonTrovataException;
+import com.fcusumano.sam.shared.TipoMensilita;
 import com.fcusumano.sam.shared.WorkspaceId;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,7 +65,8 @@ import org.springframework.test.context.ActiveProfiles;
 /**
  * File caricati con errore sul database H2 (schema Liquibase): motivo dell'errore, PDF originale conservato uno per
  * file solo se completabile, eliminazione di PDF e associazione quando il file viene archiviato o scartato, ripristino
- * dopo il riavvio. Dati inventati.
+ * dopo il riavvio; azioni sui file in errore (elenco, PDF, associazione a una mensilita', rimozione, nuova lettura,
+ * verifica e inserimento a mano). Dati inventati.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -57,6 +88,10 @@ class CaricamentiInErroreIntegrationTest {
     RipristinoCaricamentiInterrotti ripristino;
     @Autowired
     DSLContext dsl;
+    @Autowired
+    CaricamentiInErrore inErrore;
+    @Autowired
+    ArchivioCedolini archivio;
 
     @BeforeEach
     void databaseVuoto() {
@@ -286,7 +321,492 @@ class CaricamentiInErroreIntegrationTest {
         assertThat(rileggi(registrati.getFirst()).motivo()).isNull();
     }
 
+    // ------------------------------------------------------------------------------------------ elenco e PDF
+
+    @Test
+    void ilFileInErroreEElencatoConIlPdfOriginale() {
+        var contenuto = pdfConTesto("Scansione elencata");
+        var caricato = caricaInErrore("scansione.pdf", contenuto);
+
+        assertThat(inErrore.elenco()).singleElement().satisfies(riga -> {
+            assertThat(riga.id()).isEqualTo(caricato.id());
+            assertThat(riga.lotto()).isEqualTo(caricato.lotto());
+            assertThat(riga.nomeFileOriginale()).isEqualTo("scansione.pdf");
+            assertThat(riga.dimensione()).isEqualTo(contenuto.length);
+            assertThat(riga.motivo()).isEqualTo(MotivoErrore.PDF_SENZA_TESTO);
+            assertThat(riga.messaggio()).isEqualTo("Il PDF non contiene testo selezionabile");
+            assertThat(riga.pdfDisponibile()).isTrue();
+            assertThat(riga.inElaborazione()).isFalse();
+            assertThat(riga.attribuzione()).isNull();
+            assertThat(riga.creatoIl()).isNotNull();
+        });
+        assertThat(inErrore.pdf(caricato.id())).hasValueSatisfying(pdf -> {
+            assertThat(pdf.nomeFile()).isEqualTo("scansione.pdf");
+            assertThat(pdf.contenuto()).isEqualTo(contenuto);
+        });
+    }
+
+    @Test
+    void loStessoFileInErroreCaricatoDueVolteEElencatoUnaVolta() {
+        var contenuto = pdfConTesto("Scansione caricata due volte");
+        caricaInErrore("doppio.pdf", contenuto);
+        var secondo = caricaInErrore("doppio.pdf", contenuto);
+        var nonPdf = carica(new FileCaricato("appunti.pdf", "non sono un pdf".getBytes()));
+
+        assertThat(inErrore.elenco()).extracting(CaricamentoInErrore::id).containsExactly(nonPdf.id(), secondo.id());
+        assertThat(inErrore.elenco()).extracting(CaricamentoInErrore::pdfDisponibile).containsExactly(false, true);
+        assertThat(pdfConservati()).isEqualTo(1);
+        assertThat(inErrore.pdf(nonPdf.id())).isEmpty();
+    }
+
+    // ------------------------------------------------------------------------------------------ inserimento a mano
+
+    @Test
+    void ilCedolinoInseritoAManoVieneArchiviatoConIlPdfOriginale() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var contenuto = pdfConTesto("Maggio senza testo");
+        var caricato = caricaInErrore("maggio.pdf", contenuto);
+        inErrore.associa(caricato.id(), aprile.rapportoId(), 2023, 5);
+        eventi.azzera();
+
+        var esito = inErrore.inserisci(caricato.id(), essenziale());
+
+        assertThat(esito.id()).isEqualTo(caricato.id());
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+        assertThat(esito.motivo()).isNull();
+        assertThat(esito.pdfDisponibile()).isFalse();
+        assertThat(esito.personaId()).isEqualTo(aprile.personaId());
+        assertThat(esito.rapportoId()).isEqualTo(aprile.rapportoId());
+        var cedolino = dsl.fetchSingle("SELECT modello_estrazione, confidenza, hash_contenuto FROM cedolino WHERE id = ?",
+                esito.cedolinoId().valore());
+        assertThat(cedolino.get(0, String.class)).isEqualTo(ModelliEstrazione.MODELLO_INSERIMENTO_MANUALE);
+        assertThat(cedolino.get(1)).isNull();
+        assertThat(cedolino.get(2, String.class)).isEqualTo(hash(contenuto));
+        assertThat(dsl.fetchSingle("SELECT contenuto FROM cedolino_pdf WHERE cedolino_id = ?",
+                esito.cedolinoId().valore()).get(0, byte[].class)).isEqualTo(contenuto);
+        assertThat(archivio.dettaglio(esito.cedolinoId())).hasValueSatisfying(dettaglio -> {
+            assertThat(dettaglio.inseritoAMano()).isTrue();
+            assertThat(dettaglio.confidenza()).isNull();
+            assertThat(dettaglio.campiNonTrovati()).isEmpty();
+            assertThat(dettaglio.avvisiEstrazione()).contains(ValidazioneCedolinoManuale.AVVISO_SOMMA_TRATTENUTE);
+            assertThat(dettaglio.dati().competenza()).isEqualTo(new Competenza.Mensilita(2023, 5));
+        });
+        assertThat(archivio.dettaglio(aprile.cedolinoId())).hasValueSatisfying(
+                dettaglio -> assertThat(dettaglio.inseritoAMano()).isFalse());
+        assertThat(pdfConservati()).isZero();
+        assertThat(attribuzioni()).isZero();
+        assertThat(inErrore.elenco()).isEmpty();
+        assertThat(eventi.acquisiti).containsExactly(new CedolinoAcquisito(esito.cedolinoId(), aprile.rapportoId(),
+                new Competenza.Mensilita(2023, 5)));
+        assertThat(archivio.sintesiDiRapporto(aprile.rapportoId())).hasSize(2);
+        assertThat(dsl.fetchCount(dsl.selectFrom("riepilogo_rapporto").where("rapporto_id = ?",
+                aprile.rapportoId().valore()))).isEqualTo(1);
+
+        var ricaricato = carica(new FileCaricato("maggio.pdf", contenuto));
+        assertThat(ricaricato.stato()).isEqualTo(StatoCaricamento.DUPLICATO);
+        assertThat(ricaricato.messaggio()).isEqualTo(MessaggiCaricamento.FILE_GIA_CARICATO);
+        assertThat(ricaricato.cedolinoEsistenteId()).isEqualTo(esito.cedolinoId());
+    }
+
+    @Test
+    void unaCompetenzaGiaPresenteNonSiInserisceEIlFileRestaInErrore() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var contenuto = pdfConTesto("Aprile diverso");
+        var caricato = caricaInErrore("aprile.pdf", contenuto);
+        var aprileDiverso = conPeriodo(essenziale(), new CedolinoManuale.Periodo(2023, 4, TipoMensilita.ORDINARIA,
+                null, null));
+        var prima = conteggi();
+
+        var verifica = inErrore.verifica(caricato.id(), aprileDiverso);
+
+        assertThat(verifica.esito()).isEqualTo(Esito.AGGIUNTIVO_NON_GESTITO);
+        assertThat(verifica.messaggio()).isNotBlank();
+        assertThat(verifica.competenza()).isNull();
+        assertThat(verifica.cedolinoEsistenteId()).isEqualTo(aprile.cedolinoId());
+        assertThat(verifica.rapportoId()).isEqualTo(aprile.rapportoId());
+        assertThatThrownBy(() -> inErrore.inserisci(caricato.id(), aprileDiverso))
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(verifica.messaggio());
+        assertThat(conteggi()).isEqualTo(prima);
+        assertThat(rileggi(caricato).stato()).isEqualTo(StatoCaricamento.ERRORE);
+        assertThat(inErrore.elenco()).extracting(CaricamentoInErrore::id).containsExactly(caricato.id());
+        assertThat(caricamentiRepository.pdf(WS, hash(contenuto))).isPresent();
+    }
+
+    @Test
+    void iDatiNonValidiNonScrivonoNulla() {
+        caricaFixture("rossi-alfa-2023-04");
+        var caricato = caricaInErrore("non-valido.pdf", pdfConTesto("Dati non validi"));
+        var senzaRagioneSociale = conDatore(essenziale(),
+                new CedolinoManuale.DatoreLavoro(null, "01234567897", null, null, "  ", null, null));
+        var nuovaPersonaSenzaNome = conDipendente(essenziale(),
+                new CedolinoManuale.Dipendente(CF_GIOVANNA, null, "Bianchi", null, null));
+        var prima = conteggi();
+
+        assertThatThrownBy(() -> inErrore.inserisci(caricato.id(), senzaRagioneSociale))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori())
+                        .containsExactly(new ErroreCampo("datoreLavoro.ragioneSociale", "Indica la ragione sociale")));
+        assertThatThrownBy(() -> inErrore.verifica(caricato.id(), nuovaPersonaSenzaNome))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori())
+                        .extracting(ErroreCampo::campo).containsExactly("dipendente.nome"));
+        assertThatThrownBy(() -> inErrore.inserisci(caricato.id(), nuovaPersonaSenzaNome))
+                .isInstanceOf(DatiNonValidiException.class);
+        assertThat(conteggi()).isEqualTo(prima);
+        assertThat(rileggi(caricato).stato()).isEqualTo(StatoCaricamento.ERRORE);
+    }
+
+    @Test
+    void laVerificaNonLasciaTracceEIndicaCosaVerrebbeCreato() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var alfa = aprile.rapportoId();
+        var caricato = caricaInErrore("verifica.pdf", pdfConTesto("Cedolino da verificare"));
+        inErrore.associa(caricato.id(), alfa, 2023, 6);
+        var prima = conteggi();
+        var rigaPrima = rileggi(caricato);
+        var elencoPrima = inErrore.elenco();
+
+        var stessoRapporto = inErrore.verifica(caricato.id(), essenziale());
+        var nomeDiverso = inErrore.verifica(caricato.id(), conDipendente(essenziale(),
+                new CedolinoManuale.Dipendente(CedoliniManualiDiProva.CF_MARIO, "Mariolino", "Rossi", null, null)));
+        var nuovoRapporto = inErrore.verifica(caricato.id(), conDatore(essenziale(),
+                new CedolinoManuale.DatoreLavoro(null, PIVA_GAMMA, null, null, "Gamma Servizi S.r.l.", null, null)));
+        var nuovaPersona = inErrore.verifica(caricato.id(), conDatore(conDipendente(essenziale(),
+                        new CedolinoManuale.Dipendente(CF_GIOVANNA, "Giovanna", "Bianchi", null, null)),
+                new CedolinoManuale.DatoreLavoro(null, PIVA_GAMMA, null, null, "Gamma Servizi S.r.l.", null, null)));
+
+        assertThat(stessoRapporto.esito()).isEqualTo(Esito.ACQUISIBILE);
+        assertThat(stessoRapporto.messaggio()).isNull();
+        assertThat(stessoRapporto.competenza()).isEqualTo(new Competenza.Mensilita(2023, 5));
+        assertThat(stessoRapporto.nuovaPersona()).isFalse();
+        assertThat(stessoRapporto.nuovoRapporto()).isFalse();
+        assertThat(stessoRapporto.rapportoId()).isEqualTo(alfa);
+        assertThat(stessoRapporto.cedolinoEsistenteId()).isNull();
+        assertThat(stessoRapporto.avvisi()).contains(ValidazioneCedolinoManuale.AVVISO_SOMMA_TRATTENUTE)
+                .anyMatch(a -> a.startsWith("Il periodo indicato è diverso dal mese associato al file ("))
+                .doesNotContain(CaricamentiInErroreService.AVVISO_NOME_DIVERSO,
+                        CaricamentiInErroreService.AVVISO_NUOVA_PERSONA,
+                        CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO);
+        assertThat(nomeDiverso.avvisi()).contains(CaricamentiInErroreService.AVVISO_NOME_DIVERSO);
+        assertThat(nomeDiverso.rapportoId()).isEqualTo(alfa);
+
+        assertThat(nuovoRapporto.esito()).isEqualTo(Esito.ACQUISIBILE);
+        assertThat(nuovoRapporto.nuovaPersona()).isFalse();
+        assertThat(nuovoRapporto.nuovoRapporto()).isTrue();
+        assertThat(nuovoRapporto.rapportoId()).isNull();
+        assertThat(nuovoRapporto.avvisi()).contains(CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO)
+                .doesNotContain(CaricamentiInErroreService.AVVISO_NUOVA_PERSONA);
+
+        assertThat(nuovaPersona.esito()).isEqualTo(Esito.ACQUISIBILE);
+        assertThat(nuovaPersona.nuovaPersona()).isTrue();
+        assertThat(nuovaPersona.nuovoRapporto()).isTrue();
+        assertThat(nuovaPersona.rapportoId()).isNull();
+        assertThat(nuovaPersona.avvisi()).contains(CaricamentiInErroreService.AVVISO_NUOVA_PERSONA,
+                CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO);
+
+        assertThat(conteggi()).isEqualTo(prima);
+        assertThat(rileggi(caricato)).isEqualTo(rigaPrima);
+        assertThat(inErrore.elenco()).isEqualTo(elencoPrima);
+        assertThat(archivio.sintesiDiRapporto(alfa)).hasSize(1);
+    }
+
+    @Test
+    void dueInserimentiInParalleloAcquisisconoUnSoloCedolino() throws Exception {
+        var caricato = caricaInErrore("parallelo.pdf", pdfConTesto("Inserimento in parallelo"));
+        var partenza = new CountDownLatch(1);
+        Callable<Object> inserimento = () -> {
+            partenza.await();
+            try {
+                return inErrore.inserisci(caricato.id(), essenziale());
+            } catch (OperazioneNonConsentitaException e) {
+                return e;
+            }
+        };
+        var esiti = new ArrayList<Object>();
+
+        try (var esecutore = Executors.newFixedThreadPool(2)) {
+            var primo = esecutore.submit(inserimento);
+            var secondo = esecutore.submit(inserimento);
+            partenza.countDown();
+            esiti.add(primo.get(60, TimeUnit.SECONDS));
+            esiti.add(secondo.get(60, TimeUnit.SECONDS));
+        }
+
+        assertThat(esiti).filteredOn(Caricamento.class::isInstance).singleElement()
+                .satisfies(c -> assertThat(((Caricamento) c).stato()).isEqualTo(StatoCaricamento.ACQUISITO));
+        assertThat(esiti).filteredOn(OperazioneNonConsentitaException.class::isInstance).singleElement()
+                .satisfies(e -> assertThat(((Exception) e).getMessage()).isEqualTo(MessaggiCaricamento.NON_IN_ERRORE));
+        assertThat(dsl.fetchCount(dsl.selectFrom("cedolino"))).isEqualTo(1);
+    }
+
+    @Test
+    void ilFileProtettoSenzaPasswordSiInserisceAManoConIByteCifrati() {
+        var cifrato = pdfFixture("rossi-beta-2025-03");
+        var protetto = carica(new FileCaricato("rossi-beta-2025-03.pdf", cifrato));
+        assertThat(protetto.motivo()).isEqualTo(MotivoErrore.PDF_PROTETTO);
+        assertThat(protetto.pdfDisponibile()).isTrue();
+        var marzo = conDatore(conPeriodo(conTotali(essenziale(), new CedolinoManuale.Totali(n("2760.00"),
+                                n("2760.00"), n("717.12"), null, n("2042.88"))),
+                        new CedolinoManuale.Periodo(2025, 3, TipoMensilita.ORDINARIA, null, null)),
+                new CedolinoManuale.DatoreLavoro(null, null, null, null, "Beta Consulting S.p.A.", null, null));
+
+        var esito = inErrore.inserisci(protetto.id(), marzo);
+
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+        assertThat(archivio.pdf(esito.cedolinoId())).hasValueSatisfying(
+                pdf -> assertThat(pdf.contenuto()).isEqualTo(cifrato));
+        assertThat(inErrore.elenco()).isEmpty();
+    }
+
+    // ------------------------------------------------------------------------------------------ rimozione
+
+    @Test
+    void laRimozioneEliminaGliErroriDelFilePdfEAssociazione() {
+        var alfa = caricaFixture("rossi-alfa-2023-04").rapportoId();
+        var contenuto = pdfConTesto("File da rimuovere");
+        caricaInErrore("da-rimuovere.pdf", contenuto);
+        var ultimo = caricaInErrore("da-rimuovere.pdf", contenuto);
+        var altro = caricaInErrore("da-tenere.pdf", pdfConTesto("File da tenere"));
+        inErrore.associa(ultimo.id(), alfa, 2023, 5);
+        eventi.azzera();
+
+        inErrore.rimuovi(ultimo.id());
+
+        assertThat(dsl.fetchCount(dsl.selectFrom("caricamento").where("hash_contenuto = ?", hash(contenuto))))
+                .isZero();
+        assertThat(caricamentiRepository.pdf(WS, hash(contenuto))).isEmpty();
+        assertThat(attribuzioni()).isZero();
+        assertThat(eventi.modificatiInErrore).containsExactly(new CaricamentiInErroreModificati(Set.of(alfa)));
+        assertThat(inErrore.elenco()).extracting(CaricamentoInErrore::id).containsExactly(altro.id());
+    }
+
+    @Test
+    void laRimozioneRifiutaIFileNonInErrore() {
+        var acquisito = caricaFixture("rossi-alfa-2023-04");
+        var caricato = caricaInErrore("senza-associazione.pdf", pdfConTesto("Senza associazione"));
+        eventi.azzera();
+
+        inErrore.rimuovi(caricato.id());
+
+        assertThat(eventi.modificatiInErrore).as("nessuna associazione: nessun evento").isEmpty();
+        assertThatThrownBy(() -> inErrore.rimuovi(caricato.id()))
+                .isInstanceOf(RisorsaNonTrovataException.class);
+        assertThatThrownBy(() -> inErrore.rimuovi(acquisito.id()))
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(MessaggiCaricamento.NON_IN_ERRORE);
+        assertThatThrownBy(() -> inErrore.rimuovi(new CaricamentoId(Long.MAX_VALUE)))
+                .isInstanceOf(RisorsaNonTrovataException.class);
+        assertThat(rileggi(acquisito).stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+    }
+
+    // ------------------------------------------------------------------------------------------ nuova lettura
+
+    @Test
+    void laNuovaLetturaConLaPasswordArchiviaIlFileProtetto() {
+        var protetto = carica(new FileCaricato("rossi-beta-2025-03.pdf", pdfFixture("rossi-beta-2025-03")));
+        assertThat(protetto.motivo()).isEqualTo(MotivoErrore.PDF_PROTETTO);
+
+        var registrati = inErrore.rileggi(protetto.id(), "demo-beta-2025");
+
+        assertThat(registrati).singleElement().satisfies(c -> {
+            assertThat(c.id()).isNotEqualTo(protetto.id());
+            assertThat(c.lotto()).isNotEqualTo(protetto.lotto());
+            assertThat(c.nomeFileOriginale()).isEqualTo("rossi-beta-2025-03.pdf");
+        });
+        var esito = attendi(registrati.getFirst().lotto());
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+        assertThat(inErrore.elenco()).isEmpty();
+        assertThat(pdfConservati()).isZero();
+        assertThat(rileggi(protetto).stato()).as("il tentativo precedente resta in ERRORE")
+                .isEqualTo(StatoCaricamento.ERRORE);
+        assertThatThrownBy(() -> inErrore.rileggi(protetto.id(), null))
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(MessaggiCaricamento.NON_IN_ERRORE);
+    }
+
+    @Test
+    void duranteLaNuovaLetturaLeAzioniSulFileSonoRifiutate() {
+        var alfa = caricaFixture("rossi-alfa-2023-04").rapportoId();
+        var caricato = caricaInErrore("lento.pdf", pdfConTesto("Lettura lenta"));
+        lettoreCedolini.rallenta("lento.pdf", Duration.ofSeconds(3));
+
+        var registrato = inErrore.rileggi(caricato.id(), null).getFirst();
+
+        assertThat(inErrore.elenco()).singleElement().satisfies(riga -> {
+            assertThat(riga.id()).isEqualTo(caricato.id());
+            assertThat(riga.inElaborazione()).isTrue();
+        });
+        List<Runnable> azioni = List.of(
+                () -> inErrore.rimuovi(caricato.id()),
+                () -> inErrore.rileggi(caricato.id(), null),
+                () -> inErrore.associa(caricato.id(), alfa, 2023, 5),
+                () -> inErrore.rimuoviAssociazione(caricato.id()),
+                () -> inErrore.verifica(caricato.id(), essenziale()),
+                () -> inErrore.inserisci(caricato.id(), essenziale()));
+        assertThat(azioni).allSatisfy(azione -> assertThatThrownBy(azione::run)
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(MessaggiCaricamento.IN_ELABORAZIONE));
+
+        var esito = attendi(registrato.lotto());
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ERRORE);
+        assertThat(inErrore.elenco()).singleElement().satisfies(riga -> {
+            assertThat(riga.id()).isEqualTo(registrato.id());
+            assertThat(riga.inElaborazione()).isFalse();
+            assertThat(riga.pdfDisponibile()).isTrue();
+        });
+    }
+
+    @Test
+    void unaNuovaLetturaInterrottaSiCompletaAMano() {
+        var contenuto = pdfConTesto("Nuova lettura interrotta");
+        caricaInErrore("interrotto.pdf", contenuto);
+        var tentativo = caricamentiRepository.registra(WS, UUID.randomUUID(),
+                List.of(new FileInCoda("interrotto.pdf", contenuto.length, hash(contenuto)))).getFirst();
+        caricamentiRepository.aggiorna(WS, tentativo.id(), StatoCaricamento.IN_LETTURA, null, null, null);
+        ripristino.ripristina();
+
+        var esito = inErrore.inserisci(tentativo.id(), essenziale());
+
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+        assertThat(dsl.fetchSingle("SELECT contenuto FROM cedolino_pdf WHERE cedolino_id = ?",
+                esito.cedolinoId().valore()).get(0, byte[].class)).isEqualTo(contenuto);
+    }
+
+    @Test
+    void unaPrimaLetturaInterrottaNonHaIlPdfPerCompletarla() {
+        var contenuto = pdfConTesto("Prima lettura interrotta");
+        var tentativo = caricamentiRepository.registra(WS, UUID.randomUUID(),
+                List.of(new FileInCoda("prima-lettura.pdf", contenuto.length, hash(contenuto)))).getFirst();
+        caricamentiRepository.aggiorna(WS, tentativo.id(), StatoCaricamento.IN_LETTURA, null, null, null);
+        ripristino.ripristina();
+
+        assertThat(inErrore.elenco()).singleElement().satisfies(riga -> {
+            assertThat(riga.motivo()).isEqualTo(MotivoErrore.INTERROTTO);
+            assertThat(riga.pdfDisponibile()).isFalse();
+        });
+        assertThatThrownBy(() -> inErrore.inserisci(tentativo.id(), essenziale()))
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(MessaggiCaricamento.PDF_NON_CONSERVATO);
+        assertThatThrownBy(() -> inErrore.rileggi(tentativo.id(), null))
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(MessaggiCaricamento.PDF_NON_CONSERVATO);
+        assertThat(inErrore.pdf(tentativo.id())).isEmpty();
+    }
+
+    // ------------------------------------------------------------------------------------------ associazione
+
+    @Test
+    void lAssociazioneAUnaMensilitaPubblicaLeModifiche() {
+        var alfa = caricaFixture("rossi-alfa-2023-04").rapportoId();
+        var beta = caricaFixture("rossi-beta-2025-01").rapportoId();
+        var caricato = caricaInErrore("associato.pdf", pdfConTesto("File da associare"));
+        eventi.azzera();
+
+        var associato = inErrore.associa(caricato.id(), alfa, 2023, 5);
+
+        assertThat(associato.id()).isEqualTo(caricato.id());
+        assertThat(associato.attribuzione())
+                .isEqualTo(new AttribuzioneCaricamento(alfa, new Competenza.Mensilita(2023, 5), false));
+        assertThat(inErrore.associatiARapporto(alfa)).containsExactly(associato);
+        assertThat(inErrore.associatiARapporto(beta)).isEmpty();
+
+        var spostato = inErrore.associa(caricato.id(), alfa, 2023, 6);
+        var altroRapporto = inErrore.associa(caricato.id(), beta, 2025, 2);
+        var senzaAssociazione = inErrore.rimuoviAssociazione(caricato.id());
+        inErrore.rimuoviAssociazione(caricato.id());
+
+        assertThat(spostato.attribuzione().competenza()).isEqualTo(new Competenza.Mensilita(2023, 6));
+        assertThat(altroRapporto.attribuzione().rapportoId()).isEqualTo(beta);
+        assertThat(senzaAssociazione.attribuzione()).isNull();
+        assertThat(attribuzioni()).isZero();
+        assertThat(eventi.modificatiInErrore).containsExactly(
+                new CaricamentiInErroreModificati(Set.of(alfa)),
+                new CaricamentiInErroreModificati(Set.of(alfa)),
+                new CaricamentiInErroreModificati(Set.of(alfa, beta)),
+                new CaricamentiInErroreModificati(Set.of(beta)));
+    }
+
+    @Test
+    void unaMensilitaPresenteOGiaAssociataNonSiAssocia() {
+        var alfa = caricaFixture("rossi-alfa-2023-04").rapportoId();
+        var primo = caricaInErrore("primo.pdf", pdfConTesto("Primo file"));
+        var secondo = caricaInErrore("secondo.pdf", pdfConTesto("Secondo file"));
+        inErrore.associa(primo.id(), alfa, 2023, 5);
+        eventi.azzera();
+
+        assertThatThrownBy(() -> inErrore.associa(secondo.id(), alfa, 2023, 4))
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(MessaggiCaricamento.competenzaGiaPresente(new Competenza.Mensilita(2023, 4)));
+        assertThatThrownBy(() -> inErrore.associa(secondo.id(), alfa, 2023, 5))
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(MessaggiCaricamento.competenzaGiaAssociata(new Competenza.Mensilita(2023, 5)));
+        assertThat(inErrore.associa(primo.id(), alfa, 2023, 5).attribuzione().competenza())
+                .as("riassociare lo stesso file alla stessa mensilita' e' ammesso")
+                .isEqualTo(new Competenza.Mensilita(2023, 5));
+        assertThatThrownBy(() -> inErrore.associa(secondo.id(), new RapportoLavoroId(Long.MAX_VALUE), 2023, 5))
+                .isInstanceOf(RisorsaNonTrovataException.class);
+        assertThatThrownBy(() -> inErrore.associa(secondo.id(), alfa, 1899, 15))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori())
+                        .extracting(ErroreCampo::campo).containsExactly("anno", "mese"));
+        assertThatThrownBy(() -> inErrore.associa(secondo.id(), null, null, 13))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori())
+                        .extracting(ErroreCampo::campo).containsExactly("rapportoId", "anno"));
+        assertThat(attribuzioni()).isEqualTo(1);
+        assertThat(eventi.modificatiInErrore).containsExactly(new CaricamentiInErroreModificati(Set.of(alfa)));
+    }
+
+    @Test
+    void lEliminazioneDelRapportoEliminaLeAssociazioni() {
+        var gennaio = caricaFixture("rossi-beta-2025-01");
+        var caricato = caricaInErrore("orfano.pdf", pdfConTesto("File di un rapporto eliminato"));
+        inErrore.associa(caricato.id(), gennaio.rapportoId(), 2025, 2);
+
+        archivio.elimina(gennaio.cedolinoId());
+
+        assertThat(attribuzioni()).isZero();
+        assertThat(inErrore.elenco()).singleElement().satisfies(riga -> {
+            assertThat(riga.id()).isEqualTo(caricato.id());
+            assertThat(riga.attribuzione()).isNull();
+        });
+    }
+
+    // ------------------------------------------------------------------------------------------ workspace
+
+    @Test
+    void unCaricamentoDiUnAltroWorkspaceNonEVisibile() {
+        var altro = nuovoWorkspace();
+        var contenuto = pdfConTesto("File di un altro workspace");
+        var registrato = caricamentiRepository.registra(altro, UUID.randomUUID(),
+                List.of(new FileInCoda("altro.pdf", contenuto.length, hash(contenuto)))).getFirst();
+        caricamentiRepository.registraErrore(altro, registrato.id(), MotivoErrore.PDF_SENZA_TESTO,
+                "Il PDF non contiene testo selezionabile");
+        caricamentiRepository.salvaPdfSeAssente(altro, hash(contenuto), contenuto);
+        var id = registrato.id();
+
+        assertThat(inErrore.elenco()).isEmpty();
+        assertThat(inErrore.pdf(id)).isEmpty();
+        List<Runnable> azioni = List.of(
+                () -> inErrore.rimuovi(id),
+                () -> inErrore.rileggi(id, null),
+                () -> inErrore.associa(id, new RapportoLavoroId(1), 2023, 5),
+                () -> inErrore.rimuoviAssociazione(id),
+                () -> inErrore.verifica(id, essenziale()),
+                () -> inErrore.inserisci(id, essenziale()));
+        assertThat(azioni).allSatisfy(azione -> assertThatThrownBy(azione::run)
+                .isInstanceOf(RisorsaNonTrovataException.class));
+        assertThat(caricamentiRepository.pdf(altro, hash(contenuto))).isPresent();
+    }
+
     // ------------------------------------------------------------------------------------------ supporto
+
+    /** Carica un PDF che il lettore non riesce a leggere (senza testo): file in errore con il PDF conservato. */
+    private Caricamento caricaInErrore(String nomeFile, byte[] contenuto) {
+        lettoreCedolini.registraErrore(nomeFile, new EstrazioneCedolinoException(Motivo.PDF_SENZA_TESTO,
+                "Il PDF non contiene testo selezionabile"));
+        var esito = carica(new FileCaricato(nomeFile, contenuto));
+        assertThat(esito.motivo()).isEqualTo(MotivoErrore.PDF_SENZA_TESTO);
+        assertThat(esito.pdfDisponibile()).isTrue();
+        return esito;
+    }
 
     private Caricamento caricaFixture(String nome) {
         var esito = carica(new FileCaricato(nome + ".pdf", pdfFixture(nome)));
@@ -296,7 +816,11 @@ class CaricamentiInErroreIntegrationTest {
 
     /** Carica un file in un lotto e ne attende l'esito. */
     private Caricamento carica(FileCaricato file) {
-        var lotto = caricamento.avvia(List.of(file)).getFirst().lotto();
+        return attendi(caricamento.avvia(List.of(file)).getFirst().lotto());
+    }
+
+    /** Attende l'esito del lotto di un solo file. */
+    private Caricamento attendi(UUID lotto) {
         await().atMost(ATTESA_MASSIMA).pollInterval(Duration.ofMillis(50))
                 .until(() -> caricamento.statoLotto(lotto).getFirst().stato().terminale());
         return caricamento.statoLotto(lotto).getFirst();
@@ -321,6 +845,22 @@ class CaricamentiInErroreIntegrationTest {
 
     private int attribuzioni() {
         return dsl.fetchCount(dsl.selectFrom("caricamento_attribuzione"));
+    }
+
+    /** Righe delle tabelle toccate da acquisizione e azioni sui file in errore. */
+    private Map<String, Integer> conteggi() {
+        var conteggi = new LinkedHashMap<String, Integer>();
+        for (var tabella : List.of("persona", "azienda", "rapporto_lavoro", "cedolino", "cedolino_pdf",
+                "riepilogo_rapporto", "caricamento", "caricamento_pdf", "caricamento_attribuzione")) {
+            conteggi.put(tabella, dsl.fetchCount(dsl.selectFrom(tabella)));
+        }
+        return conteggi;
+    }
+
+    private WorkspaceId nuovoWorkspace() {
+        var codice = "prova-" + UUID.randomUUID();
+        dsl.execute("INSERT INTO workspace (codice, descrizione) VALUES (?, 'Secondo workspace di prova')", codice);
+        return new WorkspaceId(dsl.fetchSingle("SELECT id FROM workspace WHERE codice = ?", codice).get(0, Long.class));
     }
 
     private static String hash(byte[] contenuto) {
