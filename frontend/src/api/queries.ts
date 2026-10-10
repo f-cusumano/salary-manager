@@ -142,10 +142,12 @@ export function useEliminaCedolino() {
         queryClient.invalidateQueries({ queryKey: chiavi.persone }),
         queryClient.invalidateQueries({ queryKey: chiavi.rapportiTutti }),
       ]);
-      // l'eliminazione puo' rinumerare i cedolini di fine rapporto rimasti (progressivo e nome del file)
+      // l'eliminazione puo' rinumerare i cedolini di fine rapporto rimasti (progressivo e nome del file); un file in
+      // errore associato al mese eliminato torna da completare e, se sparisce il rapporto, perde l'associazione
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: chiavi.rapportoTutti }),
         queryClient.invalidateQueries({ queryKey: chiavi.cedolinoTutti }),
+        queryClient.invalidateQueries({ queryKey: chiavi.caricamentiInErrore }),
       ]);
     },
   });

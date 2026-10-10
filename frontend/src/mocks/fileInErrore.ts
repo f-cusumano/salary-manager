@@ -324,7 +324,7 @@ function segnalazioneInErrore(
     descrizione:
       `Il cedolino di ${titolo} è stato caricato ma non è stato letto` +
       (elemento.motivo !== null ? ` (${DESCRIZIONE_MOTIVO[elemento.motivo]})` : '') +
-      ': inseriscilo a mano dall’elenco «Cedolini caricati con errore» o riprova la lettura.',
+      ": inseriscilo a mano dall'elenco «Cedolini caricati con errore» o riprova la lettura.",
     cedolinoId: null,
     competenza,
     evidenze:

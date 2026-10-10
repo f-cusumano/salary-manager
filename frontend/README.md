@@ -1,7 +1,7 @@
 # Frontend Salary Manager
 
 SPA in **React 19 + TypeScript (strict) + Vite**, con **Mantine 9** (core, hooks, dropzone, notifications,
-modals) e **TanStack Query 5**. Parla col backend solo tramite le API REST descritte in
+modals, form) e **TanStack Query 5**. Parla col backend solo tramite le API REST descritte in
 [`../docs/openapi.yaml`](../docs/openapi.yaml): i tipi sono generati con `openapi-typescript` e le chiamate passano
 da `openapi-fetch`.
 
@@ -97,9 +97,10 @@ In PowerShell: `$env:SAM_E2E_BACKEND_PORT = "28080"; npm run e2e`; dal prompt de
 ```
 src/
 ├── api/          client openapi-fetch, tipi generati (schema.d.ts) e alias, query/mutation TanStack, errori
-├── components/   barra superiore, elenco aziende, dettaglio (segnalazioni, riepilogo, mensilità), busta, caricamento
+├── components/   barra superiore, elenco aziende, dettaglio (segnalazioni, riepilogo, mensilità), busta, caricamento,
+│                 cedolini caricati con errore (elenco, associazione al mese, rilettura, inserimento a mano)
 ├── format/       formattazione italiana (importi "1.234,56 €", mesi "Gennaio 2024", quantità, anzianità)
-├── hooks/        caricamento dei PDF con polling dello stato del lotto
+├── hooks/        caricamento dei PDF con polling del lotto, anteprima del PDF, funzioni pure dell'inserimento a mano
 ├── i18n/         testi dell'interfaccia (solo italiano in fase 1, pronti per altre lingue)
 ├── mocks/        backend simulato in memoria con dati inventati (solo sviluppo e test)
 └── test/         setup di Vitest e render con i provider
@@ -115,7 +116,51 @@ acquisito, duplicato, aggiuntivo non gestito, errore con motivo) è aggiornato i
 anche chiudendo la modale; a lotto concluso i file da controllare (errori, aggiuntivi, duplicati) sono elencati per
 primi. Al termine si aggiornano persone e dettagli; se non c'era una persona selezionata viene selezionata quella del
 primo cedolino acquisito (`personaId` del caricamento), altrimenti quella di un duplicato o aggiuntivo. Gli omonimi
-si distinguono nella tendina dal codice fiscale tra parentesi.
+si distinguono nella tendina dal codice fiscale tra parentesi. Se il lotto ha file in errore la notifica finale
+aggiunge "· N da completare"; nella modale i file in errore con il PDF conservato hanno il pulsante
+**Inserisci a mano**.
+
+### Cedolini caricati con errore
+
+Un file caricato ma non letto (scansione senza testo, layout non riconosciuto, PDF protetto, lettore non
+disponibile…) non è una mensilità mancante: finché non viene risolto compare nell'area rossa **Cedolini caricati con
+errore** in cima alla pagina, anche senza una persona selezionata, con un contatore rosso nella barra superiore che
+porta all'area. Ogni riga mostra nome del file, data, motivo, messaggio e mese associato; l'azione principale dipende
+dal motivo e dal PDF conservato (tabella in `azioniPerCaricamento`, `src/hooks/useCedolinoManuale.ts`):
+
+- **Riprova con password** per i PDF protetti, **Riprova** per i guasti transitori (lettore non disponibile,
+  elaborazione interrotta, errore imprevisto): il PDF conservato viene riletto in un nuovo lotto, seguito nella modale
+  di caricamento;
+- **Inserisci a mano** per gli altri motivi;
+- **Carica di nuovo** quando il PDF non è stato conservato (file danneggiato, troppe pagine, più cedolini nello stesso
+  PDF, errori registrati prima dei motivi);
+- **Rimuovi** (con conferma) quando il mese associato è nel frattempo diventato presente.
+
+Le altre azioni sono nel menu "Altre azioni per …": associa a un mese (o cambia mese e rimuovi l'associazione),
+scarica il PDF, rimuovi il file. Mentre un nuovo tentativo dello stesso file è in corso le azioni sono disabilitate.
+
+**Associa a un mese**: l'utente indica persona, azienda e mensilità del file (chip delle mensilità mancanti oppure
+"Altro mese…"), oppure parte da una mensilità mancante e sceglie il file. La mensilità associata diventa una riga rossa
+"Caricato con errore" (con **Inserisci a mano** se il PDF è conservato) e la segnalazione "Cedolino caricato con
+errore" prende il posto di "Mensilità mancante". L'associazione non viene mai indovinata.
+
+**Inserisci a mano** apre una finestra a schermo intero con il PDF accanto al modulo (schede "Dati" / "PDF" sotto i
+992 px; "Apri in una nuova scheda" per i telefoni che non mostrano i PDF negli iframe). Il modulo (`@mantine/form`) ha
+tutti i campi del lettore, divisi in sezioni, senza dati bancari:
+
+- è precompilato dal mese associato (periodo), dal rapporto (anagrafiche e assunzione) e dal cedolino più vicino dello
+  stesso rapporto (inquadramento, elementi retributivi, voci senza quantità e importi, ratei); "Copia dati da…" fa lo
+  stesso a richiesta. Si compilano solo i campi vuoti, segnati con un punto blu; la data di cessazione, i totali e
+  quantità e importi delle voci non vengono mai copiati;
+- i numeri si scrivono all'italiana ("1.234,56"; il punto non diventa mai la virgola decimale) e si possono incollare
+  da un PDF ("1.234,56", "1234.56", "123,45-");
+- **Verifica** (anche con Ctrl+Invio / ⌘+Invio) controlla i campi obbligatori e i formati, poi chiede al backend
+  come verrebbe registrato il cedolino (titolo, persona o rapporto nuovi, avvisi, duplicato) senza salvare nulla;
+  gli errori del backend si posano sui campi. I controlli di coerenza (netto, somme delle voci, saldi dei ratei)
+  sono avvisi arancioni che non bloccano;
+- **Salva cedolino** è abilitato solo se l'ultima verifica riguarda esattamente i dati attuali ed è acquisibile;
+  **Salva e apri il successivo** passa al prossimo file da completare. Il cedolino salvato è archiviato con il PDF
+  originale e, nel dettaglio, mostra "Inserito a mano" al posto dell'affidabilità della lettura.
 
 ## Logo
 
@@ -126,3 +171,13 @@ favicon. Per sostituirlo basta sovrascrivere il file mantenendo **stesso nome, f
 
 Nessun dato personale reale nel frontend, nei mock o nei test: solo nominativi, codici fiscali, aziende e importi
 inventati.
+
+Per i cedolini caricati con errore:
+
+- l'anteprima del PDF conservato usa un URL `blob:` revocato alla chiusura della finestra, e il PDF non resta nella
+  cache delle query;
+- la password di una rilettura vive solo nella modale aperta e viene inviata una volta, senza essere salvata;
+- il modulo dell'inserimento a mano non viene mai salvato nel browser come bozza (niente `localStorage`): chiudendolo
+  con dati non salvati si chiede conferma;
+- nei campi di testo libero (indirizzo, descrizione delle voci) l'interfaccia ricorda di non inserire IBAN o
+  coordinate bancarie; i messaggi di errore dei campi non riportano mai i valori inseriti.

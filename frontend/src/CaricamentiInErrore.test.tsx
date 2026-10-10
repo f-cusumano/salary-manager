@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { chiavi } from './api/chiavi';
+import { chiaveFile } from './mocks/dati';
 import {
   TITOLO_AREA_IN_ERRORE,
   areaInErrore,
@@ -408,6 +409,76 @@ describe('associazione di un file in errore a una mensilità', () => {
     expect(errore).toHaveTextContent('Impossibile associare il file');
     expect(errore).toHaveTextContent('Il file è in elaborazione: attendi la fine');
     expect(dialogo).toBeInTheDocument();
+  });
+  it('una mensilità associata a un file senza PDF conservato chiede di caricarlo di nuovo', async () => {
+    const { user } = renderConMock(<App intervalloPollingMs={POLLING_TEST_MS} />, { datiIniziali: 'errori' });
+    const modale = await caricaFile(user, 'danneggiato.pdf');
+    await user.click(within(modale).getByRole('button', { name: 'Chiudi' }));
+    const mensilita = await mensilitaDiAlfa(user);
+
+    // Agosto 2025 viene liberato dalla ristampa e associato al file danneggiato
+    const ristampa = await within(mensilita).findByRole('listitem', {
+      name: 'Agosto 2025: Caricato con errore',
+    });
+    await azioneDalMenu(user, ristampa, 'Agosto 2025', 'Rimuovi associazione');
+    const mancante = await within(mensilita).findByRole('listitem', {
+      name: 'Agosto 2025: Mensilità mancante',
+    });
+    await user.click(within(mancante).getByRole('button', { name: 'Associa un file in errore' }));
+    const dialogo = await screen.findByRole('dialog', { name: 'Associa un file in errore ad Agosto 2025' });
+    await user.click(within(dialogo).getByRole('combobox', { name: 'File in errore' }));
+    await user.click(await within(dialogo).findByRole('option', { name: /^danneggiato\.pdf/ }));
+    await user.click(within(dialogo).getByRole('button', { name: 'Salva' }));
+    expect(await screen.findByText('File associato ad Agosto 2025')).toBeInTheDocument();
+
+    const agosto = await within(mensilita).findByRole('listitem', {
+      name: 'Agosto 2025: Caricato con errore',
+    });
+    await waitFor(() =>
+      expect(
+        within(agosto).getByText('Caricato con errore · File danneggiato o non PDF'),
+      ).toBeInTheDocument(),
+    );
+    expect(within(agosto).getByText('Carica di nuovo il file')).toBeInTheDocument();
+    expect(within(agosto).queryByRole('button', { name: 'Inserisci a mano' })).not.toBeInTheDocument();
+  });
+
+  it('eliminato il cedolino del mese associato, il file torna da completare', async () => {
+    const { user, backend, queryClient } = renderConMock(<App />, { datiIniziali: 'errori' });
+    const area = await areaInErrore();
+    // stato di partenza: la scansione era associata a Luglio 2025, poi acquisito da un altro file
+    const scansione = backend.db.caricamenti.find((c) => c.nomeFileOriginale === 'busta-scansione.pdf');
+    if (!scansione) {
+      throw new Error('busta-scansione.pdf mancante nei dati simulati');
+    }
+    backend.db.associazioni.set(chiaveFile(scansione), { rapportoId: 1, anno: 2025, mese: 7 });
+    await queryClient.refetchQueries({ queryKey: chiavi.caricamentiInErrore });
+    const presente = rigaInErrore(area, 'busta-scansione.pdf');
+    expect(await within(presente).findByText('Luglio 2025 ora presente')).toBeInTheDocument();
+    expect(within(presente).getByText('Il mese è ora presente')).toBeInTheDocument();
+    expect(within(presente).getByRole('button', { name: 'Rimuovi' })).toBeInTheDocument();
+
+    const mensilita = await mensilitaDiAlfa(user);
+    await user.click(
+      await within(mensilita).findByRole('button', { name: /^Mostra il dettaglio di Luglio 2025(?!\d)/ }),
+    );
+    await user.click(await within(mensilita).findByRole('button', { name: 'Elimina' }));
+    const conferma = await screen.findByRole('dialog', { name: 'Eliminare il cedolino?' });
+    await user.click(within(conferma).getByRole('button', { name: 'Elimina cedolino' }));
+
+    // senza il cedolino ma con il file associato il mese è in errore, non mancante, e il file si completa a mano
+    const luglio = await within(mensilita).findByRole('listitem', {
+      name: 'Luglio 2025: Caricato con errore',
+    });
+    expect(within(luglio).getByRole('button', { name: 'Inserisci a mano' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(rigaInErrore(area, 'busta-scansione.pdf')).getByText('Luglio 2025 · Alfa Software S.r.l.'),
+      ).toBeInTheDocument(),
+    );
+    const daCompletare = rigaInErrore(area, 'busta-scansione.pdf');
+    expect(within(daCompletare).getByRole('button', { name: 'Inserisci a mano' })).toBeInTheDocument();
+    expect(within(daCompletare).queryByText('Il mese è ora presente')).not.toBeInTheDocument();
   });
 });
 

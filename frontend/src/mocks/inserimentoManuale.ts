@@ -456,7 +456,7 @@ export function verificaManuale(db: MockDb, caricamentoId: number, corpo: unknow
   }
   if (!rapporto) {
     avvisi.push(
-      'Verrà creato un nuovo rapporto di lavoro: se l’azienda esiste già controlla ragione sociale, partita IVA e ' +
+      "Verrà creato un nuovo rapporto di lavoro: se l'azienda esiste già controlla ragione sociale, partita IVA e " +
         'codice fiscale',
     );
   }

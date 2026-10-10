@@ -491,7 +491,7 @@ describe('backend simulato: inserimento a mano', () => {
     });
     expect(prova.avvisi).toEqual([
       'Verrà creata una nuova persona: controlla il codice fiscale',
-      'Verrà creato un nuovo rapporto di lavoro: se l’azienda esiste già controlla ragione sociale, partita IVA e ' +
+      "Verrà creato un nuovo rapporto di lavoro: se l'azienda esiste già controlla ragione sociale, partita IVA e " +
         'codice fiscale',
     ]);
 

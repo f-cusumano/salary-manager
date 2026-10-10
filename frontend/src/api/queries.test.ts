@@ -8,6 +8,7 @@ import { invalidaDopoAcquisizione, invalidaDopoModificaFileInErrore } from './in
 import {
   useAssociaCaricamento,
   useCaricamentiInErrore,
+  useEliminaCedolino,
   useInserisciCedolinoManuale,
   useRimuoviAssociazione,
   useRimuoviCaricamento,
@@ -165,5 +166,21 @@ describe('query e modifiche dei cedolini caricati con errore', () => {
     expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(true);
     expect(contesto.queryClient.getQueryState(chiavi.pdfCaricamento(protetto.id))).toBeUndefined();
     expect(contesto.backend.db.caricamenti.some((c) => c.id === protetto.id)).toBe(false);
+  });
+
+  it('l’eliminazione di un cedolino rilegge anche i file in errore', async () => {
+    const contesto = contestoHook();
+    const luglio = contesto.backend.db.rapporti.get(1)?.mensilita.find((r) => r.chiave === '2025.07');
+    if (!luglio?.cedolinoId) {
+      throw new Error('Luglio 2025 non è presente nei dati dimostrativi');
+    }
+    const { result } = renderHook(() => useEliminaCedolino(), { wrapper: contesto.wrapper });
+    popolaCache(contesto);
+
+    await result.current.mutateAsync(luglio.cedolinoId);
+
+    // un file associato al mese eliminato torna da completare; se sparisce il rapporto perde l'associazione
+    expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(true);
+    expect(invalidata(contesto, chiavi.rapporto(1))).toBe(true);
   });
 });
