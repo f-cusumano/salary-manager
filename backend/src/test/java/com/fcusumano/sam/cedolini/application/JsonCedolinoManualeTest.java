@@ -28,6 +28,8 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -192,6 +194,24 @@ class JsonCedolinoManualeTest {
                 .isEqualTo("Via Roma 1 - IBAN [dato bancario rimosso]");
         assertThat(risultato.jsonOriginale()).doesNotContain("IT60", "X054", "0123 456");
         assertThat(risultato.avvisi()).contains("Rimossi dati bancari presenti nell'estrazione: non vengono salvati");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"IT60\u00A0X054\u00A02811\u00A01010\u00A00000\u00A00123\u00A0456",
+            "IT60\u202FX054\u202F2811\u202F1010\u202F0000\u202F0123\u202F456",
+            "IT60\u200BX054\u200B2811\u200B1010\u200B0000\u200B0123\u200B456",
+            "IT60-X054-2811-1010-0000-0123-456", "IT60.X054.2811.1010.0000.0123.456"})
+    void unIbanConSeparatoriNonComuniVieneMascheratoComunque(String iban) {
+        var a = completo().datoreLavoro();
+        var cedolino = ValidazioneCedolinoManuale.normalizza(conDatore(completo(), new CedolinoManuale.DatoreLavoro(
+                a.codiceFiscale(), a.partitaIva(), a.posizioneInps(), a.posizioneInail(), a.ragioneSociale(),
+                "Via Roma 1 - IBAN " + iban, a.codiceAzienda())));
+
+        var risultato = interprete.interpreta(JsonCedolinoManuale.scrivi(cedolino), "inserimento-manuale-1");
+
+        assertThat(risultato.cedolino().datoreLavoro().indirizzo())
+                .isEqualTo("Via Roma 1 - IBAN [dato bancario rimosso]");
+        assertThat(risultato.jsonOriginale()).doesNotContain("X054", "2811");
     }
 
     @Test

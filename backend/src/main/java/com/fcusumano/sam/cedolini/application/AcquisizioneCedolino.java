@@ -48,8 +48,9 @@ import org.springframework.stereotype.Component;
  * Fase di persistenza di un caricamento, in una transazione serializzata per workspace: censimento di persona,
  * azienda e rapporto, determinazione della competenza, controllo di unicita' (duplicato / aggiuntivo), salvataggio
  * di cedolino e PDF originale, riclassificazione dei cedolini del rapporto e rinumerazione dei progressivi TFR
- * ({@link ClassificazioneCedolini}), estremi del rapporto, caricamento ACQUISITO, eliminazione di PDF conservato e
- * associazione del file (non piu' in errore) e infine pubblicazione di {@link CedolinoAcquisito} (i ricalcoli dei
+ * ({@link ClassificazioneCedolini}), estremi del rapporto, caricamento ACQUISITO (gli eventuali tentativi in errore
+ * successivi dello stesso file diventano DUPLICATO), eliminazione di PDF conservato e associazione del file (non piu'
+ * in errore) e infine pubblicazione di {@link CedolinoAcquisito} (i ricalcoli dei
  * moduli calcoli e segnalazioni avvengono nella stessa transazione e vedono uno stato gia' coerente).
  * Un cedolino scartato annulla la transazione: non resta alcuna anagrafica creata per lui.
  * <p>
@@ -240,6 +241,10 @@ class AcquisizioneCedolino {
         // il file non e' piu' in errore: caricamento, PDF conservato e associazione si aggiornano prima degli eventi,
         // cosi' i listener sincroni (segnalazioni) vedono uno stato coerente
         caricamenti.aggiorna(ws, documento.caricamentoId(), StatoCaricamento.ACQUISITO, null, id, null);
+        // tentativi in errore dello stesso file conclusi dopo questo (es. lo stesso PDF due volte nel lotto, inserito
+        // a mano dal primo): ora sono duplicati, cosi' eliminando il cedolino il file non torna in errore
+        caricamenti.chiudiErroriSuccessivi(ws, documento.hash(), documento.caricamentoId(), id,
+                MessaggiCaricamento.FILE_GIA_CARICATO);
         caricamenti.eliminaPdf(ws, documento.hash());
         var associato = caricamenti.eliminaAttribuzione(ws, documento.hash());
         eventi.publishEvent(new CedolinoAcquisito(id, rapporto.id(), competenza));

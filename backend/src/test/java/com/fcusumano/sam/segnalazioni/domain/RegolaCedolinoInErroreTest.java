@@ -8,8 +8,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.segnalazioni.Gravita;
 import com.fcusumano.sam.segnalazioni.TipoSegnalazione;
+import com.fcusumano.sam.segnalazioni.domain.ContestoRapporto.FileInErrore;
 import com.fcusumano.sam.shared.Competenza;
-import java.util.Collections;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -70,6 +70,32 @@ class RegolaCedolinoInErroreTest {
     }
 
     @Test
+    void senzaPdfConservatoNonProponeInserimentoAManoNeNuovaLetturaMaIlNuovoCaricamento() {
+        var contesto = rapporto().con(ordinario(2023, 1))
+                .inErrore(new Competenza.Mensilita(2023, 2), null)
+                .inErrore(new Competenza.Mensilita(2023, 3), MotivoErrore.PDF_NON_VALIDO)
+                .inErrore(new Competenza.Mensilita(2023, 4), MotivoErrore.PDF_TROPPE_PAGINE)
+                .inErrore(new Competenza.Mensilita(2023, 5), MotivoErrore.PIU_CEDOLINI)
+                // file in errore dopo un riavvio: il motivo conserverebbe il PDF, ma i byte non c'erano piu'
+                .inErrore(new Competenza.Mensilita(2023, 6), MotivoErrore.INTERROTTO, false)
+                .build();
+
+        assertThat(regola.valuta(contesto)).extracting(SegnalazioneRilevata::descrizione).containsExactly(
+                "Il cedolino di Febbraio 2023 è stato caricato ma non è stato letto: il PDF non è stato conservato, "
+                        + "caricalo di nuovo.",
+                "Il cedolino di Marzo 2023 è stato caricato ma non è stato letto (File danneggiato o non PDF): "
+                        + "caricane una copia valida.",
+                "Il cedolino di Aprile 2023 è stato caricato ma non è stato letto (Troppe pagine): dividi il PDF in "
+                        + "un file per cedolino e caricali.",
+                "Il cedolino di Maggio 2023 è stato caricato ma non è stato letto (Più cedolini nello stesso PDF): "
+                        + "dividi il PDF in un file per cedolino e caricali.",
+                "Il cedolino di Giugno 2023 è stato caricato ma non è stato letto (Elaborazione interrotta): il PDF "
+                        + "non è stato conservato, caricalo di nuovo.");
+        assertThat(regola.valuta(contesto)).extracting(SegnalazioneRilevata::descrizione)
+                .noneMatch(d -> d.contains("a mano") || d.contains("riprova"));
+    }
+
+    @Test
     void nessunaSegnalazioneSeLaMensilitaHaGiaIlCedolino() {
         var contesto = rapporto().con(ordinario(2023, 5), tredicesima(2023))
                 .inErrore(new Competenza.Mensilita(2023, 5), MotivoErrore.LETTURA_NON_RIUSCITA)
@@ -92,11 +118,12 @@ class RegolaCedolinoInErroreTest {
         var base = rapporto().con(ordinario(2023, 4)).build();
         var conMappaNulla = new ContestoRapporto(base.rapporto(), null, base.cedolini(), base.oggi(), null);
         var conMotivoNullo = new ContestoRapporto(base.rapporto(), null, base.cedolini(), base.oggi(),
-                Collections.singletonMap(new Competenza.Mensilita(2023, 5), null));
+                Map.of(new Competenza.Mensilita(2023, 5), new FileInErrore(null, false)));
+        var interrotto = new FileInErrore(MotivoErrore.INTERROTTO, true);
         var inDisordine = new ContestoRapporto(base.rapporto(), null, base.cedolini(), base.oggi(), Map.of(
-                Competenza.Mensilita.tredicesima(2023), MotivoErrore.INTERROTTO,
-                new Competenza.Mensilita(2023, 12), MotivoErrore.INTERROTTO,
-                new Competenza.Mensilita(2023, 2), MotivoErrore.INTERROTTO));
+                Competenza.Mensilita.tredicesima(2023), interrotto,
+                new Competenza.Mensilita(2023, 12), interrotto,
+                new Competenza.Mensilita(2023, 2), interrotto));
 
         assertThat(conMappaNulla.mensilitaInErrore()).isEmpty();
         assertThat(conMotivoNullo.inErrore(2023, 5)).isTrue();

@@ -46,7 +46,7 @@ class LetturaFixtureIntegrationTest {
 
         assertThatThrownBy(() -> lettorePdf.apri(originale, null, List::of))
                 .isInstanceOf(PdfNonLeggibileException.class)
-                .hasMessage("PDF protetto da password: indica la password e ricarica");
+                .hasMessage("PDF protetto da password: riprova indicando la password");
 
         var documento = lettorePdf.apri(originale, null, () -> List.of("RSSMRA80A01H501U"));
         var risultato = lettoreCedolini.estrai(documento.contenutoPerEstrazione(), "2024-09.pdf");

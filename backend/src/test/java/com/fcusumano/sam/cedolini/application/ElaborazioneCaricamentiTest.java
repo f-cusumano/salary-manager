@@ -33,6 +33,7 @@ import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf.DocumentoPdf
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException.Causa;
 import com.fcusumano.sam.cedolini.config.LettoreProperties;
+import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.WorkspaceId;
 import java.util.List;
 import java.util.Optional;
@@ -76,6 +77,8 @@ class ElaborazioneCaricamentiTest {
         when(transazioni.getTransaction(any())).thenAnswer(i -> new SimpleTransactionStatus());
         when(cedolini.perHash(any(), any())).thenReturn(Optional.empty());
         when(caricamenti.eliminaAttribuzione(any(), any())).thenReturn(Optional.empty());
+        when(caricamenti.attribuzione(any(), any())).thenReturn(Optional.empty());
+        when(caricamenti.fileInErrore(any(), any())).thenReturn(true);
     }
 
     @AfterEach
@@ -92,7 +95,7 @@ class ElaborazioneCaricamentiTest {
     private ElaborazioneCaricamenti elaborazione(LettorePdf lettore, int lettureContemporanee) {
         var properties = new LettoreProperties(LettoreProperties.Lettore.FIXTURE, lettureContemporanee,
                 "classpath:fixtures/cedolini/");
-        var chiusura = new ChiusuraCaricamento(new ScrittureSerializzate(transazioni), caricamenti, cedolini, eventi);
+        var chiusura = new ChiusuraCaricamento(new ScrittureSerializzate(transazioni), caricamenti, eventi);
         elaborazione = new ElaborazioneCaricamenti(caricamenti, cedolini, lettore, lettoreCedolini, acquisizione,
                 chiusura, consultazione, properties);
         return elaborazione;
@@ -172,9 +175,12 @@ class ElaborazioneCaricamentiTest {
     }
 
     @Test
-    void unFileArchiviatoNelFrattempoNonConservaNeEliminaIlPdf() {
+    void unFileNonPiuInErroreNonConservaIlPdfEPerdeLAssociazione() {
+        // archiviato nel frattempo, o risolto da un tentativo successivo dello stesso file concluso prima di questo
         var lavoro = lavoro(4);
-        when(cedolini.perHash(WS, lavoro.hash())).thenReturn(Optional.empty(), Optional.of(new CedolinoId(40)));
+        var rapporto = new RapportoLavoroId(4);
+        when(caricamenti.fileInErrore(WS, lavoro.hash())).thenReturn(false);
+        when(caricamenti.eliminaAttribuzione(WS, lavoro.hash())).thenReturn(Optional.of(rapporto));
         when(lettoreCedolini.estrai(any(), anyString()))
                 .thenThrow(new EstrazioneCedolinoException(Motivo.SERVIZIO_NON_DISPONIBILE, "Servizio non disponibile"));
 
@@ -184,7 +190,27 @@ class ElaborazioneCaricamentiTest {
         verify(caricamenti).registraErrore(eq(WS), eq(lavoro.caricamentoId()),
                 eq(MotivoErrore.SERVIZIO_NON_DISPONIBILE), anyString());
         verify(caricamenti, never()).salvaPdfSeAssente(any(), any(), any());
-        verify(caricamenti, never()).eliminaPdf(any(), any());
+        verify(caricamenti).eliminaPdf(WS, lavoro.hash());
+        verify(eventi).publishEvent(new CaricamentiInErroreModificati(Set.of(rapporto)));
+    }
+
+    @Test
+    void unNuovoErroreDiUnFileAssociatoRicalcolaIlRapporto() {
+        // le segnalazioni del rapporto riportano motivo e azioni possibili del file associato
+        var lavoro = lavoro(15);
+        var rapporto = new RapportoLavoroId(15);
+        when(caricamenti.attribuzione(WS, lavoro.hash())).thenReturn(Optional.of(
+                new CaricamentiRepository.AttribuzioneSalvata(rapporto,
+                        new Competenza.Mensilita(2023, 5))));
+        when(lettoreCedolini.estrai(any(), anyString()))
+                .thenThrow(new EstrazioneCedolinoException(Motivo.LAYOUT_NON_RICONOSCIUTO, "Layout non riconosciuto"));
+
+        elaborazione(ElaborazioneCaricamentiTest::apri).accoda(List.of(lavoro));
+
+        attendiChiusura();
+        verify(caricamenti).salvaPdfSeAssente(WS, lavoro.hash(), lavoro.contenuto());
+        verify(caricamenti, never()).eliminaAttribuzione(any(), any());
+        verify(eventi).publishEvent(new CaricamentiInErroreModificati(Set.of(rapporto)));
     }
 
     // ------------------------------------------------------------------------------------------ acquisizione

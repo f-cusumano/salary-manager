@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -49,6 +50,9 @@ class JooqCaricamentiRepository implements CaricamentiRepository {
             CARICAMENTO.STATO.eq(StatoCaricamento.ERRORE.name()).and(DSL.exists(DSL.selectOne().from(CARICAMENTO_PDF)
                     .where(CARICAMENTO_PDF.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
                             CARICAMENTO_PDF.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO))))).as("pdf_disponibile");
+    /** Caricamento non ancora concluso. */
+    private static final Condition NON_TERMINATO =
+            CARICAMENTO.STATO.in(StatoCaricamento.IN_CODA.name(), StatoCaricamento.IN_LETTURA.name());
     /** Un tentativo dello stesso file del caricamento e' in coda o in lettura. */
     private static final Field<Boolean> IN_ELABORAZIONE = inElaborazione();
 
@@ -142,14 +146,75 @@ class JooqCaricamentiRepository implements CaricamentiRepository {
     }
 
     @Override
-    public int interrompiNonTerminati(MotivoErrore motivo, String messaggio) {
+    public int interrompiNonTerminati(MotivoErrore motivo, String messaggioConPdf, String messaggioSenzaPdf) {
+        var pdfConservato = DSL.exists(DSL.selectOne().from(CARICAMENTO_PDF)
+                .where(CARICAMENTO_PDF.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
+                        CARICAMENTO_PDF.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO)));
         return dsl.update(CARICAMENTO)
                 .set(CARICAMENTO.STATO, StatoCaricamento.ERRORE.name())
                 .set(CARICAMENTO.MOTIVO, motivo == null ? null : motivo.name())
-                .set(CARICAMENTO.MESSAGGIO, Testo.tronca(messaggio, LUNGHEZZA_MESSAGGIO))
+                .set(CARICAMENTO.MESSAGGIO, DSL.when(pdfConservato, Testo.tronca(messaggioConPdf, LUNGHEZZA_MESSAGGIO))
+                        .otherwise(Testo.tronca(messaggioSenzaPdf, LUNGHEZZA_MESSAGGIO)))
                 .set(CARICAMENTO.AGGIORNATO_IL, OffsetDateTime.now(clock))
-                .where(CARICAMENTO.STATO.in(StatoCaricamento.IN_CODA.name(), StatoCaricamento.IN_LETTURA.name()))
+                .where(NON_TERMINATO)
                 .execute();
+    }
+
+    @Override
+    public int scartaNonTerminatiGiaArchiviati(String messaggio) {
+        var archiviato = DSL.select(CEDOLINO.ID).from(CEDOLINO)
+                .where(CEDOLINO.WORKSPACE_ID.eq(CARICAMENTO.WORKSPACE_ID),
+                        CEDOLINO.HASH_CONTENUTO.eq(CARICAMENTO.HASH_CONTENUTO));
+        return dsl.update(CARICAMENTO)
+                .set(CARICAMENTO.STATO, StatoCaricamento.DUPLICATO.name())
+                .set(CARICAMENTO.MOTIVO, (String) null)
+                .set(CARICAMENTO.MESSAGGIO, Testo.tronca(messaggio, LUNGHEZZA_MESSAGGIO))
+                .set(CARICAMENTO.CEDOLINO_ID, (Long) null)
+                .set(CARICAMENTO.CEDOLINO_ESISTENTE_ID, archiviato.asField())
+                .set(CARICAMENTO.AGGIORNATO_IL, OffsetDateTime.now(clock))
+                .where(NON_TERMINATO)
+                .andExists(archiviato)
+                .execute();
+    }
+
+    @Override
+    public Set<RapportoAssociato> rapportiAssociatiANonTerminati() {
+        return dsl.selectDistinct(CARICAMENTO_ATTRIBUZIONE.WORKSPACE_ID, CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID)
+                .from(CARICAMENTO_ATTRIBUZIONE)
+                .whereExists(DSL.selectOne().from(CARICAMENTO)
+                        .where(CARICAMENTO.WORKSPACE_ID.eq(CARICAMENTO_ATTRIBUZIONE.WORKSPACE_ID),
+                                CARICAMENTO.HASH_CONTENUTO.eq(CARICAMENTO_ATTRIBUZIONE.HASH_CONTENUTO), NON_TERMINATO))
+                .fetchSet(r -> new RapportoAssociato(new WorkspaceId(r.value1()), new RapportoLavoroId(r.value2())));
+    }
+
+    @Override
+    public Set<RapportoAssociato> rapportiAssociatiAFileNonInErrore() {
+        return dsl.selectDistinct(CARICAMENTO_ATTRIBUZIONE.WORKSPACE_ID, CARICAMENTO_ATTRIBUZIONE.RAPPORTO_ID)
+                .from(CARICAMENTO_ATTRIBUZIONE)
+                .where(DSL.not(fileInErrore(CARICAMENTO_ATTRIBUZIONE.WORKSPACE_ID,
+                        CARICAMENTO_ATTRIBUZIONE.HASH_CONTENUTO)))
+                .fetchSet(r -> new RapportoAssociato(new WorkspaceId(r.value1()), new RapportoLavoroId(r.value2())));
+    }
+
+    @Override
+    public int chiudiErroriSuccessivi(WorkspaceId workspace, String hash, CaricamentoId acquisito, CedolinoId cedolino,
+                                      String messaggio) {
+        return dsl.update(CARICAMENTO)
+                .set(CARICAMENTO.STATO, StatoCaricamento.DUPLICATO.name())
+                .set(CARICAMENTO.MOTIVO, (String) null)
+                .set(CARICAMENTO.MESSAGGIO, Testo.tronca(messaggio, LUNGHEZZA_MESSAGGIO))
+                .set(CARICAMENTO.CEDOLINO_ID, (Long) null)
+                .set(CARICAMENTO.CEDOLINO_ESISTENTE_ID, cedolino.valore())
+                .set(CARICAMENTO.AGGIORNATO_IL, OffsetDateTime.now(clock))
+                .where(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore()), CARICAMENTO.HASH_CONTENUTO.eq(hash),
+                        CARICAMENTO.STATO.eq(StatoCaricamento.ERRORE.name()), CARICAMENTO.ID.gt(acquisito.valore()))
+                .execute();
+    }
+
+    @Override
+    public boolean fileInErrore(WorkspaceId workspace, String hash) {
+        return Boolean.TRUE.equals(dsl.select(DSL.field(fileInErrore(DSL.val(workspace.valore()), DSL.val(hash))))
+                .fetchOne(Record1::value1));
     }
 
     @Override

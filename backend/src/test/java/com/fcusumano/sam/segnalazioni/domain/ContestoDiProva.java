@@ -32,7 +32,7 @@ final class ContestoDiProva {
     private Ccnl ccnl;
     private LocalDate oggi = OGGI;
     private final List<CedolinoNormalizzato> cedolini = new ArrayList<>();
-    private final Map<Competenza.Mensilita, MotivoErrore> inErrore = new HashMap<>();
+    private final Map<Competenza.Mensilita, ContestoRapporto.FileInErrore> inErrore = new HashMap<>();
 
     static ContestoDiProva rapporto() {
         return new ContestoDiProva();
@@ -75,9 +75,17 @@ final class ContestoDiProva {
         return this;
     }
 
-    /** Mensilita' a cui l'utente ha associato un file caricato con errore (motivo null = non registrato). */
+    /**
+     * Mensilita' a cui l'utente ha associato un file caricato con errore (motivo null = non registrato), con il PDF
+     * conservato se il motivo lo prevede.
+     */
     ContestoDiProva inErrore(Competenza.Mensilita competenza, MotivoErrore motivo) {
-        inErrore.put(competenza, motivo);
+        return inErrore(competenza, motivo, motivo != null && motivo.conservaPdf());
+    }
+
+    /** Come {@link #inErrore(Competenza.Mensilita, MotivoErrore)}, con la presenza del PDF esplicita. */
+    ContestoDiProva inErrore(Competenza.Mensilita competenza, MotivoErrore motivo, boolean pdfDisponibile) {
+        inErrore.put(competenza, new ContestoRapporto.FileInErrore(motivo, pdfDisponibile));
         return this;
     }
 

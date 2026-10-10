@@ -31,6 +31,7 @@ import com.fcusumano.sam.shared.DatiNonValidiException.ErroreCampo;
 import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
 import com.fcusumano.sam.shared.WorkspaceId;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Year;
 import java.util.ArrayList;
@@ -45,6 +46,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -122,7 +124,7 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
     public Optional<PdfCedolino> pdf(CaricamentoId id) {
         var ws = workspaceProvider.corrente();
         return caricamenti.fileDelCaricamento(ws, id)
-                .filter(file -> file.stato() == StatoCaricamento.ERRORE && file.pdfPresente())
+                .filter(file -> file.stato() == StatoCaricamento.ERRORE && file.inErrore() && file.pdfPresente())
                 .flatMap(file -> caricamenti.pdf(ws, file.hash())
                         .map(contenuto -> new PdfCedolino(file.nomeFileOriginale(), contenuto)));
     }
@@ -315,7 +317,25 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
         } catch (IllegalArgumentException e) {
             log.info("Inserimento a mano del caricamento {} rifiutato: {}", id.valore(), e.getClass().getSimpleName());
             throw new DatiNonValidiException(null, e.getMessage());
+        } catch (DataAccessException e) {
+            if (!valoreFuoriColonna(e)) {
+                throw e;
+            }
+            // importi validi uno per uno ma con dati calcolati (RAL, valore dei ratei...) che non stanno nelle colonne
+            log.info("Inserimento a mano del caricamento {} rifiutato dal database: {}", id.valore(),
+                    e.getClass().getSimpleName());
+            throw new DatiNonValidiException(null, MessaggiCaricamento.VALORI_TROPPO_GRANDI);
         }
+    }
+
+    /** Errore SQL della classe 22 (data exception: valore troppo lungo o fuori dall'intervallo della colonna). */
+    private static boolean valoreFuoriColonna(DataAccessException e) {
+        for (Throwable causa = e; causa != null; causa = causa.getCause()) {
+            if (causa instanceof SQLException sql && sql.getSQLState() != null && sql.getSQLState().startsWith("22")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String campo(CedolinoNonAcquisibileException.Dato dato) {

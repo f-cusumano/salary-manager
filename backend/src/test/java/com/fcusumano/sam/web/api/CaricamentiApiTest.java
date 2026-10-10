@@ -239,7 +239,7 @@ class CaricamentiApiTest extends ApiWebMvcTest {
                 StatoCaricamento.AGGIUNTIVO_NON_GESTITO, "Cedolino aggiuntivo di Marzo 2024: non gestito", null, false,
                 null, new CedolinoId(18), new PersonaId(2), new RapportoLavoroId(9), DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
         var errore = new Caricamento(new CaricamentoId(3), LOTTO, "protetto.pdf", 100, StatoCaricamento.ERRORE,
-                "PDF protetto da password: indica la password e ricarica", MotivoErrore.PDF_PROTETTO, true, null, null,
+                "PDF protetto da password: riprova indicando la password", MotivoErrore.PDF_PROTETTO, true, null, null,
                 null, null, DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
         var acquisito = new Caricamento(new CaricamentoId(1), LOTTO, "gennaio.pdf", 100, StatoCaricamento.ACQUISITO,
                 null, null, false, new CedolinoId(16), null, new PersonaId(2), new RapportoLavoroId(9), DatiDiProva.ISTANTE,
@@ -258,7 +258,7 @@ class CaricamentiApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.caricamenti[2].personaId").value(nullValue()))
                 .andExpect(jsonPath("$.caricamenti[2].rapportoId").value(nullValue()))
                 .andExpect(jsonPath("$.caricamenti[2].messaggio")
-                        .value("PDF protetto da password: indica la password e ricarica"))
+                        .value("PDF protetto da password: riprova indicando la password"))
                 .andExpect(jsonPath("$.caricamenti[2].motivo").value("PDF_PROTETTO"))
                 .andExpect(jsonPath("$.caricamenti[2].pdfDisponibile").value(true))
                 .andExpect(jsonPath("$.caricamenti[0].motivo").value(nullValue()))

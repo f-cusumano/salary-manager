@@ -12,6 +12,7 @@ import com.fcusumano.sam.shared.WorkspaceId;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -43,12 +44,46 @@ public interface CaricamentiRepository {
     List<Caricamento> recenti(WorkspaceId workspace, int limite);
 
     /**
-     * Porta in ERRORE con motivo e messaggio indicati i caricamenti di tutti i workspace ancora IN_CODA o IN_LETTURA.
-     * Il PDF conservato del file non cambia.
+     * Porta in ERRORE con il motivo indicato i caricamenti di tutti i workspace ancora IN_CODA o IN_LETTURA. Il PDF
+     * conservato del file non cambia; il messaggio dipende dalla sua presenza (con il PDF il file si rilegge o si
+     * inserisce a mano, senza va caricato di nuovo).
+     *
+     * @param messaggioConPdf   messaggio dei caricamenti il cui file ha il PDF conservato
+     * @param messaggioSenzaPdf messaggio degli altri
+     * @return numero di caricamenti aggiornati
+     */
+    int interrompiNonTerminati(MotivoErrore motivo, String messaggioConPdf, String messaggioSenzaPdf);
+
+    /**
+     * Porta in DUPLICATO, con il messaggio indicato e il riferimento al cedolino esistente, i caricamenti di tutti i
+     * workspace ancora IN_CODA o IN_LETTURA il cui file e' gia' archiviato come cedolino (la loro elaborazione li
+     * avrebbe scartati: interromperli renderebbe il file di nuovo "in errore" se il cedolino venisse eliminato).
      *
      * @return numero di caricamenti aggiornati
      */
-    int interrompiNonTerminati(MotivoErrore motivo, String messaggio);
+    int scartaNonTerminatiGiaArchiviati(String messaggio);
+
+    /**
+     * Rapporti (con il loro workspace) a cui sono associati i file con un caricamento IN_CODA o IN_LETTURA: il
+     * ripristino ne cambia il motivo dell'errore, che le segnalazioni riportano.
+     */
+    Set<RapportoAssociato> rapportiAssociatiANonTerminati();
+
+    /** Rapporti (con il loro workspace) a cui sono associati file che non sono piu' in errore. */
+    Set<RapportoAssociato> rapportiAssociatiAFileNonInErrore();
+
+    /**
+     * Chiude come DUPLICATO, con il messaggio indicato e il riferimento al cedolino appena archiviato, i tentativi in
+     * ERRORE dello stesso file successivi (per id) al caricamento acquisito: altrimenti, eliminato il cedolino, il
+     * file tornerebbe "in errore" (il suo ultimo tentativo concluso sarebbe un ERRORE).
+     *
+     * @return numero di caricamenti aggiornati
+     */
+    int chiudiErroriSuccessivi(WorkspaceId workspace, String hash, CaricamentoId acquisito, CedolinoId cedolino,
+                               String messaggio);
+
+    /** Il file e' in errore: ultimo tentativo concluso in ERRORE e nessun cedolino archiviato con quell'hash. */
+    boolean fileInErrore(WorkspaceId workspace, String hash);
 
     /** Conserva il PDF originale del file, se non e' gia' conservato (stesso hash = stesso contenuto). */
     void salvaPdfSeAssente(WorkspaceId workspace, String hash, byte[] contenuto);
@@ -107,6 +142,10 @@ public interface CaricamentiRepository {
 
     /** File da registrare: nome come caricato, dimensione in byte, hash SHA-256 esadecimale. */
     record FileInCoda(String nomeFileOriginale, long dimensione, String hash) {
+    }
+
+    /** Rapporto a cui e' associato un file in errore, con il suo workspace. */
+    record RapportoAssociato(WorkspaceId workspace, RapportoLavoroId rapportoId) {
     }
 
     /** Mensilita' a cui l'utente ha associato un file in errore. */

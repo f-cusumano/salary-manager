@@ -47,8 +47,15 @@ final class ValidazioneCedolinoManuale {
     static final int PRIMO_ANNO = 1900;
     /** Anno massimo delle date (le colonne accettano anni fino al 2999, come le competenze). */
     static final int ULTIMO_ANNO_DATE = 2999;
-    /** Valore assoluto massimo di importi e quantita' (colonne NUMERIC(15,5): 10 cifre intere). */
-    static final BigDecimal LIMITE_IMPORTI = BigDecimal.TEN.pow(10);
+    /**
+     * Valore assoluto massimo di importi e quantita': 8 cifre intere (cento milioni). Le colonne NUMERIC(15,5) ne
+     * ammettono 10, ma i dati calcolati dal cedolino nella stessa transazione (RAL = lordo mensile per mensilita',
+     * TFR, valore dei ratei) devono starci anche loro; un valore di 9-10 cifre e' quasi sempre un codice incollato nel
+     * campo sbagliato. Per i prodotti che restano fuori (es. saldo e paga oraria entrambi enormi) il servizio
+     * risponde comunque con un errore generale, mai con un errore interno.
+     */
+    static final BigDecimal LIMITE_IMPORTI = BigDecimal.TEN.pow(8);
+    static final String MESSAGGIO_FUORI_LIMITI = "Valore fuori dai limiti (massimo 8 cifre intere e 5 decimali)";
     static final int DECIMALI_MASSIMI = 5;
     static final int SCATTI_MASSIMI = 99;
     /** Tolleranza del confronto tra la somma delle voci e i totali stampati (come il lettore locale). */
@@ -60,7 +67,10 @@ final class ValidazioneCedolinoManuale {
             "La somma delle voci di trattenuta non corrisponde al totale trattenute stampato";
     static final String AVVISO_CODICE_FISCALE_PROVVISORIO = "Codice fiscale provvisorio (11 cifre)";
 
-    private static final Pattern SPAZI = Pattern.compile("\\s+");
+    /** Spazi di ogni tipo, anche Unicode (spazio non separabile, spazio stretto...) e a capo. */
+    private static final Pattern SPAZI = Pattern.compile("[\\s\\p{Z}]+");
+    /** Caratteri invisibili di formattazione (spazio di larghezza zero, BOM...): si tolgono. */
+    private static final Pattern INVISIBILI = Pattern.compile("[\\u200B-\\u200D\\u2060\\uFEFF]");
     private static final Pattern UNDICI_CIFRE = Pattern.compile("\\d{11}");
     private static final Pattern PARTITA_IVA_CON_PREFISSO = Pattern.compile("IT(\\d{11})");
     private static final Pattern CODICE_FISCALE_AZIENDA = Pattern.compile("\\d{11}|[A-Z0-9]{16}");
@@ -311,7 +321,7 @@ final class ValidazioneCedolinoManuale {
         void importo(String campo, BigDecimal valore) {
             if (valore != null && (valore.abs().compareTo(LIMITE_IMPORTI) >= 0
                     || valore.stripTrailingZeros().scale() > DECIMALI_MASSIMI)) {
-                aggiungi(campo, "Valore fuori dai limiti (massimo 10 cifre intere e 5 decimali)");
+                aggiungi(campo, MESSAGGIO_FUORI_LIMITI);
             }
         }
 
@@ -338,7 +348,9 @@ final class ValidazioneCedolinoManuale {
 
     /**
      * Cedolino normalizzato, con tutti i sotto-record presenti (tranne il TFR, null se non stampato): testi senza
-     * spazi superflui (vuoto = null), codici fiscali e partita IVA maiuscoli e senza spazi (senza il prefisso "IT"
+     * spazi superflui e con ogni spazio Unicode reso come spazio semplice, senza caratteri invisibili (cosi' un IBAN
+     * incollato da una pagina web con spazi non separabili viene riconosciuto e mascherato come gli altri; vuoto =
+     * null), codici fiscali e partita IVA maiuscoli e senza spazi (senza il prefisso "IT"
      * davanti alle 11 cifre), flag di tredicesima e quattordicesima veri per i cedolini di quel tipo, buoni pasto senza
      * importi se non presenti. Idempotente.
      */
@@ -384,7 +396,7 @@ final class ValidazioneCedolinoManuale {
         if (valore == null) {
             return null;
         }
-        var pulito = SPAZI.matcher(valore).replaceAll(" ").strip();
+        var pulito = SPAZI.matcher(INVISIBILI.matcher(valore).replaceAll("")).replaceAll(" ").strip();
         return pulito.isEmpty() ? null : pulito;
     }
 
@@ -392,7 +404,7 @@ final class ValidazioneCedolinoManuale {
         if (valore == null) {
             return null;
         }
-        var pulito = SPAZI.matcher(valore).replaceAll("").toUpperCase(Locale.ROOT);
+        var pulito = SPAZI.matcher(INVISIBILI.matcher(valore).replaceAll("")).replaceAll("").toUpperCase(Locale.ROOT);
         return pulito.isEmpty() ? null : pulito;
     }
 

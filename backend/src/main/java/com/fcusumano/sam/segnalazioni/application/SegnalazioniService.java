@@ -5,11 +5,11 @@ import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
 import com.fcusumano.sam.cedolini.ArchivioCedolini;
 import com.fcusumano.sam.cedolini.CaricamentiInErrore;
-import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.segnalazioni.Segnalazione;
 import com.fcusumano.sam.segnalazioni.SegnalazioniRapporto;
 import com.fcusumano.sam.segnalazioni.TipoSegnalazione;
 import com.fcusumano.sam.segnalazioni.domain.ContestoRapporto;
+import com.fcusumano.sam.segnalazioni.domain.ContestoRapporto.FileInErrore;
 import com.fcusumano.sam.segnalazioni.domain.MotoreSegnalazioni;
 import com.fcusumano.sam.segnalazioni.domain.RegolaSegnalazione;
 import com.fcusumano.sam.shared.Competenza;
@@ -104,12 +104,15 @@ class SegnalazioniService implements SegnalazioniRapporto {
         log.debug("Segnalazioni ricalcolate per il rapporto {}: {}", rapportoId.valore(), segnalazioni.size());
     }
 
-    /** Mensilita' del rapporto con un file in errore associato dall'utente, con il motivo (null se non registrato). */
-    private Map<Competenza.Mensilita, MotivoErrore> mensilitaInErrore(RapportoLavoroId rapportoId) {
-        var mensilita = new HashMap<Competenza.Mensilita, MotivoErrore>();
+    /**
+     * Mensilita' del rapporto con un file in errore associato dall'utente, con il motivo (null se non registrato) e la
+     * presenza del PDF conservato.
+     */
+    private Map<Competenza.Mensilita, FileInErrore> mensilitaInErrore(RapportoLavoroId rapportoId) {
+        var mensilita = new HashMap<Competenza.Mensilita, FileInErrore>();
         for (var file : caricamentiInErrore.associatiARapporto(rapportoId)) {
             if (file.attribuzione() != null) {
-                mensilita.put(file.attribuzione().competenza(), file.motivo());
+                mensilita.put(file.attribuzione().competenza(), new FileInErrore(file.motivo(), file.pdfDisponibile()));
             }
         }
         return mensilita;

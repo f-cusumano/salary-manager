@@ -15,8 +15,11 @@ import org.springframework.stereotype.Component;
  * Registra gli esiti conclusivi diversi da ACQUISITO (che si registra nella transazione di acquisizione) insieme alla
  * sorte del PDF originale e dell'associazione del file, in una transazione serializzata per workspace:
  * <ul>
- *   <li>ERRORE: motivo e messaggio; il PDF si conserva (uno per file) se il motivo lo prevede e il file non e'
- *       archiviato, altrimenti si elimina; l'associazione resta;</li>
+ *   <li>ERRORE: motivo e messaggio. Se il file e' ancora in errore (ricontrollato dopo la registrazione: un tentativo
+ *       successivo dello stesso file puo' essersi concluso prima) il PDF si conserva (uno per file) se il motivo lo
+ *       prevede, altrimenti si elimina, e l'associazione resta: le segnalazioni del rapporto associato, che riportano
+ *       motivo e azioni possibili, vengono ricalcolate. Se il file non e' piu' in errore PDF e associazione si
+ *       eliminano;</li>
  *   <li>DUPLICATO / AGGIUNTIVO_NON_GESTITO: il file non e' piu' in errore, quindi PDF e associazione si eliminano.</li>
  * </ul>
  * Se la transazione fallisce lo stato si registra comunque con un aggiornamento semplice: un caricamento non resta mai
@@ -29,14 +32,12 @@ class ChiusuraCaricamento {
 
     private final ScrittureSerializzate scritture;
     private final CaricamentiRepository caricamenti;
-    private final CedoliniRepository cedolini;
     private final ApplicationEventPublisher eventi;
 
-    ChiusuraCaricamento(ScrittureSerializzate scritture, CaricamentiRepository caricamenti, CedoliniRepository cedolini,
+    ChiusuraCaricamento(ScrittureSerializzate scritture, CaricamentiRepository caricamenti,
                         ApplicationEventPublisher eventi) {
         this.scritture = scritture;
         this.caricamenti = caricamenti;
-        this.cedolini = cedolini;
         this.eventi = eventi;
     }
 
@@ -46,12 +47,20 @@ class ChiusuraCaricamento {
         try {
             scritture.inTransazione(ws, stato -> {
                 caricamenti.registraErrore(ws, lavoro.caricamentoId(), motivo, messaggio);
-                if (cedolini.perHash(ws, lavoro.hash()).isEmpty()) {
+                var hash = lavoro.hash();
+                if (caricamenti.fileInErrore(ws, hash)) {
                     if (motivo.conservaPdf()) {
-                        caricamenti.salvaPdfSeAssente(ws, lavoro.hash(), lavoro.contenuto());
+                        caricamenti.salvaPdfSeAssente(ws, hash, lavoro.contenuto());
                     } else {
-                        caricamenti.eliminaPdf(ws, lavoro.hash());
+                        caricamenti.eliminaPdf(ws, hash);
                     }
+                    caricamenti.attribuzione(ws, hash).ifPresent(attribuzione -> eventi.publishEvent(
+                            new CaricamentiInErroreModificati(Set.of(attribuzione.rapportoId()))));
+                } else {
+                    // file archiviato o risolto da un tentativo successivo gia' concluso: nulla da conservare
+                    caricamenti.eliminaPdf(ws, hash);
+                    caricamenti.eliminaAttribuzione(ws, hash).ifPresent(
+                            rapporto -> eventi.publishEvent(new CaricamentiInErroreModificati(Set.of(rapporto))));
                 }
                 return null;
             });

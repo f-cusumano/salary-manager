@@ -5,6 +5,8 @@ import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.PIVA
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conDatore;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conDipendente;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conPeriodo;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conRatei;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conRetribuzione;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conTotali;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.essenziale;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.n;
@@ -25,9 +27,12 @@ import com.fcusumano.sam.cedolini.CaricamentoId;
 import com.fcusumano.sam.cedolini.CaricamentoInErrore;
 import com.fcusumano.sam.cedolini.CedolinoAcquisito;
 import com.fcusumano.sam.cedolini.CedolinoManuale;
+import com.fcusumano.sam.cedolini.ElementiRetributivi;
 import com.fcusumano.sam.cedolini.FileCaricato;
 import com.fcusumano.sam.cedolini.MotivoErrore;
+import com.fcusumano.sam.cedolini.Rateo;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
+import com.fcusumano.sam.cedolini.TipoRateo;
 import com.fcusumano.sam.cedolini.VerificaCedolinoManuale;
 import com.fcusumano.sam.cedolini.VerificaCedolinoManuale.Esito;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.FileInCoda;
@@ -41,6 +46,7 @@ import com.fcusumano.sam.shared.DatiNonValidiException.ErroreCampo;
 import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
 import com.fcusumano.sam.shared.TipoMensilita;
+import com.fcusumano.sam.shared.UnitaMisura;
 import com.fcusumano.sam.shared.WorkspaceId;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -92,6 +98,8 @@ class CaricamentiInErroreIntegrationTest {
     CaricamentiInErrore inErrore;
     @Autowired
     ArchivioCedolini archivio;
+    @Autowired
+    ChiusuraCaricamento chiusura;
 
     @BeforeEach
     void databaseVuoto() {
@@ -261,7 +269,8 @@ class CaricamentiInErroreIntegrationTest {
         var interrotto = rileggi(tentativo);
         assertThat(interrotto.stato()).isEqualTo(StatoCaricamento.ERRORE);
         assertThat(interrotto.motivo()).isEqualTo(MotivoErrore.INTERROTTO);
-        assertThat(interrotto.messaggio()).isEqualTo(MessaggiCaricamento.INTERROTTO_DAL_RIAVVIO);
+        assertThat(interrotto.messaggio()).as("il PDF e' conservato: si rilegge o si inserisce a mano")
+                .isEqualTo(MessaggiCaricamento.INTERROTTO_DAL_RIAVVIO_RILEGGIBILE);
         assertThat(interrotto.pdfDisponibile()).isTrue();
         assertThat(caricamentiRepository.pdf(WS, hash(contenuto))).hasValueSatisfying(
                 pdf -> assertThat(pdf).isEqualTo(contenuto));
@@ -298,6 +307,154 @@ class CaricamentiInErroreIntegrationTest {
                 .containsExactly(hash(inErrore));
         assertThat(dsl.fetch("SELECT hash_contenuto FROM caricamento_attribuzione").getValues(0, String.class))
                 .containsExactly(hash(inErrore));
+    }
+
+    @Test
+    void alRiavvioUnTentativoNonConclusoDiUnFileGiaArchiviatoDiventaDuplicato() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var contenuto = pdfFixture("rossi-alfa-2023-04");
+        var tentativo = caricamentiRepository.registra(WS, UUID.randomUUID(),
+                List.of(new FileInCoda("copia.pdf", contenuto.length, hash(contenuto)))).getFirst();
+
+        assertThat(ripristino.ripristina()).isZero();
+
+        assertThat(rileggi(tentativo)).satisfies(c -> {
+            assertThat(c.stato()).isEqualTo(StatoCaricamento.DUPLICATO);
+            assertThat(c.motivo()).isNull();
+            assertThat(c.messaggio()).isEqualTo(MessaggiCaricamento.FILE_GIA_CARICATO);
+            assertThat(c.cedolinoEsistenteId()).isEqualTo(aprile.cedolinoId());
+        });
+        archivio.elimina(aprile.cedolinoId());
+        assertThat(inErrore.elenco()).as("eliminato il cedolino, il file non torna in errore").isEmpty();
+    }
+
+    @Test
+    void alRiavvioLaSegnalazioneDelFileAssociatoRiportaLInterruzione() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var contenuto = pdfConTesto("Maggio interrotto dal riavvio");
+        var caricato = caricaInErrore("maggio.pdf", contenuto);
+        inErrore.associa(caricato.id(), aprile.rapportoId(), 2023, 5);
+        assertThat(descrizioneCedolinoInErrore(aprile.rapportoId(), 2023, 5)).contains("(Scansione senza testo)");
+        var tentativo = caricamentiRepository.registra(WS, UUID.randomUUID(),
+                List.of(new FileInCoda("maggio.pdf", contenuto.length, hash(contenuto)))).getFirst();
+        caricamentiRepository.aggiorna(WS, tentativo.id(), StatoCaricamento.IN_LETTURA, null, null, null);
+        eventi.azzera();
+
+        ripristino.ripristina();
+
+        assertThat(descrizioneCedolinoInErrore(aprile.rapportoId(), 2023, 5)).isEqualTo("Il cedolino di Maggio 2023 "
+                + "è stato caricato ma non è stato letto (Elaborazione interrotta): inseriscilo a mano dall'elenco "
+                + "«Cedolini caricati con errore» o riprova la lettura.");
+        assertThat(eventi.modificatiInErrore)
+                .containsExactly(new CaricamentiInErroreModificati(Set.of(aprile.rapportoId())));
+    }
+
+    // ------------------------------------------------------------------------------------------ chiusura in errore
+
+    @Test
+    void unNuovoErroreDelFileAssociatoAggiornaMotivoEAzioniDellaSegnalazione() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var contenuto = pdfConTesto("Maggio con errori diversi");
+        var caricato = caricaInErrore("maggio.pdf", contenuto);
+        inErrore.associa(caricato.id(), aprile.rapportoId(), 2023, 5);
+        assertThat(descrizioneCedolinoInErrore(aprile.rapportoId(), 2023, 5)).contains("(Scansione senza testo)");
+
+        lettoreCedolini.registraErrore("maggio.pdf", new EstrazioneCedolinoException(
+                Motivo.SERVIZIO_NON_DISPONIBILE, "Servizio di lettura non disponibile: riprova più tardi"));
+        carica(new FileCaricato("maggio.pdf", contenuto));
+
+        assertThat(descrizioneCedolinoInErrore(aprile.rapportoId(), 2023, 5)).isEqualTo("Il cedolino di Maggio 2023 "
+                + "è stato caricato ma non è stato letto (Lettore non disponibile): inseriscilo a mano dall'elenco "
+                + "«Cedolini caricati con errore» o riprova la lettura.");
+
+        lettoreCedolini.registraErrore("maggio.pdf", new EstrazioneCedolinoException(Motivo.PIU_CEDOLINI,
+                "Il PDF contiene 2 cedolini distinti: carica un file per ogni cedolino"));
+        carica(new FileCaricato("maggio.pdf", contenuto));
+
+        assertThat(pdfConservati()).isZero();
+        assertThat(attribuzioni()).isEqualTo(1);
+        assertThat(descrizioneCedolinoInErrore(aprile.rapportoId(), 2023, 5)).isEqualTo("Il cedolino di Maggio 2023 "
+                + "è stato caricato ma non è stato letto (Più cedolini nello stesso PDF): dividi il PDF in un file "
+                + "per cedolino e caricali.");
+    }
+
+    @Test
+    void unErroreConclusoDopoUnTentativoSuccessivoGiaScartatoNonConservaIlPdf() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var contenuto = pdfConTesto("Tentativi sovrapposti");
+        var tentativi = caricamentiRepository.registra(WS, UUID.randomUUID(), List.of(
+                new FileInCoda("sovrapposti.pdf", contenuto.length, hash(contenuto)),
+                new FileInCoda("sovrapposti.pdf", contenuto.length, hash(contenuto))));
+        // il secondo tentativo si conclude per primo, scartato; l'associazione e' un residuo
+        caricamentiRepository.aggiorna(WS, tentativi.get(1).id(), StatoCaricamento.AGGIUNTIVO_NON_GESTITO,
+                "Cedolino aggiuntivo di prova", null, aprile.cedolinoId());
+        associa(contenuto, aprile.rapportoId(), 2023, 5);
+        eventi.azzera();
+
+        chiusura.errore(new ElaborazioneCaricamenti.Lavoro(WS, tentativi.get(0).id(), "sovrapposti.pdf", contenuto,
+                hash(contenuto), null), MotivoErrore.PDF_SENZA_TESTO, "Il PDF non contiene testo selezionabile");
+
+        var primo = rileggi(tentativi.get(0));
+        assertThat(primo.stato()).isEqualTo(StatoCaricamento.ERRORE);
+        assertThat(primo.pdfDisponibile()).isFalse();
+        assertThat(pdfConservati()).isZero();
+        assertThat(attribuzioni()).isZero();
+        assertThat(inErrore.elenco()).isEmpty();
+        assertThat(eventi.modificatiInErrore)
+                .containsExactly(new CaricamentiInErroreModificati(Set.of(aprile.rapportoId())));
+        // anche con un PDF rimasto (chiusura non riuscita) il file non piu' in errore non lo restituisce
+        caricamentiRepository.salvaPdfSeAssente(WS, hash(contenuto), contenuto);
+        assertThat(inErrore.pdf(primo.id())).isEmpty();
+    }
+
+    // ------------------------------------------------------------------------------------------ errori senza motivo
+
+    @Test
+    void gliErroriRegistratiPrimaDeiMotiviRestanoGestibiliSenzaPdf() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        // file con due tentativi in errore registrati prima dei motivi (motivo NULL, nessun PDF conservato) e file
+        // con un errore vecchio poi risolto da un duplicato
+        var vecchio = "a".repeat(64);
+        var risolto = "b".repeat(64);
+        var tentativi = caricamentiRepository.registra(WS, UUID.randomUUID(), List.of(
+                new FileInCoda("vecchio.pdf", 10, vecchio), new FileInCoda("vecchio.pdf", 10, vecchio),
+                new FileInCoda("risolto.pdf", 10, risolto), new FileInCoda("risolto.pdf", 10, risolto)));
+        for (int i = 0; i < 3; i++) {
+            dsl.execute("UPDATE caricamento SET stato = 'ERRORE', motivo = NULL, messaggio = 'Errore di prova' "
+                    + "WHERE id = ?", tentativi.get(i).id().valore());
+        }
+        caricamentiRepository.aggiorna(WS, tentativi.get(3).id(), StatoCaricamento.DUPLICATO,
+                MessaggiCaricamento.FILE_GIA_CARICATO, null, aprile.cedolinoId());
+        var ultimo = tentativi.get(1);
+
+        assertThat(inErrore.elenco()).singleElement().satisfies(riga -> {
+            assertThat(riga.id()).isEqualTo(ultimo.id());
+            assertThat(riga.motivo()).isNull();
+            assertThat(riga.messaggio()).isEqualTo("Errore di prova");
+            assertThat(riga.pdfDisponibile()).isFalse();
+            assertThat(riga.inElaborazione()).isFalse();
+        });
+        assertThat(inErrore.pdf(ultimo.id())).isEmpty();
+        List<Runnable> senzaPdf = List.of(
+                () -> inErrore.inserisci(ultimo.id(), essenziale()),
+                () -> inErrore.verifica(ultimo.id(), essenziale()),
+                () -> inErrore.rileggi(ultimo.id(), null));
+        assertThat(senzaPdf).allSatisfy(azione -> assertThatThrownBy(azione::run)
+                .isInstanceOf(OperazioneNonConsentitaException.class)
+                .hasMessage(MessaggiCaricamento.PDF_NON_CONSERVATO));
+
+        inErrore.associa(ultimo.id(), aprile.rapportoId(), 2023, 5);
+        assertThat(descrizioneCedolinoInErrore(aprile.rapportoId(), 2023, 5)).as("nessuna azione senza PDF proposta")
+                .isEqualTo("Il cedolino di Maggio 2023 è stato caricato ma non è stato letto: il PDF non è stato "
+                        + "conservato, caricalo di nuovo.");
+
+        inErrore.rimuovi(ultimo.id());
+
+        assertThat(dsl.fetchCount(dsl.selectFrom("caricamento").where("hash_contenuto = ?", vecchio))).isZero();
+        assertThat(dsl.fetchCount(dsl.selectFrom("caricamento").where("hash_contenuto = ?", risolto))).isEqualTo(2);
+        assertThat(attribuzioni()).isZero();
+        assertThat(segnalazioniDi(aprile.rapportoId(), 2023, 5)).doesNotContain("CEDOLINO_IN_ERRORE");
+        assertThat(inErrore.elenco()).isEmpty();
     }
 
     // ------------------------------------------------------------------------------------------ motivi
@@ -542,6 +699,57 @@ class CaricamentiInErroreIntegrationTest {
     }
 
     @Test
+    void lInserimentoAManoChiudeITentativiSuccessiviInErroreDelloStessoFile() {
+        caricaFixture("rossi-alfa-2023-04");
+        var contenuto = pdfConTesto("Maggio caricato due volte");
+        var primo = caricaInErrore("maggio.pdf", contenuto);
+        var secondo = caricaInErrore("maggio.pdf", contenuto);
+
+        var esito = inErrore.inserisci(primo.id(), essenziale());
+
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+        assertThat(rileggi(secondo)).satisfies(c -> {
+            assertThat(c.stato()).isEqualTo(StatoCaricamento.DUPLICATO);
+            assertThat(c.motivo()).isNull();
+            assertThat(c.messaggio()).isEqualTo(MessaggiCaricamento.FILE_GIA_CARICATO);
+            assertThat(c.cedolinoEsistenteId()).isEqualTo(esito.cedolinoId());
+            assertThat(c.pdfDisponibile()).isFalse();
+        });
+        assertThat(inErrore.elenco()).isEmpty();
+
+        archivio.elimina(esito.cedolinoId());
+
+        assertThat(inErrore.elenco()).as("eliminato il cedolino, il file non torna in errore").isEmpty();
+        assertThat(pdfConservati()).isZero();
+    }
+
+    @Test
+    void valoriTroppoGrandiSonoErroriDeiDatiEIlFileRestaInErrore() {
+        caricaFixture("rossi-alfa-2023-04");
+        var caricato = caricaInErrore("enorme.pdf", pdfConTesto("Importi enormi"));
+        var nettoEnorme = conTotali(essenziale(), new CedolinoManuale.Totali(null, n("2100.00"), n("450.00"), null,
+                n("999999999")));
+        // ogni valore nei limiti, ma il valore stimato dei ratei (saldo x paga oraria) non sta nelle colonne
+        var prodottoEnorme = conRatei(conRetribuzione(essenziale(), new ElementiRetributivi(null, null, null, null,
+                        null, null, null, null, n("99999999"), null, null, null)),
+                List.of(new Rateo(TipoRateo.FERIE, UnitaMisura.ORE, null, null, null, n("99999999"))));
+        var prima = conteggi();
+
+        assertThatThrownBy(() -> inErrore.inserisci(caricato.id(), nettoEnorme))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori()).containsExactly(
+                        new ErroreCampo("totali.netto", ValidazioneCedolinoManuale.MESSAGGIO_FUORI_LIMITI)));
+        assertThatThrownBy(() -> inErrore.verifica(caricato.id(), prodottoEnorme))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori()).containsExactly(
+                        new ErroreCampo(null, MessaggiCaricamento.VALORI_TROPPO_GRANDI)));
+        assertThatThrownBy(() -> inErrore.inserisci(caricato.id(), prodottoEnorme))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori()).containsExactly(
+                        new ErroreCampo(null, MessaggiCaricamento.VALORI_TROPPO_GRANDI)));
+        assertThat(conteggi()).isEqualTo(prima);
+        assertThat(rileggi(caricato).stato()).isEqualTo(StatoCaricamento.ERRORE);
+        assertThat(inErrore.elenco()).extracting(CaricamentoInErrore::id).containsExactly(caricato.id());
+    }
+
+    @Test
     void ilFileProtettoSenzaPasswordSiInserisceAManoConIByteCifrati() {
         var cifrato = pdfFixture("rossi-beta-2025-03");
         var protetto = carica(new FileCaricato("rossi-beta-2025-03.pdf", cifrato));
@@ -684,6 +892,8 @@ class CaricamentiInErroreIntegrationTest {
 
         assertThat(inErrore.elenco()).singleElement().satisfies(riga -> {
             assertThat(riga.motivo()).isEqualTo(MotivoErrore.INTERROTTO);
+            assertThat(riga.messaggio()).as("senza PDF il file va ricaricato")
+                    .isEqualTo(MessaggiCaricamento.INTERROTTO_DAL_RIAVVIO);
             assertThat(riga.pdfDisponibile()).isFalse();
         });
         assertThatThrownBy(() -> inErrore.inserisci(tentativo.id(), essenziale()))
@@ -858,6 +1068,13 @@ class CaricamentiInErroreIntegrationTest {
             conteggi.put(tabella, dsl.fetchCount(dsl.selectFrom(tabella)));
         }
         return conteggi;
+    }
+
+    /** Descrizione della segnalazione CEDOLINO_IN_ERRORE di una mensilita' del rapporto. */
+    private String descrizioneCedolinoInErrore(RapportoLavoroId rapporto, int anno, int mese) {
+        return dsl.fetchSingle("SELECT descrizione FROM segnalazione WHERE rapporto_id = ? AND competenza_anno = ? "
+                + "AND competenza_mese = ? AND tipo = 'CEDOLINO_IN_ERRORE'", rapporto.valore(), anno, mese)
+                .get(0, String.class);
     }
 
     /** Tipi delle segnalazioni salvate per una mensilita' del rapporto. */

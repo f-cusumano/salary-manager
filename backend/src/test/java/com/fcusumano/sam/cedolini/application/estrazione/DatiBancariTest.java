@@ -48,6 +48,24 @@ class DatiBancariTest {
     }
 
     @Test
+    void mascheraUnIbanConSpaziNonSeparabiliTrattiniPuntiOCaratteriInvisibili() {
+        // come incollato da una pagina web o da un PDF: spazio non separabile, spazio stretto, trattini, punti
+        for (var separatore : new String[] {"\u00A0", "\u202F", "\u2009", "-", ".", " - ", "\t", "\u200B"}) {
+            var iban = String.join(separatore, "IT60", "X054", "2811", "1010", "0000", "0123", "456");
+            assertThat(DatiBancari.maschera("Via Roma 1 IBAN " + iban + ", Milano"))
+                    .as("separatore U+%04X", (int) separatore.charAt(0))
+                    .isEqualTo("Via Roma 1 IBAN [dato bancario rimosso], Milano");
+        }
+    }
+
+    @Test
+    void conISeparatoriNonMascheraDateCodiciOImportiConLaStessaForma() {
+        var testo = "Periodo 01-01-2023 IT12-3456-7890 cod. AB12.3456.7890.12 importo 1.234.567,89";
+
+        assertThat(DatiBancari.maschera(testo)).isSameAs(testo);
+    }
+
+    @Test
     void mascheraPiuIbanNelloStessoTesto() {
         var lituano = iban("LT", "7300010123456789");
         assertThat(DatiBancari.maschera(lituano + " e IT60X0542811101000000123456"))

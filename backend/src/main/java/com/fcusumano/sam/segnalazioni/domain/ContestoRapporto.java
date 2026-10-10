@@ -26,11 +26,21 @@ import java.util.TreeMap;
  *                 ({@link Competenza#ORDINE_CRONOLOGICO})
  * @param oggi     data di riferimento (da Clock, per test deterministici)
  * @param mensilitaInErrore mensilita' a cui l'utente ha associato un file caricato con errore, con il motivo
- *                          dell'errore (null se non registrato); in ordine cronologico. Una mensilita' puo' avere
- *                          anche il cedolino, archiviato nel frattempo da un altro file
+ *                          dell'errore e la presenza del PDF conservato; in ordine cronologico. Una mensilita' puo'
+ *                          avere anche il cedolino, archiviato nel frattempo da un altro file
  */
 public record ContestoRapporto(RapportoLavoro rapporto, Ccnl ccnl, List<CedolinoNormalizzato> cedolini, LocalDate oggi,
-                               Map<Competenza.Mensilita, MotivoErrore> mensilitaInErrore) {
+                               Map<Competenza.Mensilita, FileInErrore> mensilitaInErrore) {
+
+    /**
+     * File in errore associato a una mensilita'.
+     *
+     * @param motivo         motivo dell'errore, null se non registrato (errori precedenti ai motivi)
+     * @param pdfDisponibile il PDF originale e' conservato: il file si puo' inserire a mano o rileggere; altrimenti va
+     *                       caricato di nuovo
+     */
+    public record FileInErrore(MotivoErrore motivo, boolean pdfDisponibile) {
+    }
 
     private static final Comparator<CedolinoNormalizzato> CRONOLOGICO =
             Comparator.comparing(CedolinoNormalizzato::competenza, Competenza.ORDINE_CRONOLOGICO);
@@ -39,8 +49,8 @@ public record ContestoRapporto(RapportoLavoro rapporto, Ccnl ccnl, List<Cedolino
         Objects.requireNonNull(rapporto, "rapporto");
         Objects.requireNonNull(oggi, "oggi");
         cedolini = cedolini == null ? List.of() : cedolini.stream().sorted(CRONOLOGICO).toList();
-        // TreeMap: ordine cronologico e motivi null ammessi (Map.copyOf non li accetta)
-        var ordinate = new TreeMap<Competenza.Mensilita, MotivoErrore>(Competenza.ORDINE_CRONOLOGICO);
+        // TreeMap: ordine cronologico
+        var ordinate = new TreeMap<Competenza.Mensilita, FileInErrore>(Competenza.ORDINE_CRONOLOGICO);
         if (mensilitaInErrore != null) {
             ordinate.putAll(mensilitaInErrore);
         }
