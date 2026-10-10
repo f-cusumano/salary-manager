@@ -39,11 +39,12 @@ function leggiRapporto(api: ApiClient, rapportoId: number, signal?: AbortSignal)
     .then((r) => esito(r));
 }
 
-export function useRapporto(rapportoId: number) {
+export function useRapporto(rapportoId: number, abilitato = true) {
   const api = useApiClient();
   return useQuery({
     queryKey: chiavi.rapporto(rapportoId),
     queryFn: ({ signal }) => leggiRapporto(api, rapportoId, signal),
+    enabled: abilitato,
   });
 }
 

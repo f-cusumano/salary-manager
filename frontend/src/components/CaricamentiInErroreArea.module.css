@@ -1,0 +1,63 @@
+.area {
+  /* raggiunta dall'indicatore della barra superiore: resta visibile sotto l'intestazione fissa */
+  scroll-margin-top: calc(68px + var(--mantine-spacing-md));
+  border-color: var(--mantine-color-red-3);
+  border-left: 4px solid var(--mantine-color-red-6);
+}
+
+.area:focus {
+  outline: none;
+}
+
+.area:focus-visible {
+  outline: 2px solid var(--mantine-color-red-6);
+  outline-offset: 2px;
+}
+
+.elenco {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* stesso rosso delle righe in ERRORE della modale di caricamento */
+.riga {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  padding: 10px var(--mantine-spacing-sm);
+  border-color: var(--mantine-color-red-3);
+  background-color: var(--mantine-color-red-0);
+}
+
+.icona {
+  align-self: start;
+}
+
+.testo {
+  min-width: 0;
+}
+
+.nomeFile {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.azioni {
+  justify-content: flex-end;
+}
+
+@media (max-width: $mantine-breakpoint-sm) {
+  .riga {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  /* sui telefoni le azioni vanno a capo sotto il testo */
+  .azioni {
+    grid-column: 1 / -1;
+  }
+}

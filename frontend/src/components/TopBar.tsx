@@ -2,6 +2,7 @@ import { Button, Group, Image, Loader, Select, Title } from '@mantine/core';
 import { IconUpload } from '@tabler/icons-react';
 import { usePersone } from '../api/queries';
 import { testi } from '../i18n';
+import { IndicatoreCaricamentiInErrore } from './IndicatoreCaricamentiInErrore';
 import classes from './TopBar.module.css';
 
 interface Props {
@@ -11,7 +12,10 @@ interface Props {
   caricamentoInCorso: boolean;
 }
 
-/** Barra superiore: logo e nome a sinistra, tendina persone e pulsante di caricamento a destra. */
+/**
+ * Barra superiore: logo e nome a sinistra; a destra tendina persone, contatore dei cedolini caricati con errore (solo
+ * se ce ne sono) e pulsante di caricamento.
+ */
 export function TopBar({ personaId, onSelezionaPersona, onCaricaCedolini, caricamentoInCorso }: Props) {
   const persone = usePersone();
   const opzioni = (persone.data ?? []).map((p) => ({ value: String(p.id), label: p.etichetta }));
@@ -52,6 +56,7 @@ export function TopBar({ personaId, onSelezionaPersona, onCaricaCedolini, carica
           comboboxProps={{ shadow: 'md' }}
           classNames={{ input: classes.personaInput }}
         />
+        <IndicatoreCaricamentiInErrore />
         <Button
           onClick={onCaricaCedolini}
           aria-label={testi.topBar.caricaCedolini}

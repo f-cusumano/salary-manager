@@ -85,6 +85,21 @@ export function formatMese(valore: string | null | undefined): string {
   return match && nome ? `${nome} ${match[1]}` : valore;
 }
 
+/**
+ * Titolo di una mensilità indicata come anno + mese 1..14 (13 tredicesima, 14 quattordicesima), come il backend:
+ * (2023, 5) => "Maggio 2023", (2023, 13) => "Tredicesima 2023".
+ */
+export function formatMensilita(anno: number, mese: number): string {
+  if (mese === 13) {
+    return `${testi.mensilita.tredicesima} ${anno}`;
+  }
+  if (mese === 14) {
+    return `${testi.mensilita.quattordicesima} ${anno}`;
+  }
+  const nome = nomeMese(mese);
+  return nome ? `${nome} ${anno}` : `${mese}/${anno}`;
+}
+
 /** "2024-01-15" => "15 Gennaio 2024". */
 export function formatData(valore: string | null | undefined): string {
   if (!valore) {
