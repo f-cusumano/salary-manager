@@ -1,5 +1,5 @@
-import { Accordion, Alert, Button, Group, Stack, Text } from '@mantine/core';
-import { useForm, type FormErrors } from '@mantine/form';
+import { Accordion, Alert, Button, Group, Stack, Text, VisuallyHidden } from '@mantine/core';
+import { useForm, type FormErrors, type SetErrors } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { IconAlertCircle, IconChecks, IconDeviceFloppy } from '@tabler/icons-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
@@ -18,6 +18,7 @@ import {
   ordinaPerModulo,
   percorsoForm,
   richiestaDa,
+  senzaErroriRisolti,
   SEZIONI_MODULO,
   sezioneDi,
   type SezioneModulo,
@@ -79,6 +80,27 @@ function erroriDelModulo(valori: ValoriCedolinoManuale, codiciFiscali: readonly 
   return errori;
 }
 
+/** Testo per i lettori di schermo all'arrivo dell'esito della verifica (il pannello compare in fondo al modulo). */
+function annuncioVerifica(esito: VerificaCedolinoManuale): string {
+  if (esito.esito !== 'ACQUISIBILE') {
+    return esito.messaggio ? `${t.annuncioNonSalvabile}: ${esito.messaggio}` : t.annuncioNonSalvabile;
+  }
+  const avvisi = esito.avvisi.filter((avviso) => avviso !== t.nuovaPersona).length;
+  const parti = [esito.titolo ? `${t.annuncioSalvabile} (${esito.titolo})` : t.annuncioSalvabile];
+  if (esito.nuovaPersona) {
+    parti.push(t.nuovaPersona);
+  }
+  if (avvisi > 0) {
+    parti.push(t.annuncioAvvisi.replace('{numero}', String(avvisi)));
+  }
+  return `${parti.join('. ')}.`;
+}
+
+/** Il file si puo' proporre come successivo da completare: PDF conservato, nessun tentativo in corso, mese libero. */
+function daCompletare(elemento: CaricamentoInErrore): boolean {
+  return completabileAMano(elemento) && !elemento.attribuzione?.competenzaPresente;
+}
+
 function aggiungiSezioni(aperte: string[], sezioni: Iterable<SezioneModulo | null>): string[] {
   const nuove = [...sezioni].filter((s): s is SezioneModulo => s !== null && !aperte.includes(s));
   return nuove.length > 0 ? [...aperte, ...new Set(nuove)] : aperte;
@@ -102,12 +124,25 @@ export function ModuloCedolinoManuale({
   const codiciFiscali = useMemo(() => (persone.data ?? []).map((p) => p.codiceFiscale), [persone.data]);
   const [negozio] = useState(() => creaNegozioValori(iniziali));
   const [richiestaIniziale] = useState(() => JSON.stringify(richiestaDa(iniziali)));
+  // letti dalla modifica dei valori, che il modulo puo' conservare dalla prima creazione
+  const codiciCensiti = useRef<readonly string[]>(codiciFiscali);
+  const impostaErrori = useRef<SetErrors | null>(null);
   const form = useForm({
     mode: 'uncontrolled',
     initialValues: iniziali,
     validate: (valori: ValoriCedolinoManuale) => erroriDelModulo(valori, codiciFiscali),
     validateInputOnBlur: true,
-    onValuesChange: (valori) => negozio.imposta(valori),
+    onValuesChange: (valori) => {
+      negozio.imposta(valori);
+      // un errore di riga o tra campi si risolve anche modificando un altro campo: non deve restare in vista
+      impostaErrori.current?.(
+        (attuali) => senzaErroriRisolti(attuali, valori, codiciCensiti.current) as FormErrors,
+      );
+    },
+  });
+  useEffect(() => {
+    codiciCensiti.current = codiciFiscali;
+    impostaErrori.current = form.setErrors;
   });
 
   // le modifiche non salvate (dati che andrebbero persi) si confrontano sulla richiesta, non sulle righe vuote
@@ -157,6 +192,8 @@ export function ModuloCedolinoManuale({
   const [erroriGenerali, setErroriGenerali] = useState<string[]>([]);
   const [problema, setProblema] = useState<Problema | null>(null);
   const [verifica, setVerifica] = useState<Verifica | null>(null);
+  // esito della verifica annunciato ai lettori di schermo (il contatore ripete l'annuncio di un esito uguale)
+  const [annuncio, setAnnuncio] = useState<{ testo: string; numero: number }>({ testo: '', numero: 0 });
   const verificaCedolino = useVerificaCedolinoManuale();
   const inserisci = useInserisciCedolinoManuale();
   const [salvataggio, setSalvataggio] = useState<'singolo' | 'successivo' | null>(null);
@@ -228,14 +265,17 @@ export function ModuloCedolinoManuale({
     verificaCedolino.mutate(
       { caricamentoId: elemento.id, dati },
       {
-        onSuccess: (esito) => setVerifica({ richiesta: JSON.stringify(dati), esito }),
+        onSuccess: (esito) => {
+          setVerifica({ richiesta: JSON.stringify(dati), esito });
+          setAnnuncio((attuale) => ({ testo: annuncioVerifica(esito), numero: attuale.numero + 1 }));
+        },
         onError: (errore) => gestisciErrore(errore, valori, t.erroreVerifica),
       },
     );
   };
 
   const inErrore = useCaricamentiInErrore();
-  const successivi = (inErrore.data ?? []).filter((e) => e.id !== elemento.id && completabileAMano(e));
+  const successivi = (inErrore.data ?? []).filter((e) => e.id !== elemento.id && daCompletare(e));
 
   const salva = (apriSuccessivo: boolean) => {
     const valori = form.getValues();
@@ -350,6 +390,11 @@ export function ModuloCedolinoManuale({
               onRimuoviFile={() => azioni.rimuovi(elemento.id, { onRimosso: onChiudi })}
             />
           )}
+          {/* regione sempre presente: un lettore di schermo annuncia i cambiamenti, non le regioni nuove */}
+          <VisuallyHidden aria-live="polite" aria-atomic="true" data-annuncio-verifica>
+            {annuncio.testo}
+            {annuncio.numero % 2 === 1 ? '\u00a0' : ''}
+          </VisuallyHidden>
         </Stack>
         <BarraAzioni
           verifica={verifica}

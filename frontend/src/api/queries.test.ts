@@ -5,7 +5,12 @@ import { useUrlPdf } from '../hooks/useUrlPdf';
 import { contestoHook } from '../test/contestoHook';
 import { chiavi } from './chiavi';
 import { erroriDiCampo, esito } from './errors';
-import { invalidaDopoAcquisizione, invalidaDopoModificaFileInErrore } from './invalidazioni';
+import {
+  invalidaDopoAcquisizione,
+  invalidaDopoModificaFileInErrore,
+  invalidaSeFileInErroreCambiato,
+} from './invalidazioni';
+import { ApiError } from './errors';
 import {
   useAssociaCaricamento,
   useCaricamentiInErrore,
@@ -76,6 +81,62 @@ describe('invalidazioni', () => {
     expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(true);
     expect(invalidata(contesto, chiavi.persone)).toBe(false);
     expect(invalidata(contesto, chiavi.cedolino(101))).toBe(false);
+  });
+});
+
+describe('rifiuti che rivelano un file in errore cambiato', () => {
+  it('404 e 409 rileggono i file in errore e cio’ che un’acquisizione cambia; gli altri errori no', async () => {
+    for (const [errore, atteso] of [
+      [new ApiError(404, null), true],
+      [new ApiError(409, null), true],
+      [new ApiError(400, null), false],
+      [new TypeError('rete'), false],
+    ] as const) {
+      const contesto = contestoHook();
+      popolaCache(contesto);
+
+      await invalidaSeFileInErroreCambiato(contesto.queryClient, errore);
+
+      expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(atteso);
+      expect(invalidata(contesto, chiavi.rapporto(1))).toBe(atteso);
+      expect(invalidata(contesto, chiavi.ccnl)).toBe(false);
+    }
+  });
+
+  it('le azioni su un file non più in errore rileggono l’elenco', async () => {
+    const contesto = contestoHook();
+    const ristampa = await fileInErrore(contesto, 'ristampa.pdf');
+    const { result } = renderHook(
+      () => ({
+        verifica: useVerificaCedolinoManuale(),
+        inserisci: useInserisciCedolinoManuale(),
+        associa: useAssociaCaricamento(),
+        rimuoviAssociazione: useRimuoviAssociazione(),
+        rimuovi: useRimuoviCaricamento(),
+      }),
+      { wrapper: contesto.wrapper },
+    );
+    // il file viene inserito altrove (un'altra scheda): ogni azione successiva e' rifiutata con 409 o 404
+    await result.current.inserisci.mutateAsync({ caricamentoId: ristampa.id, dati: cedolinoManuale() });
+    const azioni: (() => Promise<unknown>)[] = [
+      () => result.current.verifica.mutateAsync({ caricamentoId: ristampa.id, dati: cedolinoManuale() }),
+      () => result.current.inserisci.mutateAsync({ caricamentoId: ristampa.id, dati: cedolinoManuale() }),
+      () =>
+        result.current.associa.mutateAsync({
+          caricamentoId: ristampa.id,
+          attribuzione: { rapportoId: 1, anno: 2026, mese: 13 },
+        }),
+      () => result.current.rimuoviAssociazione.mutateAsync(ristampa.id),
+      () => result.current.rimuovi.mutateAsync(ristampa.id),
+    ];
+
+    for (const azione of azioni) {
+      popolaCache(contesto);
+      const errore: unknown = await azione().catch((e: unknown) => e);
+      expect(errore).toBeInstanceOf(ApiError);
+      expect([404, 409]).toContain((errore as ApiError).status);
+      await waitFor(() => expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(true));
+    }
   });
 });
 

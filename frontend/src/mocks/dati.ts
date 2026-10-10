@@ -1168,7 +1168,7 @@ export function creaDbMock(datiIniziali: DatiIniziali): MockDb {
 }
 
 /** Testo usato nei messaggi del caricamento simulato. */
-export const MESSAGGIO_PDF_PROTETTO = 'PDF protetto da password: indica la password e ricarica';
+export const MESSAGGIO_PDF_PROTETTO = 'PDF protetto da password: riprova indicando la password';
 
 /** PDF valido di una pagina vuota, servito come contenuto dei PDF simulati. */
 export const PDF_MINIMO =

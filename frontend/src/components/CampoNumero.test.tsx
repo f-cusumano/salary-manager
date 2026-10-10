@@ -73,17 +73,35 @@ describe('campo numerico all’italiana', () => {
     expect(ultimo()).toBe(atteso);
   });
 
-  it('il segno in coda dei cedolini ("123,45-") vale solo dove i negativi sono ammessi', async () => {
+  it('il segno in coda dei cedolini ("123,45-") vale dove i negativi sono ammessi', async () => {
     const con = renderCampo({ negativi: true });
     await con.user.click(con.input);
     await con.user.paste('123,45-');
     expect(con.ultimo()).toBe(-123.45);
     expect(con.input).toHaveValue('-123,45');
-    con.unmount();
-    const senza = renderCampo();
-    await senza.user.click(senza.input);
-    await senza.user.paste('123,45-');
-    expect(senza.ultimo()).toBe(123.45);
+  });
+
+  it('negli importi senza segno (voci) il segno incollato si ignora', async () => {
+    const { user, input, ultimo } = renderCampo({ senzaSegno: true });
+    await user.click(input);
+    await user.paste('123,45-');
+    expect(ultimo()).toBe(123.45);
+    expect(input).toHaveValue('123,45');
+    expect(screen.queryByText('Il valore non può essere negativo')).not.toBeInTheDocument();
+  });
+
+  it('negli altri campi un numero negativo incollato è rifiutato e segnalato, mai cambiato di segno', async () => {
+    const { user, input, onChange } = renderCampo({ defaultValue: 12 });
+    await user.click(input);
+    await user.paste('-8,50');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input).toHaveValue('12');
+    expect(screen.getByText('Il valore non può essere negativo')).toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    // il messaggio sparisce con il valore successivo
+    await user.paste('8,50');
+    expect(onChange).toHaveBeenLastCalledWith(8.5);
+    expect(screen.queryByText('Il valore non può essere negativo')).not.toBeInTheDocument();
   });
 
   it('un testo che non è un numero incollato resta alle regole del campo', async () => {

@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useApiClient } from '../api/context';
 import { messaggioErrore } from '../api/errors';
+import { invalidaSeFileInErroreCambiato } from '../api/invalidazioni';
 import { chiavi, rileggiCaricamento, useCaricamentiInErrore } from '../api/queries';
 import type { CaricamentoInErrore } from '../api/types';
 import type { StatoCaricamentoLotto } from '../hooks/useCaricamento';
@@ -80,6 +81,8 @@ function ContenutoRilettura({ caricamentoId, elemento, caricamento, onChiudi, on
       void queryClient.invalidateQueries({ queryKey: chiavi.caricamentiInErrore });
       onAvviata();
     },
+    // file inserito, rimosso o gia' in rilettura nel frattempo: l'elenco mostrato e' superato
+    onError: (errore) => void invalidaSeFileInErroreCambiato(queryClient, errore),
   });
 
   const occupato = caricamento.inElaborazione;

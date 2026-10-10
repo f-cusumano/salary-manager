@@ -11,8 +11,8 @@ import {
   Tooltip,
   type ComboboxData,
 } from '@mantine/core';
-import { useId, type ReactNode } from 'react';
-import type { SceltaSuperminimo } from '../hooks/useCedolinoManuale';
+import { useId, useRef, type ReactNode } from 'react';
+import { DATA_INCOMPLETA, type SceltaSuperminimo } from '../hooks/useCedolinoManuale';
 import { testi } from '../i18n';
 import { CampoNumero } from './CampoNumero';
 import classes from './InserimentoManualeModal.module.css';
@@ -126,20 +126,49 @@ export function CampoTesto({
   );
 }
 
-/** Data ISO (AAAA-MM-GG) con il selettore del browser. */
+/**
+ * Data ISO (AAAA-MM-GG) con il selettore del browser. Una data che il browser non riesce a interpretare (incompleta o
+ * inesistente) ha valore vuoto: diventa DATA_INCOMPLETA, segnalata come errore invece di andare persa.
+ */
 export function CampoData(base: PropsBase) {
   const { key, props } = useCampo(base);
-  return <TextInput key={key} {...props} type="date" />;
+  const onChange = props.onChange;
+  const onBlur = props.onBlur as (() => void) | undefined;
+  const iniziale: unknown = props.defaultValue;
+  const ultimo = useRef(typeof iniziale === 'string' ? iniziale : '');
+  const aggiorna = (input: HTMLInputElement) => {
+    const valore = input.validity.badInput ? DATA_INCOMPLETA : input.value;
+    // senza cambiare la data mostrata: il campo resta com'e', il modulo riceve il valore da segnalare
+    if (valore !== ultimo.current) {
+      ultimo.current = valore;
+      onChange(valore);
+    }
+  };
+  return (
+    <TextInput
+      key={key}
+      {...props}
+      type="date"
+      onChange={(evento) => aggiorna(evento.currentTarget)}
+      onBlur={(evento) => {
+        // da una data valida a una incompleta il browser non sempre notifica la modifica: si ricontrolla all'uscita
+        aggiorna(evento.currentTarget);
+        onBlur?.();
+      }}
+    />
+  );
 }
 
 interface PropsNumero extends PropsBase {
   decimali?: number;
   negativi?: boolean;
+  /** Importo senza segno (voci): il segno di un numero incollato si ignora. */
+  senzaSegno?: boolean;
   intero?: boolean;
   placeholder?: string;
 }
 
-export function CampoImporto({ decimali, negativi, intero, placeholder, ...base }: PropsNumero) {
+export function CampoImporto({ decimali, negativi, senzaSegno, intero, placeholder, ...base }: PropsNumero) {
   const { key, props } = useCampo(base);
   return (
     <CampoNumero
@@ -147,6 +176,7 @@ export function CampoImporto({ decimali, negativi, intero, placeholder, ...base 
       {...props}
       {...(decimali !== undefined ? { decimali } : {})}
       {...(negativi !== undefined ? { negativi } : {})}
+      {...(senzaSegno !== undefined ? { senzaSegno } : {})}
       {...(intero !== undefined ? { intero } : {})}
       placeholder={placeholder}
     />

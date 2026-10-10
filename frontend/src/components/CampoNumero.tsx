@@ -1,6 +1,7 @@
 import { NumberInput, type NumberInputProps } from '@mantine/core';
 import { useUncontrolled } from '@mantine/hooks';
-import type { ClipboardEvent } from 'react';
+import { useState, type ClipboardEvent } from 'react';
+import { testi } from '../i18n';
 
 type PropsNumberInput = Omit<
   NumberInputProps,
@@ -20,10 +21,16 @@ interface Props extends PropsNumberInput {
   defaultValue?: number | string;
   /** Numero, '' se vuoto, oppure il testo intermedio della digitazione (es. "12.") */
   onChange?: (valore: number | string) => void;
-  /** Cifre decimali ammesse: 2 per importi, quantita' e divisori, 5 per basi e paghe orarie/giornaliere. */
+  /** Cifre decimali ammesse: 2 per importi e divisori, 5 per basi, paghe, quantita' delle voci e ratei. */
   decimali?: number;
-  /** Ammette valori negativi (arrotondamento, netto, saldi dei ratei). */
+  /** Ammette valori negativi (arrotondamento, netto, ratei). */
   negativi?: boolean;
+  /**
+   * Importo senza segno per definizione (importi delle voci): il segno di un numero incollato si ignora, come il meno
+   * in coda con cui i cedolini stampano le trattenute. Negli altri campi senza negativi un numero negativo incollato
+   * viene rifiutato con un messaggio, mai cambiato di segno.
+   */
+  senzaSegno?: boolean;
   /** Numero intero senza separatore delle migliaia (anni, numero di scatti). */
   intero?: boolean;
 }
@@ -33,9 +40,10 @@ const STILE_CIFRE = { input: { textAlign: 'right', fontVariantNumeric: 'tabular-
 /**
  * Interpreta un numero incollato da un PDF o da un foglio di calcolo: "1.234,56", "1234.56", "1,234.56", "123,45-"
  * (segno in coda dei cedolini), con eventuali spazi e simbolo dell'euro. Un solo punto seguito da tre cifre e' il
- * separatore delle migliaia, come nei cedolini italiani. Restituisce null se il testo non e' un numero.
+ * separatore delle migliaia, come nei cedolini italiani. Restituisce il numero con il suo segno, null se il testo non
+ * e' un numero.
  */
-function numeroIncollato(testo: string, decimali: number, negativi: boolean): number | null {
+function numeroIncollato(testo: string, decimali: number): number | null {
   let pulito = testo.replace(/[\s€]/g, '');
   let negativo = false;
   if (pulito.endsWith('-')) {
@@ -80,7 +88,7 @@ function numeroIncollato(testo: string, decimali: number, negativi: boolean): nu
   }
   const fattore = 10 ** decimali;
   const arrotondato = Math.round(numero * fattore) / fattore;
-  return negativo && negativi && arrotondato !== 0 ? -arrotondato : arrotondato;
+  return negativo && arrotondato !== 0 ? -arrotondato : arrotondato;
 }
 
 /**
@@ -94,8 +102,10 @@ export function CampoNumero({
   onChange,
   decimali = 2,
   negativi = false,
+  senzaSegno = false,
   intero = false,
   onPaste,
+  error,
   ...altre
 }: Props) {
   const [valore, setValore] = useUncontrolled<number | string>({
@@ -104,25 +114,38 @@ export function CampoNumero({
     finalValue: '',
     ...(onChange ? { onChange } : {}),
   });
+  // numero negativo incollato in un campo che non lo ammette: il valore non cambia e il campo lo segnala
+  const [negativoRifiutato, setNegativoRifiutato] = useState(false);
+
+  const aggiorna = (nuovo: number | string) => {
+    setNegativoRifiutato(false);
+    setValore(nuovo);
+  };
 
   const incolla = (evento: ClipboardEvent<HTMLInputElement>) => {
     onPaste?.(evento);
-    const numero = numeroIncollato(
-      evento.clipboardData.getData('text/plain'),
-      intero ? 0 : decimali,
-      negativi,
-    );
-    if (numero !== null) {
-      evento.preventDefault();
-      setValore(numero);
+    const numero = numeroIncollato(evento.clipboardData.getData('text/plain'), intero ? 0 : decimali);
+    if (numero === null) {
+      return;
     }
+    evento.preventDefault();
+    if (numero < 0 && !negativi) {
+      if (senzaSegno) {
+        aggiorna(-numero);
+      } else {
+        setNegativoRifiutato(true);
+      }
+      return;
+    }
+    aggiorna(numero);
   };
 
   return (
     <NumberInput
       {...altre}
+      error={negativoRifiutato ? testi.comune.negativoNonAmmesso : error}
       value={valore}
-      onChange={setValore}
+      onChange={aggiorna}
       onPaste={incolla}
       decimalSeparator=","
       thousandSeparator={intero ? undefined : '.'}

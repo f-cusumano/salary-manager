@@ -53,6 +53,7 @@ export const it = {
     chiudiFinestra: 'Chiudi la finestra',
     salva: 'Salva',
     erroreGenerico: 'Si è verificato un errore inatteso.',
+    negativoNonAmmesso: 'Il valore non può essere negativo',
     erroreRete: 'Il server non risponde. Verifica che il backend sia avviato e riprova.',
   },
   topBar: {
@@ -608,6 +609,9 @@ export const it = {
     },
     nessunaVoce: 'Nessuna voce: aggiungi le righe del cedolino che vuoi conservare.',
     aggiungiVoce: 'Aggiungi voce',
+    vociCopiateVuote:
+      'Voci copiate senza quantità né importi: {numero}. Non vengono salvate finché non le completi.',
+    rimuoviVociCopiateVuote: 'Rimuovi le voci copiate vuote',
     spostaSu: 'Sposta su',
     spostaGiu: 'Sposta giù',
     rimuoviRiga: 'Rimuovi',
@@ -633,6 +637,9 @@ export const it = {
     },
     nessunRateo: 'Nessun rateo: aggiungi ferie e permessi se il cedolino li riporta.',
     aggiungiRateo: 'Aggiungi rateo',
+    rateiCopiatiVuoti:
+      'Ratei copiati senza maturato, goduto né saldo: {numero}. Non vengono salvati finché non li completi.',
+    rimuoviRateiCopiatiVuoti: 'Rimuovi i ratei copiati vuoti',
     // copia dati
     copiaDa: 'Copia dati da…',
     copiaDescrizione:
@@ -656,6 +663,9 @@ export const it = {
     verificaPrima: 'Verifica i dati per vedere come verrà registrato il cedolino, poi salvalo.',
     verificaDaRifare: 'I dati sono cambiati dopo la verifica: verifica di nuovo prima di salvare.',
     esitoVerifica: 'Esito della verifica',
+    annuncioSalvabile: 'Verifica completata: il cedolino si può salvare',
+    annuncioNonSalvabile: 'Verifica completata: il cedolino non può essere salvato',
+    annuncioAvvisi: 'avvisi da controllare: {numero}',
     dipendentePresente: 'Dipendente: già presente',
     nuovaPersona: 'Verrà creata una nuova persona: controlla il codice fiscale',
     rapportoPresente: 'Rapporto di lavoro: già presente',
@@ -688,11 +698,12 @@ export const it = {
       codiceFiscaleAzienda: "Codice fiscale dell'azienda non valido",
       cessazionePrimaAssunzione: "La data di cessazione precede l'assunzione",
       data: 'Data non valida (anno dal 1900 al 2999)',
+      dataIncompleta: 'Data incompleta o inesistente: indica giorno, mese e anno',
       totaleCompetenze: 'Indica il totale competenze',
       totaleTrattenute: 'Indica il totale trattenute',
       netto: 'Indica il netto',
       senzaSegno: "Indica l'importo senza segno",
-      fuoriLimiti: 'Valore fuori dai limiti (massimo 10 cifre intere e 5 decimali)',
+      fuoriLimiti: 'Valore fuori dai limiti (massimo 8 cifre intere e 5 decimali)',
       numeroNonValido: 'Numero non valido',
       descrizioneVoce: 'Indica la descrizione della voce',
       categoriaVoce: 'Indica la categoria della voce',

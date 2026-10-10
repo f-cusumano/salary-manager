@@ -6,7 +6,7 @@ import { avviaCaricamento, leggiLotto, rileggiCaricamento } from '../api/queries
 import type { CaricamentoInErrore, CedolinoManuale, LottoCaricamento } from '../api/types';
 import { cedolinoManuale } from '../test/cedolinoManuale';
 import { creaMockBackend } from './backend';
-import { chiaveFile, type DatiIniziali } from './dati';
+import { chiaveFile, PDF_MINIMO, type DatiIniziali } from './dati';
 
 // Solo dati inventati: Mario Rossi e Alfa Software sono le anagrafiche fittizie del backend simulato.
 
@@ -149,6 +149,9 @@ describe('backend simulato: cedolini caricati con errore', () => {
     expect(associato.segnalazioni[0]).toMatchObject({
       gravita: 'AVVISO',
       titolo: 'Cedolino caricato con errore: Agosto 2025',
+      descrizione:
+        'Il cedolino di Agosto 2025 è stato caricato ma non è stato letto (Layout non riconosciuto): ' +
+        "inseriscilo a mano dall'elenco «Cedolini caricati con errore» o riprova la lettura.",
       competenza: { chiave: '2025.08' },
       evidenze: [{ descrizione: 'Motivo', valore: 'Layout non riconosciuto' }],
     });
@@ -164,6 +167,28 @@ describe('backend simulato: cedolini caricati con errore', () => {
     const ripristinato = await rapporto(api, 1);
     expect(ripristinato.mensilita.find((r) => r.chiave === '2025.08')?.stato).toBe('MANCANTE');
     expect(ripristinato.segnalazioni.map((s) => s.tipo)).toEqual(['MENSILITA_MANCANTE']);
+  });
+
+  it('senza il PDF conservato la segnalazione propone solo di caricare di nuovo il file', async () => {
+    const { api, backend } = avvia();
+    const ristampa = await fileDi(api, 'ristampa.pdf');
+    // come un errore registrato prima dei motivi: nessun PDF conservato
+    for (const chiave of [...backend.db.pdfFile.keys()]) {
+      backend.db.pdfFile.delete(chiave);
+    }
+    const riga = backend.db.caricamenti.find((c) => c.id === ristampa.id);
+    if (riga) {
+      riga.motivo = null;
+      riga.pdfDisponibile = false;
+    }
+
+    const segnalazione = (await rapporto(api, 1)).segnalazioni.find((s) => s.tipo === 'CEDOLINO_IN_ERRORE');
+
+    expect(segnalazione?.descrizione).toBe(
+      'Il cedolino di Agosto 2025 è stato caricato ma non è stato letto: il PDF non è stato conservato, ' +
+        'caricalo di nuovo.',
+    );
+    expect(segnalazione?.evidenze).toEqual([]);
   });
 
   it('l’esito del caricamento dipende dal nome: motivo e PDF conservato solo se completabile', async () => {
@@ -375,11 +400,34 @@ describe('backend simulato: inserimento a mano', () => {
       { campo: 'datoreLavoro.partitaIva', messaggio: 'Partita IVA non valida: deve avere 11 cifre' },
       { campo: 'voci[2].descrizione', messaggio: 'Indica la descrizione della voce' },
       { campo: 'voci[2].categoria', messaggio: 'Indica la categoria della voce' },
-      { campo: 'voci[2].base', messaggio: 'Valore fuori dai limiti (massimo 10 cifre intere e 5 decimali)' },
+      { campo: 'voci[2].base', messaggio: 'Valore fuori dai limiti (massimo 8 cifre intere e 5 decimali)' },
       { campo: 'voci[2].importoCompetenza', messaggio: "Indica l'importo senza segno" },
       { campo: 'ratei[1]', messaggio: 'Rateo ripetuto: uno solo per tipo e unità' },
     ]);
     expect(errori.map((e) => e.messaggio).join(' ')).not.toMatch(/ABCDEF|123/);
+  });
+
+  it('inserito a mano un tentativo, i successivi in errore dello stesso file diventano duplicati', async () => {
+    const { api, backend } = avvia();
+    const ristampa = await fileDi(api, 'ristampa.pdf');
+    // lo stesso file (stesso nome e dimensione) caricato di nuovo e finito ancora in errore: e' il tentativo piu'
+    // recente
+    const stessoFile = new File([PDF_MINIMO], 'ristampa.pdf', { type: 'application/pdf' });
+    await attendiFine(api, await avviaCaricamento(api, { files: [stessoFile], password: null }));
+    const nuovo = await fileDi(api, 'ristampa.pdf');
+    expect(nuovo.id).not.toBe(ristampa.id);
+
+    const inserito = await inserisci(api, ristampa.id, cedolinoManuale());
+
+    const successivo = backend.db.caricamenti.find((c) => c.id === nuovo.id);
+    expect(successivo).toMatchObject({
+      stato: 'DUPLICATO',
+      motivo: null,
+      messaggio: 'Lo stesso file è già stato caricato: scartato',
+      cedolinoEsistenteId: inserito.cedolinoId,
+      pdfDisponibile: false,
+    });
+    expect((await inErrore(api)).map((c) => c.nomeFileOriginale)).not.toContain('ristampa.pdf');
   });
 
   it('verifica e inserisce il cedolino della mensilità associata', async () => {

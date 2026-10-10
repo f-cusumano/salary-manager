@@ -210,7 +210,7 @@ test.describe('Salary Manager in modalità demo', () => {
       ['rossi-beta-2024-09.pdf', 'Acquisito'],
       ['rossi-alfa-2024-03-aggiuntivo.pdf', 'Aggiuntivo non gestito', 'Cedolino aggiuntivo di Marzo 2024'],
       ['gennaio-2023-copia.pdf', 'Duplicato', 'Lo stesso file è già stato caricato: scartato'],
-      ['rossi-beta-2025-03.pdf', 'Errore', 'PDF protetto da password: indica la password e ricarica'],
+      ['rossi-beta-2025-03.pdf', 'Errore', 'PDF protetto da password: riprova indicando la password'],
       ['danneggiato.pdf', 'Errore', 'Il PDF è danneggiato o non leggibile'],
     ];
     for (const [nome, stato, messaggio] of attesi) {

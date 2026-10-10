@@ -52,6 +52,7 @@ export function datiNonValidi(errori: ErroreCampo[]): RifiutoMock {
 /** Messaggi dei rifiuti come nel backend (MessaggiCaricamento). */
 export const MESSAGGI_FILE_IN_ERRORE = {
   nonInErrore: 'Il file non è più in errore: è già stato inserito, rimosso o ricaricato',
+  fileGiaCaricato: 'Lo stesso file è già stato caricato: scartato',
   inElaborazione: 'Il file è in elaborazione: attendi la fine',
   pdfNonConservato: 'PDF del file non conservato: caricalo di nuovo',
   competenzaGiaPresente: (titolo: string) => `Per ${titolo} è già presente un cedolino`,
@@ -106,7 +107,8 @@ export function risolviFile(db: MockDb, chiave: string): void {
  */
 export function chiudiTentativo(db: MockDb, caricamento: Caricamento, contenuto: Blob): void {
   const chiave = chiaveFile(caricamento);
-  if (caricamento.stato !== 'ERRORE') {
+  // anche un errore non conserva nulla se un tentativo successivo dello stesso file si e' gia' concluso altrimenti
+  if (caricamento.stato !== 'ERRORE' || ultimoConcluso(db, chiave)?.stato !== 'ERRORE') {
     risolviFile(db, chiave);
     return;
   }
@@ -318,6 +320,22 @@ function rigaInErrore(elemento: CaricamentoInErrore, competenza: Competenza, tit
   };
 }
 
+/** Azioni possibili nel testo della segnalazione, come RegolaCedolinoInErrore del backend. */
+function cosaFare(elemento: Pick<CaricamentoInErrore, 'motivo' | 'pdfDisponibile'>): string {
+  if (elemento.pdfDisponibile) {
+    return "inseriscilo a mano dall'elenco «Cedolini caricati con errore» o riprova la lettura.";
+  }
+  switch (elemento.motivo) {
+    case 'PDF_NON_VALIDO':
+      return 'caricane una copia valida.';
+    case 'PDF_TROPPE_PAGINE':
+    case 'PIU_CEDOLINI':
+      return 'dividi il PDF in un file per cedolino e caricali.';
+    default:
+      return 'il PDF non è stato conservato, caricalo di nuovo.';
+  }
+}
+
 function segnalazioneInErrore(
   elemento: CaricamentoInErrore,
   competenza: Competenza,
@@ -331,7 +349,7 @@ function segnalazioneInErrore(
     descrizione:
       `Il cedolino di ${titolo} è stato caricato ma non è stato letto` +
       (elemento.motivo !== null ? ` (${DESCRIZIONE_MOTIVO[elemento.motivo]})` : '') +
-      ": inseriscilo a mano dall'elenco «Cedolini caricati con errore» o riprova la lettura.",
+      `: ${cosaFare(elemento)}`,
     cedolinoId: null,
     competenza,
     evidenze:

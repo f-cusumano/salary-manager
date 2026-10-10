@@ -155,15 +155,22 @@ tutti i campi del lettore, divisi in sezioni, senza dati bancari:
 - è precompilato dal mese associato (periodo), dal rapporto (anagrafiche e assunzione) e dal cedolino più vicino dello
   stesso rapporto (inquadramento, elementi retributivi, voci senza quantità e importi, ratei); "Copia dati da…" fa lo
   stesso a richiesta. Si compilano solo i campi vuoti, segnati con un punto blu; la data di cessazione, i totali e
-  quantità e importi delle voci non vengono mai copiati;
+  quantità e importi delle voci non vengono mai copiati. Voci e ratei copiati sono modelli: finché restano senza
+  quantità né importi (i ratei senza valori del mese) non vengono inviati, validati né contati, e una nota permette
+  di toglierli; appena modificati diventano righe come le altre;
 - i numeri si scrivono all'italiana ("1.234,56"; il punto non diventa mai la virgola decimale) e si possono incollare
-  da un PDF ("1.234,56", "1234.56", "123,45-");
+  da un PDF ("1.234,56", "1234.56", "123,45-"): negli importi delle voci il segno incollato si ignora (lo dà la
+  categoria), maturato e goduto dei ratei possono essere negativi, negli altri campi un valore negativo incollato è
+  rifiutato con un messaggio. Al massimo 8 cifre intere e 5 decimali (quantità delle voci e valori dei ratei hanno 5
+  decimali); una data incompleta o con l'anno di più di 4 cifre è un errore, non un campo vuoto;
 - **Verifica** (anche con Ctrl+Invio / ⌘+Invio) controlla i campi obbligatori e i formati, poi chiede al backend
   come verrebbe registrato il cedolino (titolo, persona o rapporto nuovi, avvisi, duplicato) senza salvare nulla;
-  gli errori del backend si posano sui campi. I controlli di coerenza (netto, somme delle voci, saldi dei ratei)
-  sono avvisi arancioni che non bloccano;
+  gli errori del backend si posano sui campi e l'esito è annunciato ai lettori di schermo. Gli errori di riga e tra
+  campi spariscono appena un'altra modifica li risolve. I controlli di coerenza (netto, somme delle voci, saldi dei
+  ratei) sono avvisi arancioni che non bloccano;
 - **Salva cedolino** è abilitato solo se l'ultima verifica riguarda esattamente i dati attuali ed è acquisibile;
-  **Salva e apri il successivo** passa al prossimo file da completare. Il cedolino salvato è archiviato con il PDF
+  **Salva e apri il successivo** passa al prossimo file da completare (esclusi quelli associati a un mese che ha già
+  il cedolino). Un 404 o 409 su un'azione di un file in errore aggiorna subito l'elenco. Il cedolino salvato è archiviato con il PDF
   originale e, nel dettaglio, mostra "Inserito a mano" al posto dell'affidabilità della lettura.
 
 ## Logo

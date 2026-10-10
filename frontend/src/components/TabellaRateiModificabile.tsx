@@ -3,7 +3,13 @@ import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { useEffect, useRef } from 'react';
 import type { TipoRateo, UnitaMisura } from '../api/types';
 import { formatNumero } from '../format/format';
-import { rateoVuoto, saldoCalcolato, TIPI_RATEO, UNITA_RATEO } from '../hooks/useCedolinoManuale';
+import {
+  rateoCopiatoVuoto,
+  rateoVuoto,
+  saldoCalcolato,
+  TIPI_RATEO,
+  UNITA_RATEO,
+} from '../hooks/useCedolinoManuale';
 import { testi } from '../i18n';
 import { CampoImporto, CampoSceltaRiga, PuntoCopiato } from './CampiModulo';
 import classes from './InserimentoManualeModal.module.css';
@@ -24,12 +30,14 @@ const RATEI_COMUNI: readonly (readonly [TipoRateo, UnitaMisura])[] = [
 
 /**
  * Ratei (ferie, permessi…) come righe modificabili, con le aggiunte rapide dei piu' comuni (disabilitate se gia'
- * presenti) e il saldo calcolato (residuo + maturato − goduto) come suggerimento del saldo.
+ * presenti) e il saldo calcolato (residuo + maturato − goduto) come suggerimento del saldo. I ratei copiati da un
+ * altro cedolino e non completati non vengono salvati: una nota li conta e permette di toglierli.
  */
 export function TabellaRateiModificabile() {
   const { form, copiati } = useModulo();
   const ratei = form.getValues().ratei;
   const presenti = useValoreModulo((v) => v.ratei.map((r) => `${r.tipo}/${r.unita}`).join(','));
+  const copiatiVuoti = useValoreModulo((v) => v.ratei.filter(rateoCopiatoVuoto).length);
   const daFocalizzare = useRef<string | null>(null);
   const radice = useRef<HTMLDivElement>(null);
 
@@ -39,6 +47,16 @@ export function TabellaRateiModificabile() {
       daFocalizzare.current = null;
     }
   });
+
+  const rimuoviCopiatiVuoti = () => {
+    const righe = form.getValues().ratei;
+    for (let indice = righe.length - 1; indice >= 0; indice -= 1) {
+      const riga = righe[indice];
+      if (riga && rateoCopiatoVuoto(riga)) {
+        form.removeListItem('ratei', indice);
+      }
+    }
+  };
 
   const aggiungi = (tipo: TipoRateo | null, unita: UnitaMisura | null) => {
     const numero = form.getValues().ratei.length;
@@ -54,6 +72,16 @@ export function TabellaRateiModificabile() {
           {copiati.ratei}
           <PuntoCopiato nota={copiati.ratei} />
         </Text>
+      )}
+      {copiatiVuoti > 0 && (
+        <Group gap="xs" wrap="wrap">
+          <Text size="xs" c="orange.9">
+            {t.rateiCopiatiVuoti.replace('{numero}', String(copiatiVuoti))}
+          </Text>
+          <Button variant="subtle" color="orange" size="compact-xs" onClick={rimuoviCopiatiVuoti}>
+            {t.rimuoviRateiCopiatiVuoti}
+          </Button>
+        </Group>
       )}
       {ratei.length === 0 ? (
         <Text size="sm" c="dimmed">
@@ -126,19 +154,22 @@ function RigaRateo({ indice, onRimuovi }: { indice: number; onRimuovi: () => voi
     >
       <CampoSceltaRiga percorso={`${p}.tipo`} etichetta={COLONNE.tipo} obbligatorio inRiga data={TIPI} />
       <CampoSceltaRiga percorso={`${p}.unita`} etichetta={COLONNE.unita} obbligatorio inRiga data={UNITA} />
+      {/* giorni e ore con i decimali dei cedolini (es. 2,16667); anche negativi, come li ammette il backend */}
       <CampoImporto
         percorso={`${p}.residuoAnnoPrecedente`}
         etichetta={COLONNE.residuoAnnoPrecedente}
         inRiga
         negativi
+        decimali={5}
       />
-      <CampoImporto percorso={`${p}.maturato`} etichetta={COLONNE.maturato} inRiga />
-      <CampoImporto percorso={`${p}.goduto`} etichetta={COLONNE.goduto} inRiga />
+      <CampoImporto percorso={`${p}.maturato`} etichetta={COLONNE.maturato} inRiga negativi decimali={5} />
+      <CampoImporto percorso={`${p}.goduto`} etichetta={COLONNE.goduto} inRiga negativi decimali={5} />
       <CampoImporto
         percorso={`${p}.saldo`}
         etichetta={COLONNE.saldo}
         inRiga
         negativi
+        decimali={5}
         placeholder={calcolato !== null ? formatNumero(calcolato) : undefined}
       />
       <div className={classes.azioniRiga}>

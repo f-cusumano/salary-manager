@@ -281,6 +281,41 @@ describe('elenco dei cedolini caricati con errore', () => {
   );
 });
 
+describe('inserimento a mano durante un caricamento', () => {
+  it('apre il file appena andato in errore anche se il lotto è ancora in corso', async () => {
+    let lettureLotto = 0;
+    const { user } = renderConMock(<App intervalloPollingMs={POLLING_TEST_MS} />, {
+      datiIniziali: 'errori',
+      // il lotto si ferma al secondo passo: il primo file e' in errore, il secondo ancora in lettura (l'elenco dei
+      // file in errore viene riletto solo alla fine del lotto)
+      avvolgiFetch: (fetchApi) => (request) => {
+        if (request.method === 'GET' && new URL(request.url).pathname.includes('/caricamenti/lotti/')) {
+          lettureLotto += 1;
+          if (lettureLotto > 2) {
+            return new Promise<Response>(() => undefined);
+          }
+        }
+        return fetchApi(request);
+      },
+    });
+    await areaInErrore();
+    await user.click(screen.getByRole('button', { name: 'Carica cedolini' }));
+    const modale = await screen.findByRole('dialog', { name: 'Carica cedolini' });
+    await user.upload(inputFile(modale), [pdf('scansione-giugno.pdf'), pdf('luglio.pdf')]);
+    await user.click(within(modale).getByRole('button', { name: 'Avvia caricamento (2)' }));
+
+    await user.click(
+      await within(modale).findByRole('button', { name: 'Inserisci a mano' }, { timeout: 3000 }),
+    );
+
+    const dialogo = await screen.findByRole('dialog', { name: /^Inserisci a mano/ });
+    expect(within(dialogo).queryByText('Il file non esiste più')).not.toBeInTheDocument();
+    expect(await within(dialogo).findByRole('form', { name: 'Dati del cedolino' })).toBeInTheDocument();
+    expect(dialogo).toHaveAccessibleName('Inserisci a mano · scansione-giugno.pdf');
+    expect(within(dialogo).queryByText('Il file non esiste più')).not.toBeInTheDocument();
+  });
+});
+
 describe('associazione di un file in errore a una mensilità', () => {
   it('la mensilità associata è «Caricato con errore» e non più mancante', async () => {
     const { user } = renderConMock(<App />, { datiIniziali: 'errori' });

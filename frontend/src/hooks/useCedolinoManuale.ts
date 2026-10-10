@@ -142,6 +142,11 @@ export type SceltaSuperminimo = 'SI' | 'NO' | 'NON_INDICATO';
 export interface VoceModulo {
   /** Chiave stabile della riga (spostamenti e rimozioni nel modulo non controllato); non viene inviata. */
   chiave: string;
+  /**
+   * Riga copiata da un cedolino di riferimento: i suoi dati al momento della copia (non inviati). Finche' l'utente
+   * non la modifica e' solo un modello senza valori del mese: non viene inviata, controllata ne' contata.
+   */
+  copia?: string;
   codice: string;
   descrizione: string;
   categoria: string | null;
@@ -154,6 +159,8 @@ export interface VoceModulo {
 
 export interface RateoModulo {
   chiave: string;
+  /** Come VoceModulo.copia. */
+  copia?: string;
   tipo: string | null;
   unita: string | null;
   residuoAnnoPrecedente: NumeroModulo;
@@ -427,6 +434,61 @@ function rateoSenzaDati(rateo: RateoModulo): boolean {
   );
 }
 
+/** Dati di una voce come verrebbero inviati: riconosce una riga copiata e non modificata. */
+function firmaVoce(voce: VoceModulo): string {
+  return JSON.stringify([
+    testoDa(voce.codice),
+    testoDa(voce.descrizione),
+    voce.categoria,
+    numeroDa(voce.quantita),
+    testoDa(voce.unita),
+    numeroDa(voce.base),
+    numeroDa(voce.importoCompetenza),
+    numeroDa(voce.importoTrattenuta),
+  ]);
+}
+
+function firmaRateo(rateo: RateoModulo): string {
+  return JSON.stringify([
+    rateo.tipo,
+    rateo.unita,
+    numeroDa(rateo.residuoAnnoPrecedente),
+    numeroDa(rateo.maturato),
+    numeroDa(rateo.goduto),
+    numeroDa(rateo.saldo),
+  ]);
+}
+
+/**
+ * Voce copiata da un cedolino di riferimento e lasciata com'era: senza quantita' e importi del mese (la copia non li
+ * riporta) non viene salvata. Modificata in un qualunque campo diventa una voce dell'utente.
+ */
+export function voceCopiataVuota(voce: VoceModulo): boolean {
+  return (
+    voce.copia !== undefined &&
+    voce.copia === firmaVoce(voce) &&
+    [voce.quantita, voce.importoCompetenza, voce.importoTrattenuta].every(vuoto)
+  );
+}
+
+/** Rateo copiato e lasciato com'era, senza maturato, goduto e saldo del mese: non viene salvato. */
+export function rateoCopiatoVuoto(rateo: RateoModulo): boolean {
+  return (
+    rateo.copia !== undefined &&
+    rateo.copia === firmaRateo(rateo) &&
+    [rateo.maturato, rateo.goduto, rateo.saldo].every(vuoto)
+  );
+}
+
+/** Righe che non vengono inviate: vuote, oppure copiate e non completate. */
+function voceNonInviata(voce: VoceModulo): boolean {
+  return voceSenzaDati(voce) || voceCopiataVuota(voce);
+}
+
+function rateoNonInviato(rateo: RateoModulo): boolean {
+  return rateoSenzaDati(rateo) || rateoCopiatoVuoto(rateo);
+}
+
 /** Indice nel modulo di ogni riga inviata (le righe vuote non vengono inviate): richiesta -> modulo. */
 export interface IndiciRighe {
   voci: number[];
@@ -437,12 +499,12 @@ export function indiciRighe(valori: ValoriCedolinoManuale): IndiciRighe {
   const indici = <T>(righe: T[], inviata: (riga: T) => boolean) =>
     righe.flatMap((riga, indice) => (inviata(riga) ? [indice] : []));
   return {
-    voci: indici(valori.voci, (v) => !voceSenzaDati(v)),
+    voci: indici(valori.voci, (v) => !voceNonInviata(v)),
     // un rateo senza tipo o unita' e' gia' un errore bloccante: non si puo' inviare
     ratei: indici(
       valori.ratei,
       (r) =>
-        !rateoSenzaDati(r) && scelta(r.tipo, TIPI_RATEO) !== null && scelta(r.unita, UNITA_RATEO) !== null,
+        !rateoNonInviato(r) && scelta(r.tipo, TIPI_RATEO) !== null && scelta(r.unita, UNITA_RATEO) !== null,
     ),
   };
 }
@@ -455,7 +517,7 @@ function numeri<K extends string>(gruppo: Record<K, NumeroModulo>): Record<K, nu
 
 /**
  * Richiesta CedolinoManuale dai valori del modulo: testi e numeri vuoti diventano null, le righe vuote di voci e
- * ratei non vengono inviate, il TFR senza alcun valore e' null, i buoni pasto non presenti non hanno importi e il tipo
+ * ratei (e quelle copiate da un altro cedolino e non completate) non vengono inviate, il TFR senza alcun valore e' null, i buoni pasto non presenti non hanno importi e il tipo
  * tredicesima/quattordicesima implica il flag corrispondente (come la normalizzazione del backend).
  */
 export function richiestaDa(valori: ValoriCedolinoManuale): CedolinoManuale {
@@ -573,7 +635,8 @@ export function percorsoForm(campo: string | null, indici?: IndiciRighe): string
 
 // ------------------------------------------------------------------ errori bloccanti
 
-const MASSIMO_ASSOLUTO = 1e10;
+/** Come il backend: 8 cifre intere (i dati calcolati dal cedolino devono stare nelle colonne). */
+const MASSIMO_ASSOLUTO = 1e8;
 const DECIMALI_MASSIMI = 5;
 const PRIMO_ANNO = 1900;
 const ULTIMO_ANNO_DATE = 2999;
@@ -648,9 +711,37 @@ function componi(modello: string, valori: Record<string, string | number>): stri
   );
 }
 
+/**
+ * Cifre decimali del numero come scritto: la sua rappresentazione decimale piu' breve, anche esponenziale ("1e-7").
+ * Moltiplicare per 10^5 non basta: oltre il milione l'errore dei decimali binari supera qualunque tolleranza fissa
+ * (1234567,89 sembrerebbe avere piu' di 5 decimali).
+ */
+function decimaliDi(valore: number): number {
+  const [mantissa = '', esponente = '0'] = Math.abs(valore).toString().split('e');
+  return Math.max(0, (mantissa.split('.')[1] ?? '').length - Number(esponente));
+}
+
 function fuoriLimiti(valore: number): boolean {
-  const scalato = valore * 10 ** DECIMALI_MASSIMI;
-  return Math.abs(valore) >= MASSIMO_ASSOLUTO || Math.abs(scalato - Math.round(scalato)) > 1e-6;
+  return Math.abs(valore) >= MASSIMO_ASSOLUTO || decimaliDi(valore) > DECIMALI_MASSIMI;
+}
+
+/**
+ * Valore di un campo data che il browser non riesce a interpretare (giorno, mese o anno mancanti o impossibili): il
+ * campo `type="date"` restituirebbe un testo vuoto e la data andrebbe persa senza avviso.
+ */
+export const DATA_INCOMPLETA = 'incompleta';
+
+const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Data "AAAA-MM-GG" esistente nel calendario (anno di 4 cifre: il campo del browser ne ammette fino a 6). */
+function dataValida(data: string): boolean {
+  const match = DATA_ISO.exec(data);
+  if (!match) {
+    return false;
+  }
+  const [anno, mese, giorno] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const giorni = new Date(Date.UTC(anno, mese, 0)).getUTCDate();
+  return mese >= 1 && mese <= 12 && giorno >= 1 && giorno <= giorni;
 }
 
 function annoDi(data: string): number {
@@ -715,7 +806,12 @@ class Errori {
   }
 
   data(campo: string, valore: string): void {
-    if (valore !== '' && (annoDi(valore) < PRIMO_ANNO || annoDi(valore) > ULTIMO_ANNO_DATE)) {
+    if (valore === DATA_INCOMPLETA) {
+      this.aggiungi(campo, e.dataIncompleta);
+    } else if (
+      valore !== '' &&
+      (!dataValida(valore) || annoDi(valore) < PRIMO_ANNO || annoDi(valore) > ULTIMO_ANNO_DATE)
+    ) {
       this.aggiungi(campo, e.data);
     }
   }
@@ -778,7 +874,7 @@ export function erroriBloccanti(
   }
   errori.testo('dipendente.cognome', dipendente.cognome, 100, e.cognome);
   errori.testo('dipendente.nome', dipendente.nome, 100, e.nome);
-  if (dipendente.dataNascita !== '' && dipendente.dataNascita > isoLocale(oggi)) {
+  if (dataValida(dipendente.dataNascita) && dipendente.dataNascita > isoLocale(oggi)) {
     errori.aggiungi('dipendente.dataNascita', e.dataNascitaFutura);
   }
   errori.data('dipendente.dataNascita', dipendente.dataNascita);
@@ -805,8 +901,8 @@ export function erroriBloccanti(
   // dati contrattuali
   errori.data('datiContrattuali.dataAssunzione', contratto.dataAssunzione);
   if (
-    contratto.dataAssunzione !== '' &&
-    contratto.dataCessazione !== '' &&
+    dataValida(contratto.dataAssunzione) &&
+    dataValida(contratto.dataCessazione) &&
     contratto.dataCessazione < contratto.dataAssunzione
   ) {
     errori.aggiungi('datiContrattuali.dataCessazione', e.cessazionePrimaAssunzione);
@@ -850,10 +946,10 @@ export function erroriBloccanti(
     errori.numero(`${p}importoTrattenuta`, voce.importoTrattenuta, { senzaSegno: true });
   }
 
-  // ratei (le righe del tutto vuote non vengono inviate)
+  // ratei (le righe del tutto vuote e quelle copiate e non completate non vengono inviate)
   const visti = new Set<string>();
   valori.ratei.forEach((rateo, i) => {
-    if (rateoSenzaDati(rateo)) {
+    if (rateoNonInviato(rateo)) {
       return;
     }
     const p = `ratei[${i}]`;
@@ -906,6 +1002,34 @@ export function erroriBloccanti(
   }
   errori.numeri('progressivi', valori.progressivi);
   return errori.elenco();
+}
+
+/**
+ * Errori su un'intera riga di voci o ratei (o su un suo campo) e errori che dipendono da un altro campo (cessazione
+ * prima dell'assunzione): la modifica di un altro campo puo' risolverli, e il modulo toglie solo l'errore del campo
+ * modificato.
+ */
+const ERRORE_DERIVATO = /^(voci|ratei)\.\d+(\.|$)|^datiContrattuali\.dataCessazione$/;
+
+/**
+ * Gli errori mostrati senza quelli derivati che i valori attuali non hanno piu' (stesso oggetto se non ne cambia
+ * nessuno). Gli errori nuovi non si aggiungono: compaiono alla verifica o all'uscita dal campo.
+ */
+export function senzaErroriRisolti<T>(
+  errori: Readonly<Record<string, T>>,
+  valori: ValoriCedolinoManuale,
+  codiciFiscaliCensiti: readonly string[] = [],
+): Readonly<Record<string, T>> {
+  const derivati = Object.keys(errori).filter((percorso) => ERRORE_DERIVATO.test(percorso));
+  if (derivati.length === 0) {
+    return errori;
+  }
+  const attuali = new Set(erroriBloccanti(valori, codiciFiscaliCensiti).map((e) => percorsoForm(e.campo)));
+  const risolti = new Set(derivati.filter((percorso) => !attuali.has(percorso)));
+  if (risolti.size === 0) {
+    return errori;
+  }
+  return Object.fromEntries(Object.entries(errori).filter(([percorso]) => !risolti.has(percorso)));
 }
 
 // ------------------------------------------------------------------ controlli di coerenza
@@ -1114,9 +1238,9 @@ export function compilatiSezione(valori: ValoriCedolinoManuale, sezione: Sezione
     }
     const valore: unknown = valori[gruppo as keyof ValoriCedolinoManuale];
     if (gruppo === 'voci') {
-      conteggio += valori.voci.filter((v) => !voceSenzaDati(v)).length;
+      conteggio += valori.voci.filter((v) => !voceNonInviata(v)).length;
     } else if (gruppo === 'ratei') {
-      conteggio += valori.ratei.filter((r) => !rateoSenzaDati(r)).length;
+      conteggio += valori.ratei.filter((r) => !rateoNonInviato(r)).length;
     } else if (gruppo === 'buoniPasto') {
       const { presenti, ...importi } = valori.buoniPasto;
       conteggio += presenti ? 1 + Object.values(importi).filter(compilato).length : 0;
@@ -1258,21 +1382,35 @@ function numeroModulo(valore: number | null): NumeroModulo {
   return valore ?? '';
 }
 
-/** Voce del cedolino di riferimento senza quantita' e importi, che cambiano ogni mese. */
+/**
+ * Voce del cedolino di riferimento senza quantita' e importi, che cambiano ogni mese: resta un modello (non salvato)
+ * finche' non la si completa.
+ */
 function voceDaRiferimento(voce: Voce, categoria: CategoriaVoce): VoceModulo {
-  return {
+  const riga: VoceModulo = {
     ...voceVuota(categoria),
     codice: voce.codice ?? '',
     descrizione: voce.descrizione,
     unita: voce.unita ?? '',
     base: numeroModulo(voce.base),
   };
+  return { ...riga, copia: firmaVoce(riga) };
+}
+
+/** Rateo del cedolino di riferimento senza i valori del mese: come le voci, un modello finche' non lo si completa. */
+function rateoDaRiferimento(rateo: CedolinoDettaglio['ratei'][number], stessoAnno: boolean): RateoModulo {
+  const riga: RateoModulo = {
+    ...rateoVuoto(rateo.tipo, rateo.unita),
+    residuoAnnoPrecedente: stessoAnno ? numeroModulo(rateo.residuoAnnoPrecedente) : '',
+  };
+  return { ...riga, copia: firmaRateo(riga) };
 }
 
 /**
  * Dati che si ripetono da un cedolino dello stesso rapporto: matricola, inquadramento e CCNL stampato, elementi
- * retributivi, voci senza quantita' e importi, ratei (con il residuo dell'anno precedente e il fondo TFR solo se
- * dello stesso anno), numero di scatti e buoni pasto. La data di cessazione non viene mai copiata.
+ * retributivi, voci senza quantita' e importi, ratei senza i valori del mese (voci e ratei restano modelli non salvati
+ * finche' non li si completa; il residuo dell'anno precedente e il fondo TFR solo se dello stesso anno), numero di
+ * scatti e buoni pasto. La data di cessazione non viene mai copiata.
  */
 export function daCedolinoRiferimento(
   cedolino: CedolinoDettaglio,
@@ -1308,10 +1446,7 @@ export function daCedolinoRiferimento(
       divisoreGiornaliero: numeroModulo(e.divisoreGiornaliero),
     },
     voci,
-    ratei: cedolino.ratei.map((r) => ({
-      ...rateoVuoto(r.tipo, r.unita),
-      residuoAnnoPrecedente: stessoAnno ? numeroModulo(r.residuoAnnoPrecedente) : '',
-    })),
+    ratei: cedolino.ratei.map((r) => rateoDaRiferimento(r, stessoAnno)),
     ...(stessoAnno && cedolino.tfr
       ? { tfr: { fondo31DicembreAnnoPrecedente: numeroModulo(cedolino.tfr.fondo31DicembreAnnoPrecedente) } }
       : {}),
@@ -1339,7 +1474,7 @@ function righePiene(valore: unknown): boolean {
   return (
     Array.isArray(valore) &&
     valore.some((riga: VoceModulo | RateoModulo) =>
-      'categoria' in riga ? !voceSenzaDati(riga) : !rateoSenzaDati(riga),
+      'categoria' in riga ? !voceNonInviata(riga) : !rateoNonInviato(riga),
     )
   );
 }

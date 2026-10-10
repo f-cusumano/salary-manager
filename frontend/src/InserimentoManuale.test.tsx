@@ -1,7 +1,10 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { chiavi } from './api/chiavi';
 import type { FetchApi } from './api/client';
+import type { CedolinoManuale } from './api/types';
+import { chiaveFile } from './mocks/dati';
 import { areaInErrore, rigaInErrore, type Utente } from './test/app';
 import { renderConMock } from './test/render';
 
@@ -67,6 +70,26 @@ function problema(status: number, corpo: Record<string, unknown>): Promise<Respo
       headers: { 'Content-Type': 'application/problem+json' },
     }),
   );
+}
+
+/** Registra i corpi delle verifiche inviate al backend simulato, senza cambiarne le risposte. */
+function registraVerifiche(richieste: CedolinoManuale[]) {
+  return (fetchApi: FetchApi): FetchApi =>
+    async (request) => {
+      if (request.method === 'POST' && new URL(request.url).pathname.endsWith('/cedolino/verifica')) {
+        richieste.push((await request.clone().json()) as CedolinoManuale);
+      }
+      return fetchApi(request);
+    };
+}
+
+/** Annuncio dell'esito della verifica per i lettori di schermo. */
+function annuncio(dialogo: HTMLElement): HTMLElement {
+  const regione = dialogo.querySelector<HTMLElement>('[data-annuncio-verifica]');
+  if (!regione) {
+    throw new Error('regione dell’annuncio non trovata');
+  }
+  return regione;
 }
 
 function intercetta(percorso: RegExp, risposta: () => Promise<Response>) {
@@ -170,6 +193,11 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     ).toBeVisible();
     expect(within(esito).getByText('Nuovo rapporto di lavoro')).toBeVisible();
     expect(pulsante(dialogo, 'Salva cedolino')).toBeEnabled();
+    // l'esito compare in fondo al modulo: i lettori di schermo lo sentono annunciare
+    expect(annuncio(dialogo)).toHaveAttribute('aria-live', 'polite');
+    expect(annuncio(dialogo)).toHaveTextContent(
+      /^Verifica completata: il cedolino si può salvare \(Maggio 2025\)\. Verrà creata una nuova persona/,
+    );
 
     // dati cambiati dopo la verifica: niente salvataggio finché non si verifica di nuovo (anche con Ctrl+Invio)
     await scrivi(user, dialogo, 'dipendente.codiceDipendente', 'M-17');
@@ -232,6 +260,108 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     ).not.toBeInTheDocument();
   });
 
+  it('"Salva e apri il successivo" non propone i file il cui mese associato è diventato presente', async () => {
+    const { user, backend, queryClient } = renderConMock(<App />, { datiIniziali: 'errori' });
+    await areaInErrore();
+    // cedolino-protetto.pdf associato a Luglio 2025, nel frattempo presente: va solo rimosso
+    const protetto = backend.db.caricamenti.find((c) => c.nomeFileOriginale === 'cedolino-protetto.pdf');
+    backend.db.associazioni.set(chiaveFile(protetto!), { rapportoId: 1, anno: 2025, mese: 7 });
+    await act(() => queryClient.invalidateQueries({ queryKey: chiavi.caricamentiInErrore }));
+    const dialogo = await apriInserimento(user, 'ristampa.pdf');
+    await compilaTotali(user, dialogo);
+
+    await user.click(pulsante(dialogo, 'Verifica'));
+    await within(dialogo).findByRole('region', { name: 'Esito della verifica' });
+
+    expect(pulsante(dialogo, 'Salva e apri il successivo (1)')).toBeEnabled();
+  });
+
+  it('voci e ratei copiati restano modelli: si salvano solo se completati e si tolgono con un clic', async () => {
+    const richieste: CedolinoManuale[] = [];
+    const { user } = renderConMock(<App />, {
+      datiIniziali: 'errori',
+      avvolgiFetch: registraVerifiche(richieste),
+    });
+    const dialogo = await apriInserimento(user, 'ristampa.pdf');
+    const righeVoci = () =>
+      dialogo.querySelectorAll('[data-path^="voci."][data-path$=".descrizione"]').length;
+    const copiate = righeVoci();
+    expect(copiate).toBeGreaterThan(1);
+    expect(
+      within(dialogo).getByText(
+        `Voci copiate senza quantità né importi: ${String(copiate)}. Non vengono salvate finché non le completi.`,
+      ),
+    ).toBeInTheDocument();
+    await user.click(within(dialogo).getByRole('button', { name: /^Ratei/ }));
+    expect(
+      await within(dialogo).findByText(/^Ratei copiati senza maturato, goduto né saldo: \d+\./),
+    ).toBeInTheDocument();
+
+    await compilaTotali(user, dialogo);
+    await scrivi(user, dialogo, 'voci.0.importoCompetenza', '1800');
+    expect(
+      within(dialogo).getByText(
+        new RegExp(`^Voci copiate senza quantità né importi: ${String(copiate - 1)}\\.`),
+      ),
+    ).toBeInTheDocument();
+    // ratei con i decimali dei cedolini e anche negativi (conguagli)
+    await scrivi(user, dialogo, 'ratei.0.maturato', '2,16667');
+    await scrivi(user, dialogo, 'ratei.0.goduto', '-1');
+    expect(campo(dialogo, 'ratei.0.maturato')).toHaveValue('2,16667');
+    expect(campo(dialogo, 'ratei.0.goduto')).toHaveValue('-1');
+    await scrivi(user, dialogo, 'voci.1.quantita', '7,33333');
+    expect(campo(dialogo, 'voci.1.quantita')).toHaveValue('7,33333');
+
+    await user.click(pulsante(dialogo, 'Rimuovi le voci copiate vuote'));
+    expect(righeVoci()).toBe(2);
+    expect(within(dialogo).queryByText(/^Voci copiate senza/)).not.toBeInTheDocument();
+    await user.click(pulsante(dialogo, 'Verifica'));
+    await within(dialogo).findByRole('region', { name: 'Esito della verifica' });
+
+    const [richiesta] = richieste;
+    expect(richiesta?.voci.map((v) => [v.importoCompetenza, v.quantita])).toEqual([
+      [1800, null],
+      [null, 7.33333],
+    ]);
+    expect(richiesta?.ratei).toEqual([expect.objectContaining({ maturato: 2.16667, goduto: -1 })]);
+  });
+
+  it('una data che il browser non riesce a interpretare è un errore, non un campo vuoto', async () => {
+    const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
+    const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
+    await compilaObbligatori(user, dialogo);
+    const data = campo(dialogo, 'periodo.dataElaborazione');
+    // giorno, mese o anno mancanti: il campo type="date" ha valore vuoto e validity.badInput
+    Object.defineProperty(data, 'validity', { configurable: true, value: { badInput: true } });
+
+    await user.click(data);
+    await user.tab();
+
+    expect(
+      await within(dialogo).findByText('Data incompleta o inesistente: indica giorno, mese e anno'),
+    ).toBeInTheDocument();
+    await user.click(pulsante(dialogo, 'Verifica'));
+    expect(await within(dialogo).findByText('1 campo da correggere')).toBeInTheDocument();
+    expect(within(dialogo).queryByRole('region', { name: 'Esito della verifica' })).not.toBeInTheDocument();
+  });
+
+  it('un errore di riga sparisce quando la riga viene corretta', async () => {
+    const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
+    const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
+    await compilaObbligatori(user, dialogo);
+    await user.click(within(dialogo).getByRole('button', { name: /^Ratei/ }));
+    await user.click(await within(dialogo).findByRole('button', { name: '+ Ferie (giorni)' }));
+
+    await user.click(pulsante(dialogo, 'Verifica'));
+    const riga = within(dialogo).getByRole('listitem', { name: 'Rateo 1' });
+    expect(await within(riga).findByText('Indica almeno un valore del rateo')).toBeInTheDocument();
+
+    await scrivi(user, dialogo, 'ratei.0.maturato', '2,5');
+
+    expect(within(riga).queryByText('Indica almeno un valore del rateo')).not.toBeInTheDocument();
+    expect(within(dialogo).queryByText('1 campo da correggere')).not.toBeInTheDocument();
+  });
+
   it('un mese già presente non si può salvare: il file si può rimuovere dalla finestra', async () => {
     const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
     const dialogo = await apriInserimento(user, 'ristampa.pdf');
@@ -242,6 +372,9 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     const esito = await within(dialogo).findByRole('region', { name: 'Esito della verifica' });
     expect(within(esito).getByText('Il cedolino non può essere salvato')).toBeInTheDocument();
     expect(esito).toHaveTextContent(/Luglio 2025/);
+    expect(annuncio(dialogo)).toHaveTextContent(
+      /^Verifica completata: il cedolino non può essere salvato: .*Luglio 2025/,
+    );
     expect(pulsante(dialogo, 'Salva cedolino')).toBeDisabled();
 
     await user.click(within(esito).getByRole('button', { name: 'Rimuovi questo file' }));

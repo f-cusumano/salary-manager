@@ -2,7 +2,7 @@ import { Alert, Button, em, Group, Loader, Modal, Stack, Tabs, Text } from '@man
 import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { IconFileOff, IconPencil } from '@tabler/icons-react';
-import { useCallback, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useCaricamentiInErrore, useCedolino, useRapporto } from '../api/queries';
 import type {
   Caricamento,
@@ -61,8 +61,19 @@ export function InserimentoManualeModal({ caricamentoId, onChiudi, onAcquisito }
 }
 
 function FinestraInserimento({ caricamentoId, onChiudi, onAcquisito }: Props & { caricamentoId: number }) {
+  const [apertaIl] = useState(() => Date.now());
   const inErrore = useCaricamentiInErrore();
   const trovato = inErrore.data?.find((e) => e.id === caricamentoId) ?? null;
+  // un file appena andato in errore (es. dal riepilogo di un lotto ancora in corso) puo' mancare dall'elenco in cache:
+  // prima di dire che non esiste si rilegge l'elenco una volta
+  const elencoPrecedente = inErrore.dataUpdatedAt < apertaIl;
+  const daRileggere = trovato === null && elencoPrecedente && !inErrore.isFetching && !inErrore.isError;
+  const { refetch } = inErrore;
+  useEffect(() => {
+    if (daRileggere) {
+      void refetch();
+    }
+  }, [daRileggere, refetch]);
   // dopo il salvataggio (o la rimozione) il file esce dall'elenco prima che la finestra si chiuda: resta l'ultimo noto
   const [ultimo, setUltimo] = useState<CaricamentoInErrore | null>(trovato);
   if (trovato !== null && trovato !== ultimo) {
@@ -102,9 +113,7 @@ function FinestraInserimento({ caricamentoId, onChiudi, onAcquisito }: Props & {
         onAcquisito={onAcquisito}
       />
     );
-  } else if (inErrore.isPending) {
-    contenuto = <Preparazione />;
-  } else if (inErrore.isError) {
+  } else if (inErrore.isError && !inErrore.isFetching) {
     contenuto = (
       <Stack p="md">
         <ErroreConRiprova
@@ -114,6 +123,8 @@ function FinestraInserimento({ caricamentoId, onChiudi, onAcquisito }: Props & {
         />
       </Stack>
     );
+  } else if (inErrore.isPending || inErrore.isFetching || elencoPrecedente) {
+    contenuto = <Preparazione />;
   } else {
     contenuto = (
       <Stack p="md" align="flex-start">

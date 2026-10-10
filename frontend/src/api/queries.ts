@@ -6,6 +6,7 @@ import { esito } from './errors';
 import {
   invalidaDopoAcquisizione,
   invalidaDopoModificaFileInErrore,
+  invalidaSeFileInErroreCambiato,
   scartaPdfConservato,
 } from './invalidazioni';
 import type { CedolinoManuale, LottoCaricamento, RapportoDettaglio, RichiestaAttribuzione } from './types';
@@ -223,9 +224,13 @@ export interface RichiestaCedolinoManuale {
   dati: CedolinoManuale;
 }
 
-/** Prova dell'inserimento a mano: nessun dato salvato, quindi nessuna invalidazione. */
+/**
+ * Prova dell'inserimento a mano: nessun dato salvato, quindi nessuna invalidazione, salvo un rifiuto che rivela un
+ * file in errore cambiato nel frattempo (404, 409).
+ */
 export function useVerificaCedolinoManuale() {
   const api = useApiClient();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ caricamentoId, dati }: RichiestaCedolinoManuale) =>
       esito(
@@ -234,12 +239,15 @@ export function useVerificaCedolinoManuale() {
           body: dati,
         }),
       ),
+    // senza attendere: l'errore si mostra subito, l'elenco si rilegge in parallelo
+    onError: (errore) => void invalidaSeFileInErroreCambiato(queryClient, errore),
   });
 }
 
 /**
  * Inserimento a mano del cedolino di un file in errore. A salvataggio riuscito rilegge tutto cio' che un'acquisizione
- * cambia e il lotto del file (che ora risulta ACQUISITO), prima di risolvere la mutazione.
+ * cambia e il lotto del file (che ora risulta ACQUISITO), prima di risolvere la mutazione; un rifiuto 404 o 409 (file
+ * cambiato nel frattempo) rilegge l'elenco dei file in errore.
  */
 export function useInserisciCedolinoManuale() {
   const api = useApiClient();
@@ -259,6 +267,7 @@ export function useInserisciCedolinoManuale() {
         queryClient.invalidateQueries({ queryKey: chiavi.lotto(caricamento.lotto) }),
       ]);
     },
+    onError: (errore) => void invalidaSeFileInErroreCambiato(queryClient, errore),
   });
 }
 
@@ -280,6 +289,7 @@ export function useAssociaCaricamento() {
         }),
       ),
     onSuccess: () => invalidaDopoModificaFileInErrore(queryClient),
+    onError: (errore) => void invalidaSeFileInErroreCambiato(queryClient, errore),
   });
 }
 
@@ -294,6 +304,7 @@ export function useRimuoviAssociazione() {
         }),
       ),
     onSuccess: () => invalidaDopoModificaFileInErrore(queryClient),
+    onError: (errore) => void invalidaSeFileInErroreCambiato(queryClient, errore),
   });
 }
 
@@ -315,5 +326,6 @@ export function useRimuoviCaricamento() {
       scartaPdfConservato(queryClient, caricamentoId);
       await invalidaDopoModificaFileInErrore(queryClient);
     },
+    onError: (errore) => void invalidaSeFileInErroreCambiato(queryClient, errore),
   });
 }

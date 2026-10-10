@@ -14,6 +14,7 @@ import type {
 import { codiceFiscaleValido, partitaIvaValida } from '../hooks/useCedolinoManuale';
 import {
   aggiungiRapporto,
+  chiaveFile,
   competenzaFineRapporto,
   competenzaOrdinaria,
   competenzaSpeciale,
@@ -43,7 +44,7 @@ import {
 const UNDICI_CIFRE = /^\d{11}$/;
 const TOLLERANZA_NETTO = 1;
 const TOLLERANZA_SOMME = 0.05;
-const MASSIMO_ASSOLUTO = 1e10;
+const MASSIMO_ASSOLUTO = 1e8;
 const PRIMO_ANNO = 1900;
 const ULTIMO_ANNO_DATE = 2999;
 const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -261,13 +262,14 @@ function numeri(valore: unknown, percorso: string, trovati: [string, number][] =
   return trovati;
 }
 
+/** Cifre decimali del numero come scritto (rappresentazione decimale piu' breve, anche esponenziale). */
+function decimaliDi(valore: number): number {
+  const [mantissa = '', esponente = '0'] = Math.abs(valore).toString().split('e');
+  return Math.max(0, (mantissa.split('.')[1] ?? '').length - Number(esponente));
+}
+
 function fuoriLimiti(valore: number): boolean {
-  const scalato = valore * 1e5;
-  return (
-    !Number.isFinite(valore) ||
-    Math.abs(valore) >= MASSIMO_ASSOLUTO ||
-    Math.abs(scalato - Math.round(scalato)) > 1e-6
-  );
+  return !Number.isFinite(valore) || Math.abs(valore) >= MASSIMO_ASSOLUTO || decimaliDi(valore) > 5;
 }
 
 /** Posizione di un campo nell'ordine dei controlli del backend. */
@@ -430,7 +432,7 @@ function erroriBloccanti(dati: CedolinoManuale, codiciFiscaliCensiti: Set<string
   }
   for (const [campo, valore] of numeri(dati, '')) {
     if (fuoriLimiti(valore)) {
-      errore(campo, 'Valore fuori dai limiti (massimo 10 cifre intere e 5 decimali)');
+      errore(campo, 'Valore fuori dai limiti (massimo 8 cifre intere e 5 decimali)');
     }
   }
   for (const [campo, massimo] of LUNGHEZZE) {
@@ -840,6 +842,23 @@ export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unkno
     rapportoId: rapporto.id,
     aggiornatoIl: adesso,
   } satisfies Partial<Caricamento>);
+  // i tentativi successivi dello stesso file finiti in errore diventano duplicati del cedolino appena archiviato:
+  // eliminato il cedolino, il file non torna in errore (come AcquisizioneCedolino del backend)
+  for (const tentativo of db.caricamenti) {
+    if (
+      tentativo.id > file.caricamento.id &&
+      tentativo.stato === 'ERRORE' &&
+      chiaveFile(tentativo) === file.chiave
+    ) {
+      Object.assign(tentativo, {
+        stato: 'DUPLICATO',
+        messaggio: MESSAGGI_FILE_IN_ERRORE.fileGiaCaricato,
+        motivo: null,
+        cedolinoEsistenteId: cedolino.id,
+        aggiornatoIl: adesso,
+      } satisfies Partial<Caricamento>);
+    }
+  }
   risolviFile(db, file.chiave);
   return { ...file.caricamento };
 }

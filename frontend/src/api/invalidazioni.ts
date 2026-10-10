@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { chiavi } from './chiavi';
+import { ApiError } from './errors';
 
 /**
  * Dopo l'acquisizione di cedolini (fine di un lotto, anche di una rilettura, o inserimento a mano): nuove persone,
@@ -28,6 +29,21 @@ export async function invalidaDopoModificaFileInErrore(queryClient: QueryClient)
     queryClient.invalidateQueries({ queryKey: chiavi.rapportiTutti }),
     queryClient.invalidateQueries({ queryKey: chiavi.caricamentiInErrore }),
   ]);
+}
+
+/**
+ * Dopo un'azione su un file in errore rifiutata con 404 o 409: il file nel frattempo e' stato inserito, rimosso,
+ * caricato di nuovo o e' in elaborazione (in un'altra scheda o alla fine di un lotto), oppure il mese e' diventato
+ * presente. L'elenco dei file in errore (e cio' che un'acquisizione cambia) e' superato: si rilegge, cosi' righe e
+ * azioni mostrate tornano coerenti. Gli altri errori (dati non validi, rete) non dicono nulla sullo stato del file.
+ */
+export async function invalidaSeFileInErroreCambiato(
+  queryClient: QueryClient,
+  errore: unknown,
+): Promise<void> {
+  if (errore instanceof ApiError && (errore.status === 404 || errore.status === 409)) {
+    await invalidaDopoAcquisizione(queryClient);
+  }
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   compilatiSezione,
   completabileAMano,
   controlliCoerenza,
+  DATA_INCOMPLETA,
   daAssociazione,
   daCedolinoRiferimento,
   daRapporto,
@@ -15,13 +16,16 @@ import {
   indiciRighe,
   partitaIvaValida,
   percorsoForm,
+  rateoCopiatoVuoto,
   rateoVuoto,
   richiestaDa,
   rigaDiRiferimento,
+  senzaErroriRisolti,
   sezioneDi,
   titoloPrevisto,
   unisciSeVuoti,
   valoriVuoti,
+  voceCopiataVuota,
   voceVuota,
   type ValoriCedolinoManuale,
 } from './useCedolinoManuale';
@@ -462,16 +466,46 @@ describe('errori bloccanti (come il backend)', () => {
       "Indica l'importo senza segno",
     ],
     [
-      'importo oltre le 10 cifre intere',
-      (v) => (v.totali.lordo = 1e10),
+      'importo di 9 cifre intere (i dati calcolati non entrerebbero nelle colonne)',
+      (v) => (v.totali.lordo = 1e8),
       'totali.lordo',
-      'Valore fuori dai limiti (massimo 10 cifre intere e 5 decimali)',
+      'Valore fuori dai limiti (massimo 8 cifre intere e 5 decimali)',
     ],
     [
       'importo con più di 5 decimali',
       (v) => (v.retribuzione.pagaOraria = 15.123456),
       'retribuzione.pagaOraria',
-      'Valore fuori dai limiti (massimo 10 cifre intere e 5 decimali)',
+      'Valore fuori dai limiti (massimo 8 cifre intere e 5 decimali)',
+    ],
+    [
+      'importo minuscolo scritto in forma esponenziale',
+      (v) => (v.tfr.quotaMese = 1e-7),
+      'tfr.quotaMese',
+      'Valore fuori dai limiti (massimo 8 cifre intere e 5 decimali)',
+    ],
+    [
+      'data con l’anno di 5 cifre (il campo del browser lo ammette)',
+      (v) => (v.dipendente.dataNascita = '19800-01-01'),
+      'dipendente.dataNascita',
+      'Data non valida (anno dal 1900 al 2999)',
+    ],
+    [
+      'data inesistente',
+      (v) => (v.datiContrattuali.dataAssunzione = '2023-02-30'),
+      'datiContrattuali.dataAssunzione',
+      'Data non valida (anno dal 1900 al 2999)',
+    ],
+    [
+      'data incompleta (il browser non la interpreta)',
+      (v) => (v.periodo.dataElaborazione = DATA_INCOMPLETA),
+      'periodo.dataElaborazione',
+      'Data incompleta o inesistente: indica giorno, mese e anno',
+    ],
+    [
+      'data di nascita incompleta (mai confrontata con oggi)',
+      (v) => (v.dipendente.dataNascita = DATA_INCOMPLETA),
+      'dipendente.dataNascita',
+      'Data incompleta o inesistente: indica giorno, mese e anno',
     ],
     [
       'numero non interpretabile',
@@ -609,6 +643,31 @@ describe('errori bloccanti (come il backend)', () => {
     ).toEqual([]);
   });
 
+  it('accetta importi fino a 8 cifre intere e 5 decimali, anche negativi', () => {
+    const valori = valoriValidi((v) => {
+      v.totali.lordo = 99999999.99999;
+      v.totali.arrotondamento = -99999999.5;
+      // oltre il milione i decimali binari non sono esatti: 1234567,89 ha comunque 2 decimali
+      v.progressivi.imponibileIrpef = 1234567.89;
+      v.retribuzione.pagaOraria = 12.13873;
+      v.datiContrattuali.dataCessazione = '2024-02-29';
+    });
+    expect(erroriBloccanti(valori, [], OGGI)).toEqual([]);
+  });
+
+  it('una cessazione incompleta non viene confrontata con l’assunzione', () => {
+    const valori = valoriValidi((v) => {
+      v.datiContrattuali.dataAssunzione = '2022-03-01';
+      v.datiContrattuali.dataCessazione = DATA_INCOMPLETA;
+    });
+    expect(erroriBloccanti(valori, [], OGGI)).toEqual([
+      {
+        campo: 'datiContrattuali.dataCessazione',
+        messaggio: 'Data incompleta o inesistente: indica giorno, mese e anno',
+      },
+    ]);
+  });
+
   it('ammette netto e arrotondamento negativi e ignora le righe vuote', () => {
     const valori = valoriValidi((v) => {
       v.totali.netto = -20;
@@ -633,6 +692,94 @@ describe('errori bloccanti (come il backend)', () => {
       'totali.totaleTrattenute',
       'totali.netto',
     ]);
+  });
+});
+
+describe('errori risolti modificando un altro campo', () => {
+  it('toglie gli errori di riga e tra campi che i valori non hanno più, lasciando gli altri', () => {
+    const errori = {
+      'ratei.1': 'Rateo ripetuto: uno solo per tipo e unità',
+      'voci.0.descrizione': 'Indica la descrizione della voce',
+      'datiContrattuali.dataCessazione': "La data di cessazione precede l'assunzione",
+      'dipendente.codiceFiscale': 'Codice fiscale già usato da un’altra persona',
+    };
+    const corretti = valoriValidi((v) => {
+      v.ratei = [
+        { ...rateoVuoto('FERIE', 'GIORNI'), maturato: 2 },
+        { ...rateoVuoto('FERIE', 'ORE'), goduto: 1 },
+      ];
+      v.voci = [voce({})];
+      v.datiContrattuali.dataAssunzione = '2021-01-01';
+      v.datiContrattuali.dataCessazione = '2021-12-31';
+    });
+
+    expect(senzaErroriRisolti(errori, corretti, [])).toEqual({
+      'dipendente.codiceFiscale': 'Codice fiscale già usato da un’altra persona',
+    });
+  });
+
+  it('lascia gli errori ancora presenti e restituisce lo stesso oggetto se non cambia nulla', () => {
+    const errori = { 'ratei.0': 'Indica almeno un valore del rateo' };
+    const ancoraVuoto = valoriValidi((v) => (v.ratei = [rateoVuoto('ROL', 'ORE')]));
+    expect(senzaErroriRisolti(errori, ancoraVuoto, [])).toBe(errori);
+    const senzaDerivati = { 'totali.netto': 'Indica il netto' };
+    expect(senzaErroriRisolti(senzaDerivati, valoriValidi(), [])).toBe(senzaDerivati);
+  });
+});
+
+describe('voci e ratei copiati da un altro cedolino', () => {
+  const db = creaDbMock('errori');
+  const cedolino = [...db.cedolini.values()].find((c) => c.titolo === 'Luglio 2025')!;
+  const copiati = () => {
+    const dati = daCedolinoRiferimento(cedolino, 2025);
+    return valoriValidi((v) => {
+      v.voci = [...(dati.voci ?? [])];
+      v.ratei = [...(dati.ratei ?? [])];
+    });
+  };
+
+  it('finché non si completano non vengono inviati, controllati né contati', () => {
+    const valori = copiati();
+    expect(valori.voci.length).toBeGreaterThan(0);
+    expect(valori.ratei.length).toBeGreaterThan(0);
+    expect(valori.voci.every(voceCopiataVuota)).toBe(true);
+    expect(valori.ratei.every(rateoCopiatoVuoto)).toBe(true);
+
+    expect(richiestaDa(valori).voci).toEqual([]);
+    expect(richiestaDa(valori).ratei).toEqual([]);
+    expect(erroriBloccanti(valori, [], OGGI)).toEqual([]);
+    expect(compilatiSezione(valori, 'voci')).toBe(0);
+    expect(compilatiSezione(valori, 'ratei')).toBe(0);
+  });
+
+  it('una riga completata o modificata diventa dell’utente e viene inviata', () => {
+    const valori = copiati();
+    const [prima, seconda] = valori.voci;
+    const [rateo] = valori.ratei;
+    valori.voci[0] = { ...prima!, importoCompetenza: 1500 };
+    valori.voci[1] = { ...seconda!, descrizione: 'Voce rinominata' };
+    valori.ratei[0] = { ...rateo!, maturato: 2.16667 };
+
+    const richiesta = richiestaDa(valori);
+    expect(richiesta.voci.map((v) => v.descrizione)).toEqual([prima!.descrizione, 'Voce rinominata']);
+    expect(richiesta.voci[0]).toMatchObject({ importoCompetenza: 1500 });
+    expect(richiesta.ratei).toEqual([expect.objectContaining({ tipo: rateo!.tipo, maturato: 2.16667 })]);
+    expect(voceCopiataVuota(valori.voci[1])).toBe(false);
+    expect(compilatiSezione(valori, 'voci')).toBe(2);
+  });
+
+  it('un rateo copiato con il solo residuo dell’anno precedente non è un errore', () => {
+    const valori = copiati();
+    expect(valori.ratei.some((r) => r.residuoAnnoPrecedente !== '')).toBe(true);
+    expect(erroriBloccanti(valori, [], OGGI)).toEqual([]);
+  });
+
+  it('una nuova copia sostituisce le righe copiate non completate', () => {
+    const copiate = [voce({ descrizione: 'Retribuzione ordinaria' })];
+    expect(unisciSeVuoti(copiati(), { voci: copiate })).toMatchObject({
+      valori: { voci: copiate },
+      copiati: ['voci'],
+    });
   });
 });
 

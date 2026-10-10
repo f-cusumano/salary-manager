@@ -2,7 +2,13 @@ import { ActionIcon, Button, Group, Stack, Text, Tooltip } from '@mantine/core';
 import { IconArrowDown, IconArrowUp, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useEffect, useId, useRef } from 'react';
 import { formatImporto } from '../format/format';
-import { CATEGORIE_VOCE, numeroDa, sommeVoci, voceVuota } from '../hooks/useCedolinoManuale';
+import {
+  CATEGORIE_VOCE,
+  numeroDa,
+  sommeVoci,
+  voceCopiataVuota,
+  voceVuota,
+} from '../hooks/useCedolinoManuale';
 import { testi } from '../i18n';
 import { CampoImporto, CampoSceltaRiga, CampoTesto, PuntoCopiato } from './CampiModulo';
 import classes from './InserimentoManualeModal.module.css';
@@ -17,12 +23,14 @@ const TOLLERANZA_SOMME = 0.05;
 /**
  * Voci del cedolino come righe modificabili: tabella sugli schermi larghi, una scheda per voce su quelli stretti
  * (container query). Righe spostabili e rimovibili; in fondo le somme di competenze e trattenute confrontate con i
- * totali stampati.
+ * totali stampati. Le voci copiate da un altro cedolino e non completate non vengono salvate: una nota le conta e
+ * permette di toglierle.
  */
 export function TabellaVociModificabile() {
   const { form, copiati } = useModulo();
   // le righe cambiano solo con le operazioni sulla lista, che ridisegnano il modulo
   const voci = form.getValues().voci;
+  const copiateVuote = useValoreModulo((v) => v.voci.filter(voceCopiataVuota).length);
   const daFocalizzare = useRef<string | null>(null);
   const radice = useRef<HTMLDivElement>(null);
   const idUnita = useId();
@@ -40,6 +48,16 @@ export function TabellaVociModificabile() {
     const categoria = attuali.at(-1)?.categoria ?? 'COMPETENZA';
     form.insertListItem('voci', voceVuota(categoria));
     daFocalizzare.current = `voci.${attuali.length}`;
+  };
+
+  const rimuoviCopiateVuote = () => {
+    const righe = form.getValues().voci;
+    for (let indice = righe.length - 1; indice >= 0; indice -= 1) {
+      const riga = righe[indice];
+      if (riga && voceCopiataVuota(riga)) {
+        form.removeListItem('voci', indice);
+      }
+    }
   };
 
   const sposta = (da: number, a: number) => {
@@ -61,6 +79,16 @@ export function TabellaVociModificabile() {
           {copiati.voci}
           <PuntoCopiato nota={copiati.voci} />
         </Text>
+      )}
+      {copiateVuote > 0 && (
+        <Group gap="xs" wrap="wrap">
+          <Text size="xs" c="orange.9">
+            {t.vociCopiateVuote.replace('{numero}', String(copiateVuote))}
+          </Text>
+          <Button variant="subtle" color="orange" size="compact-xs" onClick={rimuoviCopiateVuote}>
+            {t.rimuoviVociCopiateVuote}
+          </Button>
+        </Group>
       )}
       {voci.length === 0 ? (
         <Text size="sm" c="dimmed">
@@ -133,7 +161,7 @@ function RigaVoce({ indice, idUnita, ultima, onSposta, onRimuovi }: PropsRiga) {
         inRiga
         data={CATEGORIE}
       />
-      <CampoImporto percorso={`${p}.quantita`} etichetta={COLONNE.quantita} inRiga />
+      <CampoImporto percorso={`${p}.quantita`} etichetta={COLONNE.quantita} inRiga decimali={5} />
       <CampoTesto
         percorso={`${p}.unita`}
         etichetta={COLONNE.unita}
@@ -142,8 +170,18 @@ function RigaVoce({ indice, idUnita, ultima, onSposta, onRimuovi }: PropsRiga) {
         suggerimenti={idUnita}
       />
       <CampoImporto percorso={`${p}.base`} etichetta={COLONNE.base} inRiga decimali={5} />
-      <CampoImporto percorso={`${p}.importoCompetenza`} etichetta={COLONNE.importoCompetenza} inRiga />
-      <CampoImporto percorso={`${p}.importoTrattenuta`} etichetta={COLONNE.importoTrattenuta} inRiga />
+      <CampoImporto
+        percorso={`${p}.importoCompetenza`}
+        etichetta={COLONNE.importoCompetenza}
+        inRiga
+        senzaSegno
+      />
+      <CampoImporto
+        percorso={`${p}.importoTrattenuta`}
+        etichetta={COLONNE.importoTrattenuta}
+        inRiga
+        senzaSegno
+      />
       <div className={classes.azioniRiga}>
         <Tooltip label={`${t.spostaSu} ${nome}`}>
           <ActionIcon
