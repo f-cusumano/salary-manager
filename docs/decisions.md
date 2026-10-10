@@ -813,8 +813,8 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        a `X-Frame-Options`), con "Apri in una nuova scheda" per i telefoni, che non mostrano i PDF negli iframe.
      - **Nessuna bozza salvata nel browser**: chiudere un modulo modificato chiede conferma.
      - **Copia dei dati da un rapporto o da un cedolino esistente** fatta dal client con `GET /api/v1/rapporti/{id}`
-       e `GET /api/v1/cedolini/{id}` (nessuna API nuova), solo nei campi vuoti e mai per la data di cessazione e gli
-       importi delle voci.
+       e `GET /api/v1/cedolini/{id}` (nessuna API nuova), solo nei campi vuoti e mai per la data di cessazione, i
+       totali e le quantita' e gli importi delle voci (valori del singolo mese).
      - **Salvataggio** abilitato solo dopo una verifica dei valori correnti con esito `ACQUISIBILE`.
      - **Nessun router**: le azioni sui file (inserisci, associa, rileggi, rimuovi) sono offerte a tutta la pagina da
        un contesto React dell'`App`.

@@ -431,9 +431,13 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
       return new Response(null, { status: 204 });
     }
     if (metodo === 'GET' && (m = ROTTE.pdfCaricamento.exec(pathname))) {
-      const caricamento = db.caricamenti.find((c) => c.id === Number(m?.[1]));
+      const id = Number(m[1]);
+      const caricamento = db.caricamenti.find((c) => c.id === id);
       const contenuto = caricamento?.stato === 'ERRORE' ? db.pdfFile.get(chiaveFile(caricamento)) : undefined;
-      return caricamento && contenuto ? await pdf(contenuto, caricamento.nomeFileOriginale) : nonTrovato();
+      if (!caricamento || !contenuto) {
+        throw new RifiutoMock(404, `PDF conservato del caricamento inesistente (id ${id}).`);
+      }
+      return await pdf(contenuto, caricamento.nomeFileOriginale);
     }
     if (metodo === 'POST' && (m = ROTTE.rilettura.exec(pathname))) {
       const { caricamento, chiave } = fileInErrore(db, Number(m[1]));

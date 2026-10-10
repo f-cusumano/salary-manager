@@ -35,6 +35,8 @@ conservato (inseribile a mano e rileggibile), `scansione` (scansione senza testo
 riconosciuto) e `protetto` se non si indica una password; in Errore senza PDF conservato `danneggiato` (file
 danneggiato) ed `errore` (più cedolini nello stesso PDF). Ogni altro file viene acquisito. Lo stesso file (stesso
 nome e stessa dimensione) caricato più volte compare una volta sola tra i cedolini caricati con errore.
+L'inserimento a mano simulato restituisce gli stessi errori del backend (percorsi, testi e ordine dei campi, uno per
+campo) e gli stessi avvisi di coerenza, salvo l'avviso sui dati bancari rimossi dai testi.
 
 I mock esistono solo con `--mode mock` (`.env.mock` imposta `VITE_USE_MOCKS=true`): nella build di produzione il
 modulo `src/mocks` non viene incluso nel bundle. `npm run build:mock` + `npm run preview:mock` servono la build
@@ -70,8 +72,10 @@ La suite in `e2e/` (Playwright, solo Chromium) **non** fa parte di `npm test` n�
 Poi percorre il flusso completo caricando i PDF di `../backend/src/main/resources/fixtures/pdf/`: primo avvio,
 scarto dei file non PDF, lotto con tutti gli esiti, secondo lotto con la password del PDF protetto, omonimi con il
 codice fiscale nella tendina, segnalazioni e riepilogo, mensilità (mancante, tredicesima, quattordicesima, fine
-rapporto), buste espanse e download del PDF, eliminazione con ricalcolo, scelta e modifica del CCNL, note, vista
-mobile senza scorrimento orizzontale.
+rapporto), buste espanse e download del PDF, eliminazione con ricalcolo, scelta e modifica del CCNL, note, un
+cedolino caricato ma non letto (un PDF vuoto costruito nel test) associato alla sua mensilità mancante e inserito a
+mano con verifica e salvataggio, rimozione del file danneggiato, vista mobile senza scorrimento orizzontale (anche
+dell'elenco dei file in errore e dell'inserimento a mano).
 
 ```bash
 npx playwright install chromium   # la prima volta: scarica il browser di Playwright

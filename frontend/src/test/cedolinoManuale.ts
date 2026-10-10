@@ -17,7 +17,7 @@ export function cedolinoManuale(
     },
     datoreLavoro: {
       codiceFiscale: null,
-      partitaIva: 'IT01234567890',
+      partitaIva: 'IT01234567897',
       posizioneInps: null,
       posizioneInail: null,
       ragioneSociale: 'Alfa Software S.r.l.',

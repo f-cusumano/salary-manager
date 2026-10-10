@@ -107,8 +107,8 @@ const LAURA: PersonaSintesi = {
 const ALFA: AziendaSintesi = {
   id: 1,
   ragioneSociale: 'Alfa Software S.r.l.',
-  partitaIva: '01234567890',
-  codiceFiscale: '01234567890',
+  partitaIva: '01234567897',
+  codiceFiscale: '01234567897',
   posizioneInps: '1234567890',
   indirizzo: 'Via Roma 1, 00100 Roma',
 };
@@ -116,8 +116,8 @@ const ALFA: AziendaSintesi = {
 const BETA: AziendaSintesi = {
   id: 2,
   ragioneSociale: 'Beta Consulting S.p.A.',
-  partitaIva: '09876543210',
-  codiceFiscale: '09876543210',
+  partitaIva: '09876543217',
+  codiceFiscale: '09876543217',
   posizioneInps: '0987654321',
   indirizzo: 'Corso Italia 10, 20100 Milano',
 };
@@ -125,7 +125,7 @@ const BETA: AziendaSintesi = {
 const GAMMA: AziendaSintesi = {
   id: 3,
   ragioneSociale: 'Gamma Servizi S.r.l.',
-  partitaIva: '11223344556',
+  partitaIva: '11223344554',
   codiceFiscale: null,
   posizioneInps: null,
   indirizzo: null,

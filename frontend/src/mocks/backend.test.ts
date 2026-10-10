@@ -259,7 +259,17 @@ describe('backend simulato: cedolini caricati con errore', () => {
 
     const nonValida = await errore(associa(api, scansione.id, 1, 2025, 15));
     expect(nonValida.status).toBe(400);
-    expect(erroriDiCampo(nonValida).map((e) => e.campo)).toEqual(['mese']);
+    // stessi campi e testi del backend
+    expect(erroriDiCampo(nonValida)).toEqual([
+      {
+        campo: 'mese',
+        messaggio: 'Indica il mese (da 1 a 12, 13 per la tredicesima, 14 per la quattordicesima)',
+      },
+    ]);
+    const senzaRapporto = await errore(associa(api, scansione.id, 0, 2025, 10));
+    expect(erroriDiCampo(senzaRapporto)).toEqual([
+      { campo: 'rapportoId', messaggio: 'Indica il rapporto di lavoro' },
+    ]);
 
     expect((await errore(associa(api, scansione.id, 999, 2025, 10))).status).toBe(404);
 
@@ -303,14 +313,15 @@ describe('backend simulato: inserimento a mano', () => {
     const rifiuto = await errore(inserisci(api, ristampa.id, vuoto()));
 
     expect(rifiuto.status).toBe(400);
+    // nell'ordine dei controlli del backend (ordine dello schema)
     expect(erroriDiCampo(rifiuto).map((e) => e.campo)).toEqual([
-      'periodo.tipo',
+      'dipendente.codiceFiscale',
+      'dipendente.nome',
+      'dipendente.cognome',
+      'datoreLavoro.ragioneSociale',
       'periodo.anno',
       'periodo.mese',
-      'dipendente.codiceFiscale',
-      'dipendente.cognome',
-      'dipendente.nome',
-      'datoreLavoro.ragioneSociale',
+      'periodo.tipo',
       'totali.totaleCompetenze',
       'totali.totaleTrattenute',
       'totali.netto',
@@ -358,15 +369,15 @@ describe('backend simulato: inserimento a mano', () => {
 
     const errori = erroriDiCampo(await errore(verifica(api, ristampa.id, dati)));
 
-    expect(errori.map((e) => e.campo)).toEqual([
-      'dipendente.codiceFiscale',
-      'datoreLavoro.partitaIva',
-      'voci[2].descrizione',
-      'voci[2].categoria',
-      'voci[2].importoCompetenza',
-      'ratei[1]',
-      'ratei[1]',
-      'voci[2].base',
+    // al piu' un errore per campo (il primo controllato), nell'ordine dei controlli del backend
+    expect(errori).toEqual([
+      { campo: 'dipendente.codiceFiscale', messaggio: 'Codice fiscale non valido: controlla i 16 caratteri' },
+      { campo: 'datoreLavoro.partitaIva', messaggio: 'Partita IVA non valida: deve avere 11 cifre' },
+      { campo: 'voci[2].descrizione', messaggio: 'Indica la descrizione della voce' },
+      { campo: 'voci[2].categoria', messaggio: 'Indica la categoria della voce' },
+      { campo: 'voci[2].base', messaggio: 'Valore fuori dai limiti (massimo 10 cifre intere e 5 decimali)' },
+      { campo: 'voci[2].importoCompetenza', messaggio: "Indica l'importo senza segno" },
+      { campo: 'ratei[1]', messaggio: 'Rateo ripetuto: uno solo per tipo e unità' },
     ]);
     expect(errori.map((e) => e.messaggio).join(' ')).not.toMatch(/ABCDEF|123/);
   });
@@ -470,14 +481,14 @@ describe('backend simulato: inserimento a mano', () => {
     const scansione = await fileDi(api, 'busta-scansione.pdf');
     const nuova = cedolinoManuale((d) => {
       d.dipendente = {
-        codiceFiscale: 'NRENNA90A41F205X',
+        codiceFiscale: 'NRENNA90A41F205Y',
         nome: 'Anna',
         cognome: 'Neri',
         dataNascita: '1990-01-01',
         codiceDipendente: null,
       };
       d.datoreLavoro.ragioneSociale = 'Delta Servizi S.r.l.';
-      d.datoreLavoro.partitaIva = '22334455667';
+      d.datoreLavoro.partitaIva = '22334455668';
       d.datiContrattuali.dataAssunzione = '2025-06-01';
       d.voci = [];
     });

@@ -5,7 +5,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 /**
  * Flusso completo contro il backend reale in modalità demo (lettore a fixture, database vuoto): caricamento
  * multiplo con tutti gli esiti, selezione automatica della persona, aziende e dettaglio, buste, download, CCNL,
- * note, eliminazione con ricalcolo. Solo dati inventati (fixture di backend/src/main/resources/fixtures).
+ * note, eliminazione con ricalcolo, cedolini caricati con errore (associazione al mese, inserimento a mano,
+ * rimozione). Solo dati inventati (fixture di backend/src/main/resources/fixtures e un PDF vuoto costruito qui).
  */
 
 const CARTELLA_PDF = join(import.meta.dirname, '../../backend/src/main/resources/fixtures/pdf');
@@ -24,6 +25,30 @@ function fixture(nome: string, nomeFile = `${nome}.pdf`): FileDaCaricare {
     mimeType: 'application/pdf',
     buffer: readFileSync(join(CARTELLA_PDF, `${nome}.pdf`)),
   };
+}
+
+/**
+ * PDF valido di una pagina vuota (catalogo, pagine, pagina e tabella xref con gli offset corretti). Il commento lo
+ * rende diverso da ogni fixture: il lettore a fixture non lo riconosce (ne' per nome, ne' per hash, ne' per testo) e
+ * il file resta in errore con il PDF conservato, completabile a mano.
+ */
+function pdfMinimo(commento: string): Buffer {
+  const oggetti = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> >>',
+  ];
+  let pdf = `%PDF-1.4\n% ${commento}\n`;
+  const posizioni = oggetti.map((oggetto, i) => {
+    const posizione = Buffer.byteLength(pdf, 'latin1');
+    pdf += `${i + 1} 0 obj\n${oggetto}\nendobj\n`;
+    return posizione;
+  });
+  const inizioXref = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${oggetti.length + 1}\n0000000000 65535 f \n`;
+  pdf += posizioni.map((p) => `${String(p).padStart(10, '0')} 00000 n \n`).join('');
+  pdf += `trailer\n<< /Size ${oggetti.length + 1} /Root 1 0 R >>\nstartxref\n${inizioXref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
 }
 
 function mesi(prefisso: string, anno: number, da: number, a: number, esclusi: number[] = []): string[] {
@@ -91,6 +116,24 @@ async function apriAzienda(page: Page, nome: string) {
     await voce.click();
   }
   await expect(voce).toHaveAttribute('aria-expanded', 'true');
+}
+
+function areaInErrore(page: Page): Locator {
+  return page.getByRole('region', { name: 'Cedolini caricati con errore' });
+}
+
+function fileInErrore(page: Page, nomeFile: string): Locator {
+  return areaInErrore(page).getByRole('listitem', { name: `${nomeFile}: Caricato con errore` });
+}
+
+/** Campo del modulo di inserimento a mano (`data-path` = percorso dello schema CedolinoManuale). */
+function campo(dialogo: Locator, percorso: string): Locator {
+  return dialogo.locator(`[data-path="${percorso}"]`);
+}
+
+async function senzaScorrimentoOrizzontale(page: Page) {
+  const larghezza = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(larghezza).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -220,6 +263,13 @@ test.describe('Salary Manager in modalità demo', () => {
     await expect(page.getByRole('option', { name: 'Mario Rossi (RSSMRA85C12F205M)' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(barra(page, 'Marzo 2025')).toBeVisible();
+
+    // il PDF protetto ora e' archiviato: tra i file in errore resta solo quello danneggiato, che non si completa a
+    // mano (PDF non conservato)
+    await expect(areaInErrore(page).getByRole('listitem')).toHaveCount(1);
+    const danneggiato = fileInErrore(page, 'danneggiato.pdf');
+    await expect(danneggiato).toContainText('File danneggiato o non PDF');
+    await expect(danneggiato.getByRole('button', { name: 'Inserisci a mano' })).toHaveCount(0);
   });
 
   test('dettaglio dell’azienda attuale: segnalazioni, riepilogo e mensilità', async () => {
@@ -350,6 +400,145 @@ test.describe('Salary Manager in modalità demo', () => {
     await expect(page.getByRole('textbox', { name: 'Note' })).toHaveValue(
       'Colloquio di revisione retributiva previsto a Marzo',
     );
+  });
+
+  test('un cedolino caricato ma non letto si associa al suo mese e si inserisce a mano', async ({
+    browser,
+  }) => {
+    // 1. un PDF che il lettore non riconosce: resta in errore con il PDF conservato
+    await page.getByRole('button', { name: 'Carica cedolini' }).click();
+    const modale = page.getByRole('dialog', { name: 'Carica cedolini' });
+    await modale.locator('input[type="file"]').setInputFiles({
+      name: 'busta-maggio-2023.pdf',
+      mimeType: 'application/pdf',
+      buffer: pdfMinimo('busta di prova senza fixture'),
+    });
+    await modale.getByRole('button', { name: 'Avvia caricamento (1)' }).click();
+    await attendiFineLotto(modale);
+    const riga = rigaFile(modale, 'busta-maggio-2023.pdf');
+    await expect(riga).toContainText('Errore');
+    await expect(riga).toContainText('Nessuna fixture di estrazione associata al PDF');
+    await expect(riga.getByRole('button', { name: 'Inserisci a mano' })).toBeVisible();
+    await modale.getByRole('button', { name: 'Chiudi', exact: true }).click();
+
+    // 2. elenco dei file in errore
+    await expect(fileInErrore(page, 'busta-maggio-2023.pdf')).toBeVisible();
+    await expect(fileInErrore(page, 'danneggiato.pdf')).toBeVisible();
+    await expect(areaInErrore(page).getByRole('listitem')).toHaveCount(2);
+    await screenshot(page, '12-file-in-errore');
+
+    // 3. associazione alla mensilità mancante di Maggio 2023
+    await areaInErrore(page).getByRole('button', { name: 'Altre azioni per busta-maggio-2023.pdf' }).click();
+    await page.getByRole('menuitem', { name: 'Associa a un mese' }).click();
+    const associa = page.getByRole('dialog', { name: /^Associa a un mese/ });
+    await associa.getByRole('combobox', { name: 'Persona' }).click();
+    await page.getByRole('option', { name: 'Mario Rossi (RSSMRA80A01H501U)' }).click();
+    await associa.getByRole('combobox', { name: 'Azienda' }).click();
+    await page.getByRole('option', { name: /^Alfa Software S\.r\.l\./ }).click();
+    await associa.getByRole('group', { name: 'Mensilità' }).getByText('Maggio 2023', { exact: true }).click();
+    await associa.getByRole('button', { name: 'Salva' }).click();
+    await expect(associa).toHaveCount(0);
+    await expect(fileInErrore(page, 'busta-maggio-2023.pdf')).toContainText(
+      'Maggio 2023 · Alfa Software S.r.l.',
+    );
+
+    // 4. la mensilità non è più mancante ma caricata con errore, con la sua segnalazione
+    await apriAzienda(page, 'Alfa Software');
+    await expect(page.getByRole('listitem', { name: 'Maggio 2023: Caricato con errore' })).toBeVisible();
+    await expect(
+      page.getByRole('article', { name: 'Cedolino caricato con errore: Maggio 2023' }),
+    ).toBeVisible();
+    await expect(page.getByRole('article', { name: 'Mensilità mancante: Maggio 2023' })).toHaveCount(0);
+    await expect(page.getByRole('article', { name: 'Mensilità mancante: Aprile 2023' })).toBeVisible();
+
+    // 5. su mobile l'elenco e le due schede dell'inserimento a mano non scorrono in orizzontale
+    const mobile = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      locale: 'it-IT',
+      timezoneId: 'Europe/Rome',
+    });
+    const pagina = await mobile.newPage();
+    try {
+      await pagina.goto('/');
+      await expect(fileInErrore(pagina, 'busta-maggio-2023.pdf')).toBeVisible();
+      await senzaScorrimentoOrizzontale(pagina);
+      await fileInErrore(pagina, 'busta-maggio-2023.pdf')
+        .getByRole('button', { name: 'Inserisci a mano' })
+        .click();
+      const dialogo = pagina.getByRole('dialog', { name: 'Inserisci a mano · busta-maggio-2023.pdf' });
+      await expect(dialogo.getByRole('form', { name: 'Dati del cedolino' })).toBeVisible();
+      await senzaScorrimentoOrizzontale(pagina);
+      await screenshot(pagina, '13-mobile-inserimento-dati');
+      await dialogo.getByRole('tab', { name: 'PDF' }).click();
+      await expect(dialogo.getByTitle('PDF del cedolino')).toBeVisible();
+      await senzaScorrimentoOrizzontale(pagina);
+      await screenshot(pagina, '14-mobile-inserimento-pdf');
+      await dialogo.getByRole('tab', { name: 'Dati' }).click();
+      await campo(dialogo, 'totali.netto').fill('1.650,00');
+      await dialogo.getByRole('button', { name: 'Chiudi la finestra' }).click();
+      const conferma = pagina.getByRole('dialog', { name: 'Chiudere senza salvare?' });
+      await conferma.getByRole('button', { name: 'Chiudi senza salvare' }).click();
+      await expect(dialogo).toHaveCount(0);
+      // niente e' stato salvato: il file resta da completare
+      await expect(fileInErrore(pagina, 'busta-maggio-2023.pdf')).toBeVisible();
+    } finally {
+      await mobile.close();
+    }
+
+    // 6. inserimento a mano dalla riga della mensilità: periodo dal mese associato, anagrafiche dal rapporto
+    await page
+      .getByRole('listitem', { name: 'Maggio 2023: Caricato con errore' })
+      .getByRole('button', { name: 'Inserisci a mano' })
+      .click();
+    const dialogo = page.getByRole('dialog', { name: 'Inserisci a mano · busta-maggio-2023.pdf' });
+    await expect(dialogo.getByRole('form', { name: 'Dati del cedolino' })).toBeVisible();
+    await expect(dialogo.locator('iframe[title="PDF del cedolino"]')).toBeVisible();
+    await expect(campo(dialogo, 'periodo.tipo')).toHaveValue('Mensilità ordinaria');
+    await expect(campo(dialogo, 'periodo.mese')).toHaveValue('Maggio');
+    await expect(campo(dialogo, 'periodo.anno')).toHaveValue('2023');
+    await expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('RSSMRA80A01H501U');
+    await expect(campo(dialogo, 'dipendente.cognome')).toHaveValue('Rossi');
+    await expect(campo(dialogo, 'dipendente.nome')).toHaveValue('Mario');
+    await expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveValue('Alfa Software S.r.l.');
+
+    // 7. importi inventati, poi la verifica
+    await campo(dialogo, 'totali.totaleCompetenze').fill('2.100,00');
+    await campo(dialogo, 'totali.totaleTrattenute').fill('450,00');
+    await campo(dialogo, 'totali.netto').fill('1.650,00');
+    await expect(campo(dialogo, 'voci.0.descrizione')).toHaveValue('Retribuzione ordinaria');
+    await expect(campo(dialogo, 'voci.0.categoria')).toHaveValue('COMPETENZA');
+    await campo(dialogo, 'voci.0.importoCompetenza').fill('2.100,00');
+    await dialogo.getByRole('button', { name: 'Verifica', exact: true }).click();
+    const esito = dialogo.getByRole('region', { name: 'Esito della verifica' });
+    await expect(esito).toContainText('Sarà registrato come: Maggio 2023');
+    await expect(esito.getByText('Dipendente: già presente')).toBeVisible();
+    await expect(esito.getByText('Rapporto di lavoro: già presente')).toBeVisible();
+    await screenshot(page, '15-inserimento-verificato');
+
+    // 8. salvataggio: la mensilità diventa presente, inserita a mano
+    await dialogo.getByRole('button', { name: 'Salva cedolino' }).click();
+    await expect(page.getByText('Cedolino inserito: Maggio 2023')).toBeVisible();
+    await expect(dialogo).toHaveCount(0);
+    await expect(barra(page, 'Maggio 2023')).toBeVisible();
+    await expect(page.getByRole('listitem', { name: 'Maggio 2023: Caricato con errore' })).toHaveCount(0);
+    await expect(
+      page.getByRole('article', { name: 'Cedolino caricato con errore: Maggio 2023' }),
+    ).toHaveCount(0);
+    await barra(page, 'Maggio 2023').click();
+    await expect(busta(page, 'Maggio 2023')).toContainText('Inserito a mano');
+    await expect(fileInErrore(page, 'busta-maggio-2023.pdf')).toHaveCount(0);
+
+    // 9. il file danneggiato si rimuove: senza file in errore l'elenco sparisce
+    await areaInErrore(page).getByRole('button', { name: 'Altre azioni per danneggiato.pdf' }).click();
+    await page.getByRole('menuitem', { name: 'Rimuovi', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Rimuovere il file in errore?' })
+      .getByRole('button', { name: 'Rimuovi file' })
+      .click();
+    await expect(areaInErrore(page)).toHaveCount(0);
+    await expect(page.getByRole('listitem', { name: 'Aprile 2023: Mensilità mancante' })).toBeVisible();
   });
 
   test('su mobile la pagina non scorre in orizzontale', async ({ browser }) => {

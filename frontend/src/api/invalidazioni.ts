@@ -29,3 +29,15 @@ export async function invalidaDopoModificaFileInErrore(queryClient: QueryClient)
     queryClient.invalidateQueries({ queryKey: chiavi.caricamentiInErrore }),
   ]);
 }
+
+/**
+ * Toglie dalla cache il PDF conservato di un file che non e' piu' in errore (inserito a mano o rimosso). Se l'anteprima
+ * e' ancora aperta il PDF resta finche' non si chiude (gcTime 0): toglierlo sotto un'anteprima montata la farebbe
+ * ricaricare dal backend, che non lo conserva piu' (404).
+ */
+export function scartaPdfConservato(queryClient: QueryClient, caricamentoId: number): void {
+  const queryKey = chiavi.pdfCaricamento(caricamentoId);
+  if (!queryClient.getQueryCache().find({ queryKey, exact: true })?.getObserversCount()) {
+    queryClient.removeQueries({ queryKey, exact: true });
+  }
+}

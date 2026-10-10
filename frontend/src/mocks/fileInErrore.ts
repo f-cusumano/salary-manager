@@ -233,20 +233,27 @@ export function associa(db: MockDb, caricamentoId: number, corpo: unknown): Cari
   const { rapportoId, anno, mese: m } = (corpo ?? {}) as Record<string, unknown>;
   const errori: ErroreCampo[] = [];
   const annoMassimo = new Date().getFullYear() + 1;
+  if (typeof rapportoId !== 'number' || !Number.isInteger(rapportoId) || rapportoId < 1) {
+    errori.push({ campo: 'rapportoId', messaggio: 'Indica il rapporto di lavoro' });
+  }
   if (typeof anno !== 'number' || !Number.isInteger(anno) || anno < 1900 || anno > annoMassimo) {
     errori.push({ campo: 'anno', messaggio: `Indica l'anno (dal 1900 al ${annoMassimo})` });
   }
   if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > 14) {
-    errori.push({ campo: 'mese', messaggio: 'Indica il mese (da 1 a 14)' });
+    errori.push({
+      campo: 'mese',
+      messaggio: 'Indica il mese (da 1 a 12, 13 per la tredicesima, 14 per la quattordicesima)',
+    });
   }
   if (errori.length > 0) {
     throw datiNonValidi(errori);
   }
-  const rapporto = typeof rapportoId === 'number' ? db.rapporti.get(rapportoId) : undefined;
+  // come il backend: prima il file (404, 409), poi il rapporto
+  const { chiave } = fileInErrore(db, caricamentoId);
+  const rapporto = db.rapporti.get(rapportoId as number);
   if (!rapporto) {
     throw new RifiutoMock(404, `Rapporto di lavoro inesistente (id ${String(rapportoId)}).`);
   }
-  const { chiave } = fileInErrore(db, caricamentoId);
   const competenza = competenzaDiMese(anno as number, m as number);
   const titolo = titoloCompetenza(competenza, null);
   if (rapporto.mensilita.some((r) => r.stato === 'PRESENTE' && r.chiave === competenza.chiave)) {

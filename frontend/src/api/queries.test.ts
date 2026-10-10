@@ -1,6 +1,7 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { cedolinoManuale } from '../test/cedolinoManuale';
+import { useUrlPdf } from '../hooks/useUrlPdf';
 import { contestoHook } from '../test/contestoHook';
 import { chiavi } from './chiavi';
 import { erroriDiCampo, esito } from './errors';
@@ -152,6 +153,29 @@ describe('query e modifiche dei cedolini caricati con errore', () => {
     expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(true);
     expect(invalidata(contesto, chiavi.lotto(ristampa.lotto))).toBe(true);
     expect(contesto.queryClient.getQueryState(chiavi.pdfCaricamento(ristampa.id))).toBeUndefined();
+  });
+
+  it('con l’anteprima aperta il PDF del file inserito resta fino alla chiusura, senza richiederlo di nuovo', async () => {
+    const contesto = contestoHook();
+    const ristampa = await fileInErrore(contesto, 'ristampa.pdf');
+    const { result, unmount } = renderHook(
+      () => ({ anteprima: useUrlPdf(ristampa.id), inserimento: useInserisciCedolinoManuale() }),
+      { wrapper: contesto.wrapper },
+    );
+    await waitFor(() => expect(result.current.anteprima.url).not.toBeNull());
+
+    await act(() =>
+      result.current.inserimento.mutateAsync({ caricamentoId: ristampa.id, dati: cedolinoManuale() }),
+    );
+
+    // il backend non conserva piu' il PDF: richiederlo di nuovo darebbe 404 sotto l'anteprima ancora aperta
+    expect(result.current.anteprima.url).not.toBeNull();
+    expect(result.current.anteprima.errore).toBeNull();
+    expect(contesto.queryClient.getQueryState(chiavi.pdfCaricamento(ristampa.id))?.status).toBe('success');
+    unmount();
+    await waitFor(() =>
+      expect(contesto.queryClient.getQueryState(chiavi.pdfCaricamento(ristampa.id))).toBeUndefined(),
+    );
   });
 
   it('la rimozione di un file elimina anche il suo PDF dalla cache', async () => {

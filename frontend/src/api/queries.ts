@@ -3,7 +3,11 @@ import { chiavi } from './chiavi';
 import type { ApiClient } from './client';
 import { useApiClient } from './context';
 import { esito } from './errors';
-import { invalidaDopoAcquisizione, invalidaDopoModificaFileInErrore } from './invalidazioni';
+import {
+  invalidaDopoAcquisizione,
+  invalidaDopoModificaFileInErrore,
+  scartaPdfConservato,
+} from './invalidazioni';
 import type { CedolinoManuale, LottoCaricamento, RapportoDettaglio, RichiestaAttribuzione } from './types';
 
 export { chiavi };
@@ -249,7 +253,7 @@ export function useInserisciCedolinoManuale() {
         }),
       ),
     onSuccess: async (caricamento, { caricamentoId }) => {
-      queryClient.removeQueries({ queryKey: chiavi.pdfCaricamento(caricamentoId) });
+      scartaPdfConservato(queryClient, caricamentoId);
       await Promise.all([
         invalidaDopoAcquisizione(queryClient),
         queryClient.invalidateQueries({ queryKey: chiavi.lotto(caricamento.lotto) }),
@@ -308,7 +312,7 @@ export function useRimuoviCaricamento() {
       return caricamentoId;
     },
     onSuccess: async (caricamentoId) => {
-      queryClient.removeQueries({ queryKey: chiavi.pdfCaricamento(caricamentoId) });
+      scartaPdfConservato(queryClient, caricamentoId);
       await invalidaDopoModificaFileInErrore(queryClient);
     },
   });
