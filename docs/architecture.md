@@ -32,7 +32,7 @@ salary-manager/
 |----------------|---------------------------------------------------------|-------------------------------|
 | `shared` (OPEN)| -                                                       | `WorkspaceId`, `CurrentWorkspaceProvider`, `ContestoWorkspace`, `Competenza` (sealed: `Mensilita`, `FineRapporto`), `TipoMensilita`, `UnitaMisura`, `Importi`, `Periodi`, `RisorsaNonTrovataException`, `OperazioneNonConsentitaException`, `DatiNonValidiException` (errori campo per campo), `config.VariabiliAmbiente`, jOOQ generato |
 | `ccnl`         | shared                                                  | `CatalogoCcnl`, `Ccnl` |
-| `anagrafica`   | ccnl, shared                                            | `CensimentoAnagrafica`, `ConsultazioneAnagrafica`, `GestioneRapporti`, id/record, eventi `CcnlRapportoModificato`, `RapportoLavoroEliminato` |
+| `anagrafica`   | ccnl, shared                                            | `CensimentoAnagrafica` (anche `aggiornaAziendaScelta`: azienda scelta dall'utente, senza abbinamento), `ConsultazioneAnagrafica` (anche `elencoAziende` e `aziendaRiconosciuta`: prova a vuoto del riconoscimento), `GestioneRapporti`, id/record (tra cui `AziendaSelezionabile`, `AziendaRiconosciuta`), eventi `CcnlRapportoModificato`, `RapportoLavoroEliminato` |
 | `cedolini`     | anagrafica, ccnl, shared                                | `CaricamentoCedolini`, `ArchivioCedolini`, `CaricamentiInErrore` (file in errore, inserimento a mano), `CedolinoNormalizzato`, `MotivoErrore`, `CedolinoManuale` e record collegati, eventi `CedolinoAcquisito`, `CedolinoEliminato`, `CaricamentiInErroreModificati` |
 | `calcoli`      | cedolini, anagrafica, ccnl, shared                      | `CalcoliRapporto`, `RiepilogoRapporto` |
 | `segnalazioni` | cedolini, anagrafica, ccnl, shared                      | `SegnalazioniRapporto`, `Segnalazione` |
@@ -354,20 +354,30 @@ workspace (404), che il file sia ancora in errore (409) e che non sia in elabora
 | `POST /{id}/cedolino/verifica` | prova dell'inserimento a mano: acquisizione completa, poi annullata |
 | `POST /{id}/cedolino` | inserimento a mano: 201 con il caricamento ACQUISITO; 409 se duplicato o aggiuntivo (il file resta in errore) |
 
-**Inserimento a mano** (un lettore in piu'):
+**Inserimento a mano** (un lettore in piu'). Persona e azienda si scelgono dagli elenchi `GET /api/v1/persone` e
+`GET /api/v1/aziende` (etichette anti-omonimia calcolate dal server) oppure si creano ("Crea nuovo"): `personaId` e
+`aziendaId` del cedolino, `null` per un'anagrafica nuova.
 
 ```
-CedolinoManuale (stessi percorsi di prompts/cedolino-schema-v1.json)
+CedolinoManuale (personaId, aziendaId + stessi percorsi di prompts/cedolino-schema-v1.json)
+  └─ AnagraficheScelte.risolvi ─► id non positivo o non nel workspace ─► 400 su personaId / aziendaId (da soli)
+  └─ AnagraficheScelte.conDatiInArchivio: codice fiscale, nome, cognome (data di nascita se in archivio) della persona
+       scelta; ragione sociale, P.IVA, codice fiscale, posizione INPS dell'azienda scelta
   └─ ValidazioneCedolinoManuale.verifica ─► errori bloccanti ─► DatiNonValidiException ─► 400 Problema.errori[]
+       anagrafiche nuove: codice fiscale di una persona in archivio, azienda che il censimento riconoscerebbe
+       (ConsultazioneAnagrafica.aziendaRiconosciuta) ─► 400 "… già in archivio: seleziona … dall'elenco"
   └─ ValidazioneCedolinoManuale.normalizza (testi, codici maiuscoli, flag 13a/14a dal tipo, buoni pasto)
   └─ JsonCedolinoManuale.scrivi ─► JSON dello schema v1
   └─ InterpreteRispostaEstrazione.interpreta(json, "inserimento-manuale-1") (IBAN mascherati, validatore comune)
        + avvisi propri (somme delle voci, codice fiscale provvisorio), confidenza null
   └─ AcquisizioneCedolino.acquisisciManuale (una transazione serializzata):
-       controlli del file + PDF conservato ─► stessa registrazione delle letture (censimento, competenza, duplicati,
-       riclassificazione, PDF originale con il suo hash, ACQUISITO, eventi)
-       verifica: setRollbackOnly sempre (persona e rapporti prima della registrazione confrontati con quelli usati,
-       per nuovaPersona / nuovoRapporto); inserimento: setRollbackOnly se scartato
+       controlli del file + PDF conservato ─► ricontrollo delle anagrafiche sotto lock (scelte ancora in archivio,
+       nessuna anagrafica nuova gia' in archivio: 400) ─► stessa registrazione delle letture (censimento, competenza,
+       duplicati, riclassificazione, PDF originale con il suo hash, ACQUISITO, eventi); nel censimento l'azienda
+       scelta e' collegata per id (CensimentoAnagrafica.aggiornaAziendaScelta, nessun abbinamento), la persona scelta
+       si ritrova per il suo codice fiscale, e il rapporto deve essere della coppia scelta
+       verifica: setRollbackOnly sempre (nuovaPersona / nuovaAzienda = nessuna scelta, nuovoRapporto confrontando i
+       rapporti della persona prima della registrazione); inserimento: setRollbackOnly se scartato
 ```
 
 La verifica non lascia tracce perche' tutti i listener sono sincroni nella stessa transazione e non esiste un event

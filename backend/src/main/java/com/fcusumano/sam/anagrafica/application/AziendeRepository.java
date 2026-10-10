@@ -17,6 +17,9 @@ public interface AziendeRepository {
 
     List<ProfiloAzienda> trova(WorkspaceId workspace, Collection<AziendaId> ids);
 
+    /** Tutte le aziende del workspace (ordine non garantito). */
+    List<ProfiloAzienda> elenco(WorkspaceId workspace);
+
     /**
      * Aziende che hanno almeno una corrispondenza con i valori indicati: codice fiscale o partita IVA tra
      * {@code identificativiFiscali} (confronto incrociato), stessa matricola INPS o stessa ragione sociale normalizzata.

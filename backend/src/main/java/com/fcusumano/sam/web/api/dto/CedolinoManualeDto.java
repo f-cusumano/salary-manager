@@ -14,12 +14,16 @@ import java.util.List;
  * Riusa gli schemi del dettaglio dove coincidono (totali, elementi retributivi, ratei, TFR, buoni pasto, progressivi).
  * I percorsi dei campi sono quelli usati negli {@code errori} delle risposte 400 (es. {@code voci[2].descrizione}).
  *
- * @param voci  voci nell'ordine del cedolino
- * @param ratei al piu' un rateo per tipo e unita'
- * @param tfr   null se il cedolino non riporta dati TFR
+ * @param personaId persona gia' in archivio scelta dall'elenco, null per una persona nuova ("Crea nuovo")
+ * @param aziendaId azienda gia' in archivio scelta dall'elenco, null per un'azienda nuova ("Crea nuova")
+ * @param voci      voci nell'ordine del cedolino
+ * @param ratei     al piu' un rateo per tipo e unita'
+ * @param tfr       null se il cedolino non riporta dati TFR
  */
 @Schema(name = "CedolinoManuale")
 public record CedolinoManualeDto(
+        Long personaId,
+        Long aziendaId,
         DipendenteManuale dipendente,
         DatoreLavoroManuale datoreLavoro,
         DatiContrattualiManuali datiContrattuali,

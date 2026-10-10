@@ -120,7 +120,7 @@ class ComposizioneRapporti {
                 .findFirst()
                 .map(Mappatura::persona)
                 .orElseGet(() -> new PersonaSintesiDto(persona.id().valore(), persona.nome(), persona.cognome(),
-                        persona.codiceFiscale(), persona.nomeCompleto()));
+                        persona.codiceFiscale(), persona.dataNascita(), persona.nomeCompleto()));
     }
 
     private static Map<CedolinoId, IndicatoriMensilita> indicatoriPerCedolino(RiepilogoRapporto riepilogo) {

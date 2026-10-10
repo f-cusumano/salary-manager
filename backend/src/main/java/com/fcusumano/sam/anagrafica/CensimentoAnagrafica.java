@@ -37,6 +37,17 @@ public interface CensimentoAnagrafica {
     Azienda trovaOCreaAzienda(DatiAzienda dati);
 
     /**
+     * Azienda gia' censita scelta dall'utente (inserimento a mano): nessun abbinamento, i dati vanno a questa azienda.
+     * Stessi aggiornamenti di un'azienda riconosciuta da {@link #trovaOCreaAzienda}: attributi non chiave (indirizzo,
+     * codice azienda, ragione sociale) se {@code dati.riferimento()} e' uguale o successivo a quello dei dati presenti,
+     * identificativi mancanti completati se non usati da altre aziende.
+     *
+     * @throws com.fcusumano.sam.shared.RisorsaNonTrovataException se l'azienda non esiste nel workspace
+     * @throws IllegalArgumentException                            se manca la ragione sociale
+     */
+    Azienda aggiornaAziendaScelta(AziendaId id, DatiAzienda dati);
+
+    /**
      * Trova il rapporto persona-azienda o lo crea. Se esiste lo aggiorna: date di assunzione/cessazione, qualifica,
      * livello e codice dipendente vengono sovrascritti solo se {@code dati.riferimento()} e' uguale o successivo al
      * riferimento dei dati gia' presenti (valori null non cancellano dati presenti). Il CCNL riconosciuto viene

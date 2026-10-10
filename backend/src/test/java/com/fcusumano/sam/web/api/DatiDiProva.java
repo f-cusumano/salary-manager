@@ -50,7 +50,7 @@ final class DatiDiProva {
     }
 
     static PersonaSintesi personaSintesi(String etichetta) {
-        return new PersonaSintesi(new PersonaId(1), "Mario", "Rossi", CF_ROSSI, etichetta);
+        return new PersonaSintesi(new PersonaId(1), "Mario", "Rossi", CF_ROSSI, LocalDate.of(1980, 1, 1), etichetta);
     }
 
     static Azienda azienda() {

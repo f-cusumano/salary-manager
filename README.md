@@ -471,14 +471,22 @@ nell'archivio. È una cosa diversa da una **mensilità mancante**, per cui nessu
   rossa, *"Caricato con errore"*, e la segnalazione *"Cedolino caricato con errore"* prende il posto di *"Mensilità
   mancante"*. Una mensilità che ha già un cedolino o un altro file associato non si può scegliere.
 - **Inserisci a mano**: un modulo con tutti i campi che il lettore avrebbe estratto, accanto all'anteprima del PDF.
-  "Copia dati da..." riempie i campi vuoti da un rapporto esistente (persona, azienda, voci senza importi, ...): le
-  voci e i ratei copiati sono modelli e vengono salvati solo se li completi (una nota permette di togliere quelli
-  rimasti vuoti). Importi e quantità hanno al massimo 8 cifre intere e 5 decimali.
-  **Verifica** prova l'archiviazione senza salvare (mensilità, persona o rapporto nuovi, conflitti, controlli di
-  coerenza); **Salva cedolino** lo archivia con il PDF originale come se fosse stato letto: riepilogo e segnalazioni
-  si ricalcolano, e nel dettaglio compare "Inserito a mano" al posto dell'affidabilità della lettura. Sono
-  obbligatori periodo, codice fiscale, nome e cognome del dipendente, ragione sociale del datore di lavoro, totale
-  competenze, totale trattenute e netto.
+  Il dipendente si sceglie da **"Persona in archivio"** ("Seleziona persona/dipendente": nome e cognome, con il
+  codice fiscale solo per gli omonimi) e il datore di lavoro da **"Azienda in archivio"** (ragione sociale, con la
+  partita IVA solo per le omonime; prima le aziende della persona scelta). I loro dati anagrafici arrivano
+  dall'archivio e restano in sola lettura, così un refuso non crea un doppione; matricola, indirizzo, codice azienda
+  e posizione INAIL restano modificabili. Solo per una persona o un'azienda che non è ancora in archivio si usa
+  **"Crea nuovo"** / **"Crea nuova"** e si scrivono i dati come stampati sul cedolino: se il codice fiscale, la
+  partita IVA, la posizione INPS o la ragione sociale sono già in archivio il modulo chiede di sceglierla
+  dall'elenco. Scelti persona e azienda, i campi vuoti si riempiono dal loro rapporto e dal cedolino più vicino al
+  periodo (voci senza importi, ...): le voci e i ratei copiati sono modelli e vengono salvati solo se li completi
+  (una nota permette di togliere quelli rimasti vuoti). Aprendo il modulo da un file associato a un mese persona e
+  azienda sono già scelte. Importi e quantità hanno al massimo 8 cifre intere e 5 decimali.
+  **Verifica** prova l'archiviazione senza salvare (mensilità, persona, azienda o rapporto nuovi, conflitti, controlli
+  di coerenza); **Salva cedolino** lo archivia con il PDF originale come se fosse stato letto: riepilogo e
+  segnalazioni si ricalcolano, e nel dettaglio compare "Inserito a mano" al posto dell'affidabilità della lettura.
+  Sono obbligatori periodo, persona e azienda (scelte o nuove), totale competenze, totale trattenute e netto; per
+  una persona nuova codice fiscale, nome e cognome, per un'azienda nuova la ragione sociale.
 - **Errori delle versioni precedenti**: i file andati in errore prima di questa funzione non hanno il PDF conservato
   né il motivo; compaiono nell'elenco con il loro messaggio e vanno **ricaricati una volta** (oppure rimossi).
 - Un file la cui prima lettura è stata interrotta da un riavvio dell'applicazione non ha il PDF conservato: va

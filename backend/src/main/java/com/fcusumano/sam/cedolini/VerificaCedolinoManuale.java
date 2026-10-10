@@ -9,19 +9,21 @@ import java.util.List;
  *
  * @param messaggio           motivo dello scarto (DUPLICATO, AGGIUNTIVO_NON_GESTITO), null se acquisibile
  * @param competenza          competenza con cui il cedolino verrebbe archiviato, null se scartato
- * @param nuovaPersona        il codice fiscale non corrisponde a nessuna persona: ne verrebbe creata una
- * @param nuovoRapporto       la persona non ha ancora un rapporto con l'azienda indicata: ne verrebbe creato uno
+ * @param nuovaPersona        la persona non e' stata scelta dall'elenco: ne verrebbe creata una
+ * @param nuovaAzienda        l'azienda non e' stata scelta dall'elenco: ne verrebbe creata una
+ * @param nuovoRapporto       la persona non ha ancora un rapporto con l'azienda: ne verrebbe creato uno
  * @param rapportoId          rapporto esistente a cui il cedolino verrebbe attribuito, null se verrebbe creato
  * @param cedolinoEsistenteId cedolino gia' presente con cui confligge, null se acquisibile
  * @param avvisi              controlli di coerenza non superati (salvati con il cedolino) e avvisi sul contesto
- *                            (persona e rapporto nuovi, nome diverso da quello in archivio, mese associato diverso);
- *                            mai valori inseriti
+ *                            (mese o rapporto diversi da quelli associati al file, persona, azienda e rapporto
+ *                            nuovi); mai valori inseriti
  */
 public record VerificaCedolinoManuale(
         Esito esito,
         String messaggio,
         Competenza competenza,
         boolean nuovaPersona,
+        boolean nuovaAzienda,
         boolean nuovoRapporto,
         RapportoLavoroId rapportoId,
         CedolinoId cedolinoEsistenteId,

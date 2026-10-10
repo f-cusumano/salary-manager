@@ -2,6 +2,8 @@ package com.fcusumano.sam.anagrafica.application;
 
 import com.fcusumano.sam.anagrafica.Azienda;
 import com.fcusumano.sam.anagrafica.AziendaId;
+import com.fcusumano.sam.anagrafica.AziendaRiconosciuta;
+import com.fcusumano.sam.anagrafica.AziendaSelezionabile;
 import com.fcusumano.sam.anagrafica.CcnlRapportoModificato;
 import com.fcusumano.sam.anagrafica.CensimentoAnagrafica;
 import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
@@ -25,6 +27,7 @@ import com.fcusumano.sam.anagrafica.domain.Etichette;
 import com.fcusumano.sam.anagrafica.domain.NomiPropri;
 import com.fcusumano.sam.anagrafica.domain.PeriodiRapporti;
 import com.fcusumano.sam.anagrafica.domain.ProfiloAzienda;
+import com.fcusumano.sam.anagrafica.domain.RagioneSociale;
 import com.fcusumano.sam.anagrafica.domain.StatoRapporto;
 import com.fcusumano.sam.anagrafica.domain.Testi;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
@@ -66,6 +69,10 @@ class AnagraficaService implements CensimentoAnagrafica, ConsultazioneAnagrafica
             .comparing((Persona p) -> p.cognome().toLowerCase(Locale.ITALIAN))
             .thenComparing(p -> p.nome().toLowerCase(Locale.ITALIAN))
             .thenComparing(p -> p.id().valore());
+
+    private static final Comparator<Azienda> PER_RAGIONE_SOCIALE = Comparator
+            .comparing((Azienda a) -> a.ragioneSociale().toLowerCase(Locale.ITALIAN))
+            .thenComparing(a -> a.id().valore());
 
     private final PersoneRepository persone;
     private final AziendeRepository aziende;
@@ -133,12 +140,30 @@ class AnagraficaService implements CensimentoAnagrafica, ConsultazioneAnagrafica
             return letta.conId(id).comeAzienda();
         }
         var registrata = abbinamento.get().azienda();
+        log.debug("Azienda {} riconosciuta per {}", registrata.id().valore(), abbinamento.get().criterio());
+        return aggiorna(ws, registrata, letta);
+    }
+
+    @Override
+    public Azienda aggiornaAziendaScelta(AziendaId id, DatiAzienda dati) {
+        var letta = ProfiloAzienda.daCedolino(dati);
+        var ws = workspace();
+        var registrata = aziende.trova(ws, id)
+                .orElseThrow(() -> new RisorsaNonTrovataException("Azienda", id.valore()));
+        log.debug("Azienda {} scelta dall'utente aggiornata", id.valore());
+        return aggiorna(ws, registrata, letta);
+    }
+
+    /**
+     * Aggiorna un'azienda registrata con i dati letti: attributi per recenza, identificativi mancanti completati se
+     * non usati da altre aziende ({@link AggiornamentoAzienda}).
+     */
+    private Azienda aggiorna(WorkspaceId ws, ProfiloAzienda registrata, ProfiloAzienda letta) {
         var usatiDaAltre = aziende.identificativiFiscaliUsati(ws, letta.identificativiFiscali(), registrata.id());
         var aggiornata = AggiornamentoAzienda.unisci(registrata, letta, usatiDaAltre);
         if (!aggiornata.equals(registrata)) {
             aziende.aggiorna(ws, aggiornata);
         }
-        log.debug("Azienda {} riconosciuta per {}", registrata.id().valore(), abbinamento.get().criterio());
         return aggiornata.comeAzienda();
     }
 
@@ -222,8 +247,43 @@ class AnagraficaService implements CensimentoAnagrafica, ConsultazioneAnagrafica
         var elenco = persone.elenco(workspace()).stream().sorted(PER_COGNOME_E_NOME).toList();
         var etichette = Etichette.persone(elenco);
         return elenco.stream()
-                .map(p -> new PersonaSintesi(p.id(), p.nome(), p.cognome(), p.codiceFiscale(), etichette.get(p.id())))
+                .map(p -> new PersonaSintesi(p.id(), p.nome(), p.cognome(), p.codiceFiscale(), p.dataNascita(),
+                        etichette.get(p.id())))
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AziendaSelezionabile> elencoAziende() {
+        var elenco = aziende.elenco(workspace()).stream().map(ProfiloAzienda::comeAzienda)
+                .sorted(PER_RAGIONE_SOCIALE).toList();
+        var etichette = Etichette.aziende(elenco);
+        return elenco.stream().map(a -> new AziendaSelezionabile(a, etichette.get(a.id()))).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<AziendaRiconosciuta> aziendaRiconosciuta(DatiAzienda dati) {
+        if (RagioneSociale.normalizza(Testi.pulisciETronca(dati.ragioneSociale(), RagioneSociale.LUNGHEZZA)) == null) {
+            return Optional.empty();
+        }
+        var letta = ProfiloAzienda.daCedolino(dati);
+        var candidate = aziende.candidate(workspace(), letta.identificativiFiscali(), letta.posizioneInps(),
+                letta.ragioneSocialeNormalizzata());
+        return AbbinamentoAzienda.trova(letta, candidate)
+                .map(esito -> new AziendaRiconosciuta(esito.azienda().id(), dato(letta, esito)));
+    }
+
+    /** Dato dei dati letti che determina l'abbinamento: la P.IVA se e' tra gli identificativi dell'azienda trovata. */
+    private static AziendaRiconosciuta.Dato dato(ProfiloAzienda letta, AbbinamentoAzienda.Esito esito) {
+        return switch (esito.criterio()) {
+            case IDENTIFICATIVO_FISCALE -> letta.partitaIva() != null
+                    && esito.azienda().identificativiFiscali().contains(letta.partitaIva())
+                    ? AziendaRiconosciuta.Dato.PARTITA_IVA
+                    : AziendaRiconosciuta.Dato.CODICE_FISCALE;
+            case POSIZIONE_INPS -> AziendaRiconosciuta.Dato.POSIZIONE_INPS;
+            case RAGIONE_SOCIALE -> AziendaRiconosciuta.Dato.RAGIONE_SOCIALE;
+        };
     }
 
     @Override

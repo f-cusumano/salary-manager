@@ -12,6 +12,7 @@ import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conP
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conProgressivi;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conRatei;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conRetribuzione;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conScelte;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conScatti;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conTfr;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conTotali;
@@ -21,6 +22,7 @@ import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.n;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.vuoto;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fcusumano.sam.anagrafica.AziendaRiconosciuta;
 import com.fcusumano.sam.cedolini.BuoniPasto;
 import com.fcusumano.sam.cedolini.CategoriaVoce;
 import com.fcusumano.sam.cedolini.CedolinoManuale;
@@ -42,6 +44,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
@@ -59,19 +62,22 @@ class ValidazioneCedolinoManualeTest {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-15T10:00:00Z"), ZoneOffset.UTC);
     private static final String LUNGO_101 = "A".repeat(101);
 
+    /** Nessuna azienda in archivio: un'azienda nuova non viene mai riconosciuta. */
+    private static final ValidazioneCedolinoManuale.RiconoscimentoAzienda SENZA_AZIENDE = datore -> Optional.empty();
+
     private final ValidazioneCedolinoManuale validazione = new ValidazioneCedolinoManuale(CLOCK);
 
     // ------------------------------------------------------------------------------------------ errori bloccanti
 
     @Test
     void unCedolinoCompletoOEssenzialeNonHaErrori() {
-        assertThat(validazione.verifica(completo(), Set.of())).isEmpty();
-        assertThat(validazione.verifica(essenziale(), Set.of())).isEmpty();
+        assertThat(verifica(completo())).isEmpty();
+        assertThat(verifica(essenziale())).isEmpty();
     }
 
     @Test
     void unCedolinoVuotoHaGliErroriDeiCampiObbligatoriNellOrdineDelloSchema() {
-        assertThat(validazione.verifica(vuoto(), Set.of())).extracting(ErroreCampo::campo).containsExactly(
+        assertThat(verifica(vuoto())).extracting(ErroreCampo::campo).containsExactly(
                 "dipendente.codiceFiscale", "dipendente.nome", "dipendente.cognome", "datoreLavoro.ragioneSociale",
                 "periodo.anno", "periodo.mese", "periodo.tipo", "totali.totaleCompetenze", "totali.totaleTrattenute",
                 "totali.netto");
@@ -221,7 +227,7 @@ class ValidazioneCedolinoManualeTest {
     @MethodSource("regoleBloccanti")
     void ogniRegolaBloccanteIndicaIlCampo(String caso, UnaryOperator<CedolinoManuale> variante, String campo,
             String messaggio) {
-        assertThat(validazione.verifica(variante.apply(essenziale()), Set.of()))
+        assertThat(verifica(variante.apply(essenziale())))
                 .containsExactly(new ErroreCampo(campo, messaggio));
     }
 
@@ -229,7 +235,7 @@ class ValidazioneCedolinoManualeTest {
     void unaVoceAssenteNellElencoEUnaVoceVuota() {
         var cedolino = conVoci(essenziale(), Arrays.asList(essenziale().voci().getFirst(), null));
 
-        assertThat(validazione.verifica(cedolino, Set.of())).containsExactly(
+        assertThat(verifica(cedolino)).containsExactly(
                 new ErroreCampo("voci[1].descrizione", "Indica la descrizione della voce"),
                 new ErroreCampo("voci[1].categoria", "Indica la categoria della voce"));
     }
@@ -239,7 +245,7 @@ class ValidazioneCedolinoManualeTest {
         var cedolino = conTotali(essenziale(),
                 new CedolinoManuale.Totali(null, n("-10000000000"), n("450.00"), null, n("1650.00")));
 
-        assertThat(validazione.verifica(cedolino, Set.of()))
+        assertThat(verifica(cedolino))
                 .containsExactly(new ErroreCampo("totali.totaleCompetenze", "Indica l'importo senza segno"));
     }
 
@@ -248,7 +254,7 @@ class ValidazioneCedolinoManualeTest {
         var cedolino = conTotali(essenziale(),
                 new CedolinoManuale.Totali(null, n("100.00"), n("150.00"), n("-0.40"), n("-50.40")));
 
-        assertThat(validazione.verifica(cedolino, Set.of())).isEmpty();
+        assertThat(verifica(cedolino)).isEmpty();
     }
 
     @Test
@@ -260,26 +266,122 @@ class ValidazioneCedolinoManualeTest {
                         periodo(1899, 5, TipoMensilita.ORDINARIA)),
                 new CedolinoManuale.Totali(null, n("-2100.00"), n("450.00"), null, n("1650.00")));
 
-        var errori = validazione.verifica(cedolino, Set.of());
+        var errori = verifica(cedolino);
 
         assertThat(errori).hasSize(6);
         assertThat(errori).allSatisfy(e -> assertThat(valori).noneMatch(v -> e.messaggio().contains(v)));
     }
 
-    @Test
-    void unCodiceFiscaleFormalmenteErratoEAccettatoSeLaPersonaECensita() {
-        var cedolino = conDipendente(essenziale(), dipendente(" rssmra80a01h501x ", "Mario", "Rossi"));
+    // ------------------------------------------------------------------------------------------ anagrafiche
 
-        assertThat(validazione.verifica(cedolino, Set.of("RSSMRA80A01H501X"))).isEmpty();
-        assertThat(validazione.verifica(cedolino, Set.of(CF_MARIO))).extracting(ErroreCampo::campo)
-                .containsExactly("dipendente.codiceFiscale");
+    @Test
+    void ilCodiceFiscaleDiUnaPersonaNuovaNonPuoEssereGiaInArchivio() {
+        var archiviato = conDipendente(essenziale(), dipendente(" rssmra80a01h501u ", "Mario", "Rossi"));
+        // anche un codice formalmente errato o provvisorio accettato dal censimento di un PDF: va scelto dall'elenco
+        var archiviatoErrato = conDipendente(essenziale(), dipendente("RSSMRA80A01H501X", "Mario", "Rossi"));
+        var archiviatoProvvisorio = conDipendente(essenziale(), dipendente("12345678901", "Mario", "Rossi"));
+        var censiti = Set.of(CF_MARIO, "RSSMRA80A01H501X", "12345678901");
+        var atteso = new ErroreCampo("dipendente.codiceFiscale",
+                "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco");
+
+        assertThat(validazione.verifica(archiviato, censiti, SENZA_AZIENDE)).containsExactly(atteso);
+        assertThat(validazione.verifica(archiviatoErrato, censiti, SENZA_AZIENDE)).containsExactly(atteso);
+        assertThat(validazione.verifica(archiviatoProvvisorio, censiti, SENZA_AZIENDE)).containsExactly(atteso);
+        assertThat(validazione.verifica(archiviatoErrato, Set.of(CF_MARIO), SENZA_AZIENDE)).containsExactly(
+                new ErroreCampo("dipendente.codiceFiscale", "Codice fiscale non valido: controlla i 16 caratteri"));
+    }
+
+    @Test
+    void conLaPersonaSceltaCodiceFiscaleNomeECognomeNonSiControllano() {
+        // i dati anagrafici sono quelli in archivio (anche un codice accettato dal censimento di un PDF)
+        var scelta = conScelte(conDipendente(essenziale(), dipendente(null, " ", null)), 1L, null);
+        var codiceArchiviato = conScelte(conDipendente(essenziale(), dipendente("RSSMRA80A01H501X", "Mario",
+                "Rossi")), 1L, null);
+        var nataNelFuturo = conScelte(conDipendente(essenziale(), new CedolinoManuale.Dipendente(CF_MARIO, "Mario",
+                "Rossi", LocalDate.of(2026, 2, 1), LUNGO_101)), 1L, null);
+
+        assertThat(validazione.verifica(scelta, Set.of(CF_MARIO), SENZA_AZIENDE)).isEmpty();
+        assertThat(validazione.verifica(codiceArchiviato, Set.of("RSSMRA80A01H501X"), SENZA_AZIENDE)).isEmpty();
+        assertThat(validazione.verifica(nataNelFuturo, Set.of(CF_MARIO), SENZA_AZIENDE)).containsExactly(
+                new ErroreCampo("dipendente.dataNascita", "La data di nascita è nel futuro"),
+                new ErroreCampo("dipendente.codiceDipendente", "Testo troppo lungo (massimo 50 caratteri)"));
+    }
+
+    static Stream<Arguments> aziendeGiaInArchivio() {
+        return Stream.of(
+                Arguments.of(AziendaRiconosciuta.Dato.PARTITA_IVA, "datoreLavoro.partitaIva",
+                        "Questa partita IVA è già in archivio: seleziona l'azienda dall'elenco"),
+                Arguments.of(AziendaRiconosciuta.Dato.CODICE_FISCALE, "datoreLavoro.codiceFiscale",
+                        "Questo codice fiscale è già in archivio: seleziona l'azienda dall'elenco"),
+                Arguments.of(AziendaRiconosciuta.Dato.POSIZIONE_INPS, "datoreLavoro.posizioneInps",
+                        "Questa posizione INPS è già in archivio: seleziona l'azienda dall'elenco"),
+                Arguments.of(AziendaRiconosciuta.Dato.RAGIONE_SOCIALE, "datoreLavoro.ragioneSociale",
+                        "Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("aziendeGiaInArchivio")
+    void unAziendaNuovaGiaInArchivioHaLErroreSulDatoCheLaFaRiconoscere(AziendaRiconosciuta.Dato dato, String campo,
+            String messaggio) {
+        var richieste = new ArrayList<CedolinoManuale.DatoreLavoro>();
+        ValidazioneCedolinoManuale.RiconoscimentoAzienda riconoscimento = datore -> {
+            richieste.add(datore);
+            return Optional.of(dato);
+        };
+        var cedolino = conDatore(essenziale(), datore("it " + PIVA_ALFA, null, "  Alfa Software S.r.l. "));
+
+        assertThat(validazione.verifica(cedolino, Set.of(), riconoscimento))
+                .containsExactly(new ErroreCampo(campo, messaggio));
+        assertThat(richieste).as("il riconoscimento riceve i dati normalizzati").containsExactly(
+                datore(PIVA_ALFA, null, "Alfa Software S.r.l."));
+    }
+
+    @Test
+    void ilRiconoscimentoDellAziendaSiProvaSoloPerUnAziendaNuovaSenzaAltriErrori() {
+        var richieste = new ArrayList<CedolinoManuale.DatoreLavoro>();
+        ValidazioneCedolinoManuale.RiconoscimentoAzienda riconoscimento = datore -> {
+            richieste.add(datore);
+            return Optional.of(AziendaRiconosciuta.Dato.PARTITA_IVA);
+        };
+        var partitaIvaErrata = conDatore(essenziale(), datore(null, "0123456789", "Alfa Software S.r.l."));
+        var indirizzoTroppoLungo = conDatore(essenziale(), new CedolinoManuale.DatoreLavoro(null, PIVA_ALFA, null,
+                null, "Alfa Software S.r.l.", "V".repeat(301), null));
+        // azienda scelta: i dati sono quelli in archivio, senza controlli ne' riconoscimento (anche se mancano)
+        var scelta = conScelte(conDatore(essenziale(), new CedolinoManuale.DatoreLavoro("X".repeat(17), "abc",
+                "I".repeat(51), null, null, "Via Roma 1", null)), null, 3L);
+
+        assertThat(validazione.verifica(partitaIvaErrata, Set.of(), riconoscimento)).extracting(ErroreCampo::campo)
+                .containsExactly("datoreLavoro.partitaIva");
+        assertThat(validazione.verifica(indirizzoTroppoLungo, Set.of(), riconoscimento))
+                .extracting(ErroreCampo::campo).containsExactly("datoreLavoro.indirizzo");
+        assertThat(validazione.verifica(scelta, Set.of(), riconoscimento)).isEmpty();
+        assertThat(richieste).isEmpty();
+    }
+
+    @Test
+    void gliErroriDiArchivioRestanoNellOrdineDeiCampi() {
+        var cedolino = conPeriodo(conDipendente(essenziale(), dipendente(CF_MARIO, "Mario", "Rossi")),
+                periodo(2023, 0, TipoMensilita.ORDINARIA));
+
+        assertThat(validazione.verifica(cedolino, Set.of(CF_MARIO),
+                datore -> Optional.of(AziendaRiconosciuta.Dato.RAGIONE_SOCIALE)))
+                .extracting(ErroreCampo::campo)
+                .containsExactly("dipendente.codiceFiscale", "datoreLavoro.ragioneSociale", "periodo.mese");
+    }
+
+    @Test
+    void laNormalizzazioneConservaGliIdDelleAnagraficheScelte() {
+        var normalizzato = ValidazioneCedolinoManuale.normalizza(conScelte(essenziale(), 1L, 3L));
+
+        assertThat(normalizzato.personaId()).isEqualTo(1L);
+        assertThat(normalizzato.aziendaId()).isEqualTo(3L);
     }
 
     @Test
     void unCodiceFiscaleProvvisorioEAccettatoConUnAvviso() {
         var cedolino = conDipendente(completo(), dipendente("12345678901", "Mario", "Rossi"));
 
-        assertThat(validazione.verifica(cedolino, Set.of())).isEmpty();
+        assertThat(verifica(cedolino)).isEmpty();
         assertThat(ValidazioneCedolinoManuale.avvisi(ValidazioneCedolinoManuale.normalizza(cedolino)))
                 .containsExactly(ValidazioneCedolinoManuale.AVVISO_CODICE_FISCALE_PROVVISORIO);
     }
@@ -289,7 +391,7 @@ class ValidazioneCedolinoManualeTest {
         var cedolino = conDatore(conDipendente(essenziale(), dipendente("rssmra 80a01 h501u", "Mario", "Rossi")),
                 datore("it" + PIVA_ALFA, "IT " + PIVA_ALFA, "  Alfa Software S.r.l.  "));
 
-        assertThat(validazione.verifica(cedolino, Set.of())).isEmpty();
+        assertThat(verifica(cedolino)).isEmpty();
     }
 
     // ------------------------------------------------------------------------------------------ normalizzazione
@@ -405,6 +507,11 @@ class ValidazioneCedolinoManualeTest {
     }
 
     // ------------------------------------------------------------------------------------------ supporto
+
+    /** Errori bloccanti con un archivio vuoto. */
+    private List<ErroreCampo> verifica(CedolinoManuale cedolino) {
+        return validazione.verifica(cedolino, Set.of(), SENZA_AZIENDE);
+    }
 
     private static Arguments regola(String caso, UnaryOperator<CedolinoManuale> variante, String campo,
             String messaggio) {

@@ -15,7 +15,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Persone (tendina della barra superiore) e loro rapporti di lavoro (elenco aziende).
+ * Persone (tendina della barra superiore e scelta della persona nell'inserimento a mano) e loro rapporti di lavoro
+ * (elenco aziende).
  */
 @RestController
 @RequestMapping(path = "/api/v1/persone", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -32,7 +33,8 @@ class PersoneController {
 
     @GetMapping
     @Operation(operationId = "elencoPersone", summary = "Elenco persone per la tendina",
-            description = "Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti.")
+            description = "Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti. "
+                    + "Usata anche dall'inserimento a mano per scegliere una persona gia' in archivio.")
     @ApiResponse(responseCode = "200", description = "Elenco persone")
     List<PersonaSintesiDto> elencoPersone() {
         return anagrafica.elencoPersone().stream().map(Mappatura::persona).toList();

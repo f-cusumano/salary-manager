@@ -34,6 +34,23 @@ final class MessaggiCaricamento {
     static final String VALORI_TROPPO_GRANDI =
             "Alcuni importi o quantità sono troppo grandi: controlla i valori inseriti";
 
+    // inserimento a mano: anagrafiche scelte dall'elenco o nuove ("Crea nuovo")
+
+    static final String PERSONA_NON_IN_ARCHIVIO =
+            "La persona scelta non è più in archivio: scegline un'altra o creane una nuova";
+    static final String AZIENDA_NON_IN_ARCHIVIO =
+            "L'azienda scelta non è più in archivio: scegline un'altra o creane una nuova";
+    static final String CODICE_FISCALE_PERSONA_IN_ARCHIVIO =
+            "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco";
+    static final String PARTITA_IVA_IN_ARCHIVIO =
+            "Questa partita IVA è già in archivio: seleziona l'azienda dall'elenco";
+    static final String CODICE_FISCALE_AZIENDA_IN_ARCHIVIO =
+            "Questo codice fiscale è già in archivio: seleziona l'azienda dall'elenco";
+    static final String POSIZIONE_INPS_IN_ARCHIVIO =
+            "Questa posizione INPS è già in archivio: seleziona l'azienda dall'elenco";
+    static final String RAGIONE_SOCIALE_IN_ARCHIVIO =
+            "Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco";
+
     private MessaggiCaricamento() {
     }
 

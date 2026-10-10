@@ -36,6 +36,8 @@ final class CedoliniManualiDiProva {
     /** Maggio 2023 di Mario Rossi in Alfa Software con tutti i campi valorizzati e controlli di coerenza superati. */
     static CedolinoManuale completo() {
         return new CedolinoManuale(
+                null,
+                null,
                 new CedolinoManuale.Dipendente(CF_MARIO, "Mario", "Rossi", LocalDate.of(1980, 1, 1), "000123"),
                 new CedolinoManuale.DatoreLavoro(PIVA_ALFA, PIVA_ALFA, "1122334455", "98765432/10",
                         "Alfa Software S.r.l.", "Via Roma 1, 00100 Roma (RM)", "ALFA01"),
@@ -71,6 +73,8 @@ final class CedoliniManualiDiProva {
     /** Il minimo indispensabile per maggio 2023 di Mario Rossi in Alfa Software (totali coerenti). */
     static CedolinoManuale essenziale() {
         return new CedolinoManuale(
+                null,
+                null,
                 new CedolinoManuale.Dipendente(CF_MARIO, "Mario", "Rossi", null, null),
                 new CedolinoManuale.DatoreLavoro(null, PIVA_ALFA, null, null, "Alfa Software S.r.l.", null, null),
                 null,
@@ -85,8 +89,8 @@ final class CedoliniManualiDiProva {
 
     /** Nessun campo valorizzato (non acquisibile: per i controlli di forma). */
     static CedolinoManuale vuoto() {
-        return new CedolinoManuale(null, null, null, null, null, null, null, null, null, null, null, null, null,
-                false, false);
+        return new CedolinoManuale(null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, false, false);
     }
 
     static BigDecimal n(String valore) {
@@ -95,81 +99,88 @@ final class CedoliniManualiDiProva {
 
     // ------------------------------------------------------------------------------------------ varianti
 
+    /** Persona e azienda scelte dall'elenco (null = nuova). */
+    static CedolinoManuale conScelte(CedolinoManuale c, Long personaId, Long aziendaId) {
+        return new CedolinoManuale(personaId, aziendaId, c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(),
+                c.buoniPasto(), c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
+    }
+
     static CedolinoManuale conDipendente(CedolinoManuale c, CedolinoManuale.Dipendente d) {
-        return new CedolinoManuale(d, c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), d, c.datoreLavoro(), c.datiContrattuali(), c.periodo(),
+                c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
                 c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conDatore(CedolinoManuale c, CedolinoManuale.DatoreLavoro a) {
-        return new CedolinoManuale(c.dipendente(), a, c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), a, c.datiContrattuali(), c.periodo(),
+                c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
                 c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conContratto(CedolinoManuale c, CedolinoManuale.DatiContrattuali k) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), k, c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), k, c.periodo(),
+                c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
                 c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conPeriodo(CedolinoManuale c, CedolinoManuale.Periodo p) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), p, c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                p, c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
                 c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conTotali(CedolinoManuale c, CedolinoManuale.Totali t) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), t,
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
-                c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), t, c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(),
+                c.buoniPasto(), c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conRetribuzione(CedolinoManuale c, ElementiRetributivi r) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                r, c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), r, c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
                 c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conVoci(CedolinoManuale c, List<Voce> voci) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), voci, c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
-                c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), c.retribuzione(), voci, c.ratei(), c.tfr(), c.presenze(), c.scatti(),
+                c.buoniPasto(), c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conRatei(CedolinoManuale c, List<Rateo> ratei) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), ratei, c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
-                c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), c.retribuzione(), c.voci(), ratei, c.tfr(), c.presenze(), c.scatti(),
+                c.buoniPasto(), c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conTfr(CedolinoManuale c, DatiTfr tfr) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), tfr, c.presenze(), c.scatti(), c.buoniPasto(),
-                c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), c.retribuzione(), c.voci(), c.ratei(), tfr, c.presenze(), c.scatti(),
+                c.buoniPasto(), c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conScatti(CedolinoManuale c, CedolinoManuale.Scatti s) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), s, c.buoniPasto(),
-                c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), s,
+                c.buoniPasto(), c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conBuoniPasto(CedolinoManuale c, BuoniPasto b) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), b,
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), b,
                 c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conProgressivi(CedolinoManuale c, ProgressiviAnnui g) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(), c.buoniPasto(),
-                g, c.contieneTredicesima(), c.contieneQuattordicesima());
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), c.presenze(), c.scatti(),
+                c.buoniPasto(), g, c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 
     static CedolinoManuale conPresenze(CedolinoManuale c, Presenze p) {
-        return new CedolinoManuale(c.dipendente(), c.datoreLavoro(), c.datiContrattuali(), c.periodo(), c.totali(),
-                c.retribuzione(), c.voci(), c.ratei(), c.tfr(), p, c.scatti(), c.buoniPasto(),
+        return new CedolinoManuale(c.personaId(), c.aziendaId(), c.dipendente(), c.datoreLavoro(), c.datiContrattuali(),
+                c.periodo(), c.totali(), c.retribuzione(), c.voci(), c.ratei(), c.tfr(), p, c.scatti(), c.buoniPasto(),
                 c.progressivi(), c.contieneTredicesima(), c.contieneQuattordicesima());
     }
 }

@@ -792,7 +792,8 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        nessun campo non trovato (un campo vuoto e' un dato "non stampato"); il dettaglio del cedolino espone
        `inseritoAMano`, mostrato al posto dell'affidabilita' della lettura. Il JSON salvato resta come traccia di
        quanto inserito.
-     - Una persona gia' censita non viene modificata: nome e cognome in archivio restano.
+     - Una persona gia' censita non viene modificata: nome e cognome in archivio restano (superato dalla decisione
+       150: la persona in archivio si sceglie dall'elenco e i suoi dati non si riscrivono).
 146. **Verifica = acquisizione annullata**: `POST /api/v1/caricamenti/{id}/cedolino/verifica` esegue la stessa
      acquisizione dell'inserimento nella transazione serializzata e la annulla sempre (`setRollbackOnly`): competenza
      definitiva, scarto per duplicato o aggiuntivo, persona e rapporto nuovi sono quelli veri, senza una seconda
@@ -820,11 +821,12 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        trattini o punti.
      - **Codice fiscale del dipendente**: valido, di 11 cifre (provvisorio, con un avviso) oppure uguale a quello di
        una persona censita; altrimenti errore, perche' il censimento accetta qualunque codice e un refuso creerebbe
-       una persona fantasma.
+       una persona fantasma. Superato dalle decisioni 151 e 152: con la persona scelta il codice fiscale e' quello in
+       archivio e non si valida, con "Crea nuovo" un codice fiscale censito e' un errore.
      - **Avvisi** non bloccanti salvati con il cedolino: quelli del validatore comune, le somme delle voci contro i
        totali stampati (stessa regola e tolleranza del lettore locale) e il codice fiscale provvisorio; la sola
        verifica aggiunge gli avvisi di contesto (persona o rapporto nuovi, nome diverso da quello in archivio, mese
-       diverso da quello associato).
+       diverso da quello associato; rivisti dalla decisione 155).
      - I messaggi non ripetono mai i valori inseriti. Il frontend rispecchia le regole, ma l'autorita' e' il server;
        gli errori campo per campo viaggiano con `shared.DatiNonValidiException`.
 148. **Nuova lettura e rimozione**:
@@ -845,7 +847,8 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      - **Nessuna bozza salvata nel browser**: chiudere un modulo modificato chiede conferma.
      - **Copia dei dati da un rapporto o da un cedolino esistente** fatta dal client con `GET /api/v1/rapporti/{id}`
        e `GET /api/v1/cedolini/{id}` (nessuna API nuova), solo nei campi vuoti e mai per la data di cessazione, i
-       totali e le quantita' e gli importi delle voci (valori del singolo mese).
+       totali e le quantita' e gli importi delle voci (valori del singolo mese). Superato dalla decisione 154: la
+       copia avviene alla scelta di persona e azienda, con le stesse fonti e regole.
      - **Voci e ratei copiati** da un cedolino sono modelli: finche' restano come copiati e senza quantita' ne'
        importi (per i ratei senza valori del mese) non vengono inviati, validati ne' contati, e una nota offre di
        toglierli; modificati diventano righe dell'utente.
@@ -862,3 +865,88 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      - **Salvataggio** abilitato solo dopo una verifica dei valori correnti con esito `ACQUISIBILE`.
      - **Nessun router**: le azioni sui file (inserisci, associa, rileggi, rimuovi) sono offerte a tutta la pagina da
        un contesto React dell'`App`.
+150. **[utente] Persona e azienda dell'inserimento a mano si scelgono dall'elenco**: per evitare refusi che
+     creerebbero anagrafiche fantasma, la sezione Dipendente ha la tendina "Persona in archivio" ("Seleziona
+     persona/dipendente") con accanto "Crea nuovo", la sezione Datore di lavoro la tendina "Azienda in archivio"
+     ("Seleziona azienda") con accanto "Crea nuova".
+     - **Etichette anti-omonimia**: "Nome Cognome", con il codice fiscale solo per gli omonimi; per le aziende la
+       ragione sociale, con la partita IVA solo per le omonime (in mancanza il codice fiscale, poi la posizione INPS).
+     - **Dati anagrafici in sola lettura** con i valori in archivio: codice fiscale, cognome e nome della persona (la
+       data di nascita resta modificabile solo se in archivio manca: completa la persona, come gia' fa il
+       censimento); ragione sociale, partita IVA, codice fiscale e posizione INPS dell'azienda, anche se vuoti
+       (sono chiavi del censimento: un refuso che completa una P.IVA mancante dividerebbe poi l'azienda in due).
+       Matricola, posizione INAIL, indirizzo e codice azienda restano modificabili (attributi del singolo cedolino o
+       aggiornabili).
+     - **Ordine delle aziende**: con una persona scelta prima le sue aziende (stesso ordine dei suoi rapporti), poi
+       le altre per ragione sociale; nessuna scelta automatica dell'azienda quando la persona ha un solo rapporto (il
+       file puo' essere di un nuovo datore di lavoro).
+     - **Modifica le decisioni** 145 (ultimo punto: con la persona scelta nome e cognome sono quelli in archivio, con
+       "Crea nuovo" un codice fiscale censito e' un errore), 147 (il codice fiscale non e' piu' accettato perche'
+       censito: vedi la decisione 152) e 149 (la "Copia dei dati" da un rapporto o da un cedolino diventa la
+       precompilazione alla scelta, decisione 154, e c'e' un'API nuova, decisione 153).
+151. **Anagrafiche scelte usate esattamente**: `CedolinoManuale` ha `personaId` e `aziendaId` (`null` = "Crea
+     nuovo"). Con un id il server usa proprio quell'anagrafica, qualunque cosa dicano le regole di riconoscimento:
+     - **Esistenza** controllata per prima (`AnagraficheScelte.risolvi`): un id non positivo o di un'anagrafica non
+       piu' nel workspace e' un 400 sul campo `personaId`/`aziendaId` ("La persona scelta non è più in archivio:
+       scegline un'altra o creane una nuova"), restituito da solo perche' senza l'anagrafica i dati non si possono
+       completare. Un id non positivo non diventa mai "Crea nuovo" in silenzio.
+     - **Dati anagrafici sovrascritti** con quelli in archivio (`AnagraficheScelte.conDatiInArchivio`) prima della
+       validazione: cio' che il client invia per quei campi non conta, e il JSON salvato con il cedolino riporta i
+       dati in archivio. Codice fiscale, nome e cognome della persona scelta e i quattro identificativi dell'azienda
+       scelta non vengono validati (sono gia' in archivio).
+     - **Collegamento**: la persona si ritrova con il normale `trovaOCreaPersona` sul codice fiscale in archivio
+       (univoco nel workspace, `uk_persona_cf`); l'azienda con il nuovo `CensimentoAnagrafica.aggiornaAziendaScelta`,
+       che aggiorna proprio l'azienda scelta senza abbinamento (stessi aggiornamenti per recenza e identificativi
+       completati dell'azienda riconosciuta). Il rapporto risultante deve essere della coppia scelta, altrimenti
+       l'acquisizione si annulla (`IllegalStateException`, mai atteso).
+     - **Ricontrollo nella transazione serializzata** (`AcquisizioneCedolino.acquisisciManuale`, sotto lo stesso
+       lock per workspace dei caricamenti): esistenza delle scelte e regole della decisione 152 sui dati interpretati,
+       contro un caricamento in background che nel frattempo crea la stessa persona o azienda o un'eliminazione
+       dell'anagrafica scelta. Il riconoscimento dell'azienda (`ConsultazioneAnagrafica.aziendaRiconosciuta`) non
+       solleva eccezioni sui dati, cosi' non segna la transazione da annullare.
+     - **Perche' non la sola verifica a posteriori** (scelta confrontata con l'esito del riconoscimento): su archivi
+       con omonime risolte per "prima registrata", spareggi tra CF e P.IVA o righe scritte prima delle regole attuali
+       il riconoscimento puo' scegliere un'altra azienda e l'utente non potrebbe mai salvare. Il collegamento per id
+       non sbaglia azienda e lascia invariata la pipeline (registrazione, censimento, competenza, duplicati).
+     - Ordine dei controlli di verifica e inserimento: forma del corpo (400), esistenza delle scelte (400), campi
+       compresi i "già in archivio" (400), controlli sul file nella transazione (404/409), ricontrollo nella
+       transazione (400), acquisizione.
+152. **"Crea nuovo" non crea doppioni e non unisce in silenzio**: senza `personaId` un codice fiscale (normalizzato)
+     uguale a quello di una persona in archivio e' un 400 su `dipendente.codiceFiscale` ("Questo codice fiscale è già
+     in archivio: seleziona la persona dall'elenco"), prima del controllo di validita'. Senza `aziendaId`, se i dati
+     del datore non hanno altri errori e il censimento riconoscerebbe un'azienda in archivio, 400 sul campo che
+     determina l'abbinamento: `datoreLavoro.partitaIva` se la P.IVA inserita e' tra gli identificativi dell'azienda
+     trovata, altrimenti `datoreLavoro.codiceFiscale` (anche un CF numerico uguale a una P.IVA in archivio),
+     `datoreLavoro.posizioneInps` per la matricola INPS, `datoreLavoro.ragioneSociale` per la ragione sociale
+     normalizzata ("… è già in archivio: seleziona l'azienda dall'elenco").
+     - Le regole sono quelle del censimento: `ConsultazioneAnagrafica.aziendaRiconosciuta` e' una prova a vuoto di
+       `trovaOCreaAzienda` con `AbbinamentoAzienda`, senza una seconda implementazione del riconoscimento.
+     - Il client rispecchia solo codice fiscale della persona e P.IVA/codice fiscale dell'azienda (confronto
+       incrociato): matricola INPS e ragione sociale hanno normalizzazioni troppo ricche da replicare senza falsi
+       allarmi e compaiono dopo la verifica.
+     - Limite accettato: un'azienda davvero diversa che il censimento non distingue da una in archivio (stessa
+       ragione sociale normalizzata, nessun identificativo in contrasto) non si puo' creare a mano, come non si
+       creerebbe leggendo il PDF.
+153. **Elenco aziende ed etichette sull'intero workspace**: `GET /api/v1/aziende` (`AziendaSelezionabile`: dati
+     anagrafici, indirizzo, codice azienda ed etichetta) ordinato per ragione sociale senza distinzione tra maiuscole
+     e minuscole, poi per id; vuoto prima dei caricamenti. L'etichetta usa la stessa regola delle aziende di una
+     persona (`Etichette.aziende`) ma calcolata su tutte le aziende del workspace. Per le regole del censimento due
+     omonime differiscono sempre su almeno uno tra P.IVA, codice fiscale e posizione INPS, quindi le etichette sono
+     distinte; senza alcun identificativo (impossibile passando dal censimento) resta la sola ragione sociale.
+     `PersonaSintesi` ha in piu' `dataNascita` (additivo): l'elenco delle persone gia' caricato basta a precompilare,
+     senza un endpoint di dettaglio.
+154. **Precompilazione alla scelta**: i dati anagrafici vengono dall'archivio; gli attributi dell'azienda scelta
+     (indirizzo, codice azienda) e, con persona e azienda scelte e un rapporto tra loro, i dati del rapporto e del
+     cedolino di riferimento piu' vicino al periodo riempiono i campi successivi, solo se vuoti (prima fonte vince:
+     azienda, rapporto, cedolino). Cambiando una scelta i campi riempiti in automatico dalla scelta precedente si
+     svuotano e si riempiono di nuovo, quelli modificati dall'utente restano; il periodo (anche quello del mese
+     associato) non viene mai ricopiato. Aprendo il modulo da un file associato a un mese persona e azienda sono gia'
+     scelte. Il pannello "Copia dati da…" e' eliminato: il suo compito lo fa la scelta.
+155. **Esito della verifica**: `VerificaCedolinoManuale` ha in piu' `nuovaAzienda` (`aziendaId` assente: il ricontrollo
+     garantisce che nessuna azienda in archivio venga riconosciuta) e il pannello mostra dipendente, azienda e rapporto
+     presenti o nuovi. Avvisi di contesto, in quest'ordine: periodo diverso dal mese associato; "Persona o azienda
+     diverse da quelle del mese associato al file (…)" quando il cedolino andrebbe a un rapporto diverso da quello del
+     mese associato; nuova persona; "Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice
+     fiscale"; "Verrà creato un nuovo rapporto di lavoro: la persona scelta non ha ancora cedolini con l'azienda
+     scelta" solo quando persona e azienda sono gia' in archivio. Eliminato l'avviso sul nome diverso da quello in
+     archivio, che non puo' piu' presentarsi.

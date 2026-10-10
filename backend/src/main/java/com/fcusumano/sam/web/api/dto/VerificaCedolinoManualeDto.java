@@ -11,7 +11,8 @@ import java.util.List;
  * @param messaggio           motivo per DUPLICATO e AGGIUNTIVO_NON_GESTITO
  * @param competenza          competenza con cui verrebbe registrato (solo ACQUISIBILE)
  * @param titolo              titolo della competenza pronto per la UI (solo ACQUISIBILE)
- * @param nuovaPersona        verrebbe creata una nuova persona (codice fiscale non censito)
+ * @param nuovaPersona        verrebbe creata una nuova persona (non scelta dall'elenco, {@code personaId} null)
+ * @param nuovaAzienda        verrebbe creata una nuova azienda (non scelta dall'elenco, {@code aziendaId} null)
  * @param nuovoRapporto       verrebbe creato un nuovo rapporto di lavoro
  * @param rapportoId          rapporto esistente a cui andrebbe il cedolino; null se nuovo
  * @param cedolinoEsistenteId cedolino gia' presente con cui confligge (DUPLICATO, AGGIUNTIVO_NON_GESTITO)
@@ -24,6 +25,7 @@ public record VerificaCedolinoManualeDto(
         CompetenzaDto competenza,
         String titolo,
         boolean nuovaPersona,
+        boolean nuovaAzienda,
         boolean nuovoRapporto,
         Long rapportoId,
         Long cedolinoEsistenteId,

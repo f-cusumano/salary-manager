@@ -3,7 +3,9 @@
  * <p>
  * API pubblica (package radice): {@link com.fcusumano.sam.anagrafica.CensimentoAnagrafica} (usata dal modulo
  * cedolini durante l'acquisizione), {@link com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica},
- * {@link com.fcusumano.sam.anagrafica.GestioneRapporti} (note e CCNL scelti dall'utente), record ed eventi.
+ * {@link com.fcusumano.sam.anagrafica.GestioneRapporti} (note e CCNL scelti dall'utente), record (tra cui
+ * {@link com.fcusumano.sam.anagrafica.AziendaSelezionabile} e {@link com.fcusumano.sam.anagrafica.AziendaRiconosciuta}
+ * per la scelta del datore di lavoro nell'inserimento a mano) ed eventi.
  * Tabelle proprie: {@code persona}, {@code azienda}, {@code rapporto_lavoro}.
  */
 @ApplicationModule(displayName = "Anagrafica", allowedDependencies = {"shared", "ccnl"})

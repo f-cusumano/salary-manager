@@ -1,5 +1,6 @@
 package com.fcusumano.sam.cedolini.application;
 
+import com.fcusumano.sam.anagrafica.AziendaRiconosciuta;
 import com.fcusumano.sam.cedolini.BuoniPasto;
 import com.fcusumano.sam.cedolini.CategoriaVoce;
 import com.fcusumano.sam.cedolini.CedolinoManuale;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -89,6 +91,16 @@ final class ValidazioneCedolinoManuale {
     private static final Voce VOCE_VUOTA = new Voce(null, null, null, null, null, null, null, null);
     private static final Rateo RATEO_VUOTO = new Rateo(null, null, null, null, null, null);
 
+    /**
+     * Riconoscimento di un'azienda nuova tra quelle gia' censite (prova a vuoto del censimento): il dato per cui i
+     * dati indicati, gia' normalizzati, sarebbero abbinati a un'azienda in archivio; vuoto se l'azienda sarebbe creata.
+     */
+    @FunctionalInterface
+    interface RiconoscimentoAzienda {
+
+        Optional<AziendaRiconosciuta.Dato> dato(CedolinoManuale.DatoreLavoro datore);
+    }
+
     private final Clock clock;
 
     ValidazioneCedolinoManuale(Clock clock) {
@@ -98,17 +110,24 @@ final class ValidazioneCedolinoManuale {
     // ------------------------------------------------------------------------------------------ errori bloccanti
 
     /**
-     * Errori bloccanti, nell'ordine dei campi dello schema (sui dati normalizzati).
+     * Errori bloccanti, nell'ordine dei campi dello schema (sui dati normalizzati). Per una persona o un'azienda scelta
+     * dall'elenco ({@code personaId}, {@code aziendaId}) i dati anagrafici sono quelli in archivio
+     * ({@link AnagraficheScelte#conDatiInArchivio}) e non si controllano; per una nuova non devono essere gia' in
+     * archivio.
      *
-     * @param codiciFiscaliCensiti codici fiscali delle persone del workspace: un codice formalmente non valido e'
-     *                             accettato se corrisponde a una persona gia' censita
+     * @param codiciFiscaliCensiti codici fiscali delle persone del workspace: quello di una persona nuova non puo'
+     *                             esserne uno (la persona va scelta dall'elenco)
+     * @param aziendaGiaCensita    per i dati (normalizzati) di un'azienda nuova, il dato per cui il censimento li
+     *                             abbinerebbe a un'azienda gia' censita; chiamata solo se gli altri dati dell'azienda
+     *                             non hanno errori
      * @return errori, vuota se il cedolino si puo' acquisire
      */
-    List<ErroreCampo> verifica(CedolinoManuale dati, Set<String> codiciFiscaliCensiti) {
+    List<ErroreCampo> verifica(CedolinoManuale dati, Set<String> codiciFiscaliCensiti,
+                               RiconoscimentoAzienda aziendaGiaCensita) {
         var c = normalizza(dati);
         var errori = new Errori();
-        dipendente(c.dipendente(), codiciFiscaliCensiti, errori);
-        datoreLavoro(c.datoreLavoro(), errori);
+        dipendente(c.dipendente(), c.personaId() != null, codiciFiscaliCensiti, errori);
+        datoreLavoro(c.datoreLavoro(), c.aziendaId() != null, aziendaGiaCensita, errori);
         datiContrattuali(c.datiContrattuali(), errori);
         periodo(c.periodo(), errori);
         totali(c.totali(), errori);
@@ -136,18 +155,23 @@ final class ValidazioneCedolinoManuale {
         return errori.elenco();
     }
 
-    private void dipendente(CedolinoManuale.Dipendente d, Set<String> codiciFiscaliCensiti, Errori errori) {
-        var cf = d.codiceFiscale();
-        if (cf == null) {
-            errori.aggiungi("dipendente.codiceFiscale", "Indica il codice fiscale del dipendente");
-        } else if (!(ValidatoreCedolinoEstratto.codiceFiscaleValido(cf) || UNDICI_CIFRE.matcher(cf).matches()
-                || codiciFiscaliCensiti.contains(cf))) {
-            errori.aggiungi("dipendente.codiceFiscale", "Codice fiscale non valido: controlla i 16 caratteri");
+    /** @param scelta persona scelta dall'elenco: codice fiscale, nome e cognome sono quelli in archivio */
+    private void dipendente(CedolinoManuale.Dipendente d, boolean scelta, Set<String> codiciFiscaliCensiti,
+                            Errori errori) {
+        if (!scelta) {
+            var cf = d.codiceFiscale();
+            if (cf == null) {
+                errori.aggiungi("dipendente.codiceFiscale", "Indica il codice fiscale del dipendente");
+            } else if (codiciFiscaliCensiti.contains(cf)) {
+                errori.aggiungi("dipendente.codiceFiscale", MessaggiCaricamento.CODICE_FISCALE_PERSONA_IN_ARCHIVIO);
+            } else if (!(ValidatoreCedolinoEstratto.codiceFiscaleValido(cf) || UNDICI_CIFRE.matcher(cf).matches())) {
+                errori.aggiungi("dipendente.codiceFiscale", "Codice fiscale non valido: controlla i 16 caratteri");
+            }
+            errori.obbligatorio("dipendente.nome", d.nome(), "Indica il nome");
+            errori.testo("dipendente.nome", d.nome(), 100);
+            errori.obbligatorio("dipendente.cognome", d.cognome(), "Indica il cognome");
+            errori.testo("dipendente.cognome", d.cognome(), 100);
         }
-        errori.obbligatorio("dipendente.nome", d.nome(), "Indica il nome");
-        errori.testo("dipendente.nome", d.nome(), 100);
-        errori.obbligatorio("dipendente.cognome", d.cognome(), "Indica il cognome");
-        errori.testo("dipendente.cognome", d.cognome(), 100);
         if (d.dataNascita() != null && d.dataNascita().isAfter(LocalDate.now(clock))) {
             errori.aggiungi("dipendente.dataNascita", "La data di nascita è nel futuro");
         }
@@ -155,21 +179,35 @@ final class ValidazioneCedolinoManuale {
         errori.testo("dipendente.codiceDipendente", d.codiceDipendente(), 50);
     }
 
-    private static void datoreLavoro(CedolinoManuale.DatoreLavoro a, Errori errori) {
-        if (a.codiceFiscale() != null && !CODICE_FISCALE_AZIENDA.matcher(a.codiceFiscale()).matches()) {
-            errori.aggiungi("datoreLavoro.codiceFiscale", "Codice fiscale dell'azienda non valido");
+    /**
+     * @param scelta            azienda scelta dall'elenco: ragione sociale, partita IVA, codice fiscale e posizione
+     *                          INPS sono quelli in archivio
+     * @param aziendaGiaCensita per un'azienda nuova senza altri errori: dato che la farebbe riconoscere come censita
+     */
+    private static void datoreLavoro(CedolinoManuale.DatoreLavoro a, boolean scelta,
+                                     RiconoscimentoAzienda aziendaGiaCensita, Errori errori) {
+        if (!scelta) {
+            if (a.codiceFiscale() != null && !CODICE_FISCALE_AZIENDA.matcher(a.codiceFiscale()).matches()) {
+                errori.aggiungi("datoreLavoro.codiceFiscale", "Codice fiscale dell'azienda non valido");
+            }
+            if (a.partitaIva() != null && !UNDICI_CIFRE.matcher(a.partitaIva()).matches()) {
+                errori.aggiungi("datoreLavoro.partitaIva", "Partita IVA non valida: deve avere 11 cifre");
+            }
+            errori.testo("datoreLavoro.posizioneInps", a.posizioneInps(), 50);
         }
-        if (a.partitaIva() != null && !UNDICI_CIFRE.matcher(a.partitaIva()).matches()) {
-            errori.aggiungi("datoreLavoro.partitaIva", "Partita IVA non valida: deve avere 11 cifre");
-        }
-        errori.testo("datoreLavoro.posizioneInps", a.posizioneInps(), 50);
         errori.testo("datoreLavoro.posizioneInail", a.posizioneInail(), 50);
-        if (a.ragioneSociale() == null || !LETTERA_O_CIFRA.matcher(a.ragioneSociale()).find()) {
-            errori.aggiungi("datoreLavoro.ragioneSociale", "Indica la ragione sociale");
+        if (!scelta) {
+            if (a.ragioneSociale() == null || !LETTERA_O_CIFRA.matcher(a.ragioneSociale()).find()) {
+                errori.aggiungi("datoreLavoro.ragioneSociale", "Indica la ragione sociale");
+            }
+            errori.testo("datoreLavoro.ragioneSociale", a.ragioneSociale(), 200);
         }
-        errori.testo("datoreLavoro.ragioneSociale", a.ragioneSociale(), 200);
         errori.testo("datoreLavoro.indirizzo", a.indirizzo(), 300);
         errori.testo("datoreLavoro.codiceAzienda", a.codiceAzienda(), 50);
+        if (!scelta && !errori.conPrefisso("datoreLavoro.")) {
+            aziendaGiaCensita.dato(a).map(AnagraficheScelte::erroreAzienda)
+                    .ifPresent(e -> errori.aggiungi(e.campo(), e.messaggio()));
+        }
     }
 
     private static void datiContrattuali(CedolinoManuale.DatiContrattuali c, Errori errori) {
@@ -301,6 +339,11 @@ final class ValidazioneCedolinoManuale {
             perCampo.putIfAbsent(campo, messaggio);
         }
 
+        /** True se c'e' un errore su un campo che inizia con il prefisso indicato. */
+        boolean conPrefisso(String prefisso) {
+            return perCampo.keySet().stream().anyMatch(campo -> campo.startsWith(prefisso));
+        }
+
         void obbligatorio(String campo, Object valore, String messaggio) {
             if (valore == null) {
                 aggiungi(campo, messaggio);
@@ -352,7 +395,7 @@ final class ValidazioneCedolinoManuale {
      * incollato da una pagina web con spazi non separabili viene riconosciuto e mascherato come gli altri; vuoto =
      * null), codici fiscali e partita IVA maiuscoli e senza spazi (senza il prefisso "IT"
      * davanti alle 11 cifre), flag di tredicesima e quattordicesima veri per i cedolini di quel tipo, buoni pasto senza
-     * importi se non presenti. Idempotente.
+     * importi se non presenti. Gli id delle anagrafiche scelte restano quelli inviati. Idempotente.
      */
     static CedolinoManuale normalizza(CedolinoManuale c) {
         var dipendente = c.dipendente() == null ? DIPENDENTE_VUOTO : c.dipendente();
@@ -361,6 +404,8 @@ final class ValidazioneCedolinoManuale {
         var periodo = c.periodo() == null ? PERIODO_VUOTO : c.periodo();
         var buoniPasto = c.buoniPasto() == null || !c.buoniPasto().presenti() ? BuoniPasto.ASSENTI : c.buoniPasto();
         return new CedolinoManuale(
+                c.personaId(),
+                c.aziendaId(),
                 new CedolinoManuale.Dipendente(codice(dipendente.codiceFiscale()), testo(dipendente.nome()),
                         testo(dipendente.cognome()), dipendente.dataNascita(), testo(dipendente.codiceDipendente())),
                 new CedolinoManuale.DatoreLavoro(senzaPrefissoIt(codice(datore.codiceFiscale())),

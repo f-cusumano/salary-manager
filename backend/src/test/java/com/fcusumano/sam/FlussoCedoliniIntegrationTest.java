@@ -219,7 +219,9 @@ class FlussoCedoliniIntegrationTest {
         assertThat(numero(inErrore.get("caricamentoId"))).isEqualTo(fallito.id().valore());
         assertThat(inErrore.get("cedolinoId")).isNull();
 
-        var acquisito = caricamentiInErrore.inserisci(fallito.id(), cedolinoDiMaggio());
+        var rapportoAlfa = anagrafica.trovaRapporto(alfa).orElseThrow();
+        var acquisito = caricamentiInErrore.inserisci(fallito.id(),
+                cedolinoDiMaggio(rapportoAlfa.personaId().valore(), rapportoAlfa.aziendaId().valore()));
 
         assertThat(acquisito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
         assertThat(acquisito.rapportoId()).isEqualTo(alfa);
@@ -313,9 +315,14 @@ class FlussoCedoliniIntegrationTest {
         return ((Number) valore).longValue();
     }
 
-    /** Maggio 2023 di Mario Rossi in Alfa Software inserito a mano: il minimo indispensabile, totali coerenti. */
-    private static CedolinoManuale cedolinoDiMaggio() {
+    /**
+     * Maggio 2023 di Mario Rossi in Alfa Software inserito a mano, con persona e azienda scelte dall'elenco: il minimo
+     * indispensabile, totali coerenti.
+     */
+    private static CedolinoManuale cedolinoDiMaggio(long personaId, long aziendaId) {
         return new CedolinoManuale(
+                personaId,
+                aziendaId,
                 new CedolinoManuale.Dipendente(CF_MARIO, "Mario", "Rossi", null, null),
                 new CedolinoManuale.DatoreLavoro(null, PIVA_ALFA, null, null, "Alfa Software S.r.l.", null, null),
                 null,

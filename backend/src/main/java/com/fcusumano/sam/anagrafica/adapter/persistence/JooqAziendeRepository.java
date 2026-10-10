@@ -55,6 +55,14 @@ class JooqAziendeRepository implements AziendeRepository {
     }
 
     @Override
+    public List<ProfiloAzienda> elenco(WorkspaceId workspace) {
+        return dsl.selectFrom(AZIENDA)
+                .where(AZIENDA.WORKSPACE_ID.eq(workspace.valore()))
+                .orderBy(AZIENDA.ID)
+                .fetch(JooqAziendeRepository::comeProfilo);
+    }
+
+    @Override
     public List<ProfiloAzienda> candidate(WorkspaceId workspace, Set<String> identificativiFiscali,
                                           String posizioneInps, String ragioneSocialeNormalizzata) {
         var condizioni = new ArrayList<Condition>();

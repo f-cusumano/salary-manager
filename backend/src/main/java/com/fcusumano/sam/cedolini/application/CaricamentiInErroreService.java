@@ -1,5 +1,6 @@
 package com.fcusumano.sam.cedolini.application;
 
+import com.fcusumano.sam.anagrafica.AziendaRiconosciuta;
 import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
 import com.fcusumano.sam.anagrafica.PersonaSintesi;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
@@ -14,6 +15,7 @@ import com.fcusumano.sam.cedolini.PdfCedolino;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
 import com.fcusumano.sam.cedolini.VerificaCedolinoManuale;
 import com.fcusumano.sam.cedolini.VerificaCedolinoManuale.Esito;
+import com.fcusumano.sam.cedolini.application.AnagraficheScelte.Scelte;
 import com.fcusumano.sam.cedolini.application.AcquisizioneCedolino.RegistrazioneManuale;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.FileDelCaricamento;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.FileInCoda;
@@ -37,11 +39,9 @@ import java.time.Year;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,20 +58,20 @@ import org.springframework.transaction.annotation.Transactional;
  * L'inserimento a mano e' un lettore in piu': il cedolino inserito, validato ({@link ValidazioneCedolinoManuale}),
  * diventa il JSON dello schema di lettura ({@link JsonCedolinoManuale}), passa dall'interprete comune a tutti i lettori
  * e viene archiviato da {@link AcquisizioneCedolino} con il PDF originale conservato del file; la verifica esegue la
- * stessa acquisizione e la annulla. Nei log solo id, motivi e tipi di eccezione.
+ * stessa acquisizione e la annulla. Persona e azienda scelte dall'elenco portano i loro dati in archivio al posto di
+ * quelli inseriti; quelle nuove non devono essere gia' in archivio ({@link AnagraficheScelte}). Nei log solo id,
+ * motivi e tipi di eccezione.
  */
 @Service
 class CaricamentiInErroreService implements CaricamentiInErrore {
 
     private static final Logger log = LoggerFactory.getLogger(CaricamentiInErroreService.class);
 
-    static final String AVVISO_NOME_DIVERSO =
-            "Nome e cognome in archivio per questo codice fiscale sono diversi: restano quelli in archivio";
     static final String AVVISO_NUOVA_PERSONA = "Verrà creata una nuova persona: controlla il codice fiscale";
-    static final String AVVISO_NUOVO_RAPPORTO = "Verrà creato un nuovo rapporto di lavoro: se l'azienda esiste già "
-            + "controlla ragione sociale, partita IVA e codice fiscale";
-
-    private static final Pattern SPAZI = Pattern.compile("\\s+");
+    static final String AVVISO_NUOVA_AZIENDA =
+            "Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice fiscale";
+    static final String AVVISO_NUOVO_RAPPORTO = "Verrà creato un nuovo rapporto di lavoro: la persona scelta non ha "
+            + "ancora cedolini con l'azienda scelta";
 
     private final CaricamentiRepository caricamenti;
     private final CedoliniRepository cedolini;
@@ -237,19 +237,20 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
     public VerificaCedolinoManuale verifica(CaricamentoId id, CedolinoManuale dati) {
         var ws = workspaceProvider.corrente();
         var preparato = prepara(dati);
-        var manuale = acquisisci(ws, id, preparato.risultato(), true);
+        var manuale = acquisisci(ws, id, preparato, true);
         var registrazione = manuale.registrazione();
         var avvisi = new ArrayList<>(preparato.risultato().avvisi());
-        avvisi.addAll(avvisiDiContesto(preparato.normalizzato(), manuale));
+        avvisi.addAll(avvisiDiContesto(manuale));
         var rapporto = registrazione.rapporto();
         var rapportoEsistente = manuale.nuovoRapporto() || rapporto == null ? null : rapporto.id();
         return switch (registrazione.esito()) {
             case Acquisito a -> new VerificaCedolinoManuale(Esito.ACQUISIBILE, null, registrazione.competenza(),
-                    manuale.nuovaPersona(), manuale.nuovoRapporto(), rapportoEsistente, null, avvisi);
+                    manuale.nuovaPersona(), manuale.nuovaAzienda(), manuale.nuovoRapporto(), rapportoEsistente, null,
+                    avvisi);
             case Scartato s -> new VerificaCedolinoManuale(
                     s.stato() == StatoCaricamento.DUPLICATO ? Esito.DUPLICATO : Esito.AGGIUNTIVO_NON_GESTITO,
-                    s.messaggio(), null, manuale.nuovaPersona(), manuale.nuovoRapporto(), rapportoEsistente,
-                    s.esistente(), avvisi);
+                    s.messaggio(), null, manuale.nuovaPersona(), manuale.nuovaAzienda(), manuale.nuovoRapporto(),
+                    rapportoEsistente, s.esistente(), avvisi);
         };
     }
 
@@ -257,7 +258,7 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
     public Caricamento inserisci(CaricamentoId id, CedolinoManuale dati) {
         var ws = workspaceProvider.corrente();
         var preparato = prepara(dati);
-        var manuale = acquisisci(ws, id, preparato.risultato(), false);
+        var manuale = acquisisci(ws, id, preparato, false);
         return switch (manuale.registrazione().esito()) {
             case Acquisito a -> {
                 log.info("Cedolino {} inserito a mano (caricamento {})", a.cedolinoId().valore(), id.valore());
@@ -271,24 +272,30 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
         };
     }
 
-    /** Cedolino inserito normalizzato e risultato equivalente a una lettura. */
-    private record Preparato(CedolinoManuale normalizzato, RisultatoEstrazione risultato) {
+    /** Risultato equivalente a una lettura e anagrafiche scelte dall'elenco. */
+    private record Preparato(RisultatoEstrazione risultato, Scelte scelte) {
     }
 
     /**
-     * Validazione bloccante, normalizzazione, JSON dello schema di lettura e interpretazione (come per ogni lettore);
-     * confidenza azzerata (nessuna lettura) e avvisi propri dell'inserimento a mano aggiunti a quelli dei controlli.
+     * Anagrafiche scelte (in archivio, con i loro dati al posto di quelli inseriti), validazione bloccante (anche
+     * "gia' in archivio" per le anagrafiche nuove), normalizzazione, JSON dello schema di lettura e interpretazione
+     * (come per ogni lettore); confidenza azzerata (nessuna lettura) e avvisi propri dell'inserimento a mano aggiunti a
+     * quelli dei controlli.
      *
-     * @throws DatiNonValidiException se ci sono errori bloccanti
+     * @throws DatiNonValidiException se ci sono errori bloccanti: prima, da soli, quelli delle anagrafiche scelte
      */
     private Preparato prepara(CedolinoManuale dati) {
+        var risolte = AnagraficheScelte.risolvi(consultazione, dati.personaId(), dati.aziendaId());
+        var conDati = AnagraficheScelte.conDatiInArchivio(dati, risolte);
         var codiciFiscali = consultazione.elencoPersone().stream().map(PersonaSintesi::codiceFiscale)
                 .collect(Collectors.toSet());
-        var errori = validazione.verifica(dati, codiciFiscali);
+        var errori = validazione.verifica(conDati, codiciFiscali, datore -> AnagraficheScelte.datiAzienda(datore)
+                .flatMap(consultazione::aziendaRiconosciuta)
+                .map(AziendaRiconosciuta::dato));
         if (!errori.isEmpty()) {
             throw new DatiNonValidiException(errori);
         }
-        var normalizzato = ValidazioneCedolinoManuale.normalizza(dati);
+        var normalizzato = ValidazioneCedolinoManuale.normalizza(conDati);
         RisultatoEstrazione letto;
         try {
             letto = interprete.interpreta(JsonCedolinoManuale.scrivi(normalizzato),
@@ -299,18 +306,18 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
         }
         var avvisi = new ArrayList<>(letto.avvisi());
         avvisi.addAll(ValidazioneCedolinoManuale.avvisi(normalizzato));
-        return new Preparato(normalizzato, new RisultatoEstrazione(letto.cedolino().conConfidenza(null),
-                letto.jsonOriginale(), letto.modello(), avvisi));
+        return new Preparato(new RisultatoEstrazione(letto.cedolino().conConfidenza(null), letto.jsonOriginale(),
+                letto.modello(), avvisi), risolte.scelte());
     }
 
     /**
      * Acquisizione (o prova) del cedolino inserito. I dati indispensabili mancanti e i valori rifiutati da anagrafica o
-     * competenza, che la validazione dovrebbe gia' escludere, diventano errori sul campo corrispondente.
+     * competenza, che la validazione dovrebbe gia' escludere, diventano errori sul campo corrispondente; gli errori
+     * delle anagrafiche ricontrollate nella transazione arrivano gia' campo per campo.
      */
-    private RegistrazioneManuale acquisisci(WorkspaceId ws, CaricamentoId id, RisultatoEstrazione risultato,
-                                            boolean prova) {
+    private RegistrazioneManuale acquisisci(WorkspaceId ws, CaricamentoId id, Preparato preparato, boolean prova) {
         try {
-            return acquisizione.acquisisciManuale(ws, id, risultato, prova);
+            return acquisizione.acquisisciManuale(ws, id, preparato.risultato(), prova, preparato.scelte());
         } catch (CedolinoNonAcquisibileException e) {
             log.info("Inserimento a mano del caricamento {} non acquisibile: dato {}", id.valore(), e.dato());
             throw new DatiNonValidiException(campo(e.dato()), e.getMessage());
@@ -347,39 +354,38 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
     }
 
     /**
-     * Avvisi della prova sul contesto, non salvati: nome diverso da quello in archivio, mese diverso da quello
-     * associato al file, persona o rapporto che verrebbero creati.
+     * Avvisi della prova sul contesto, non salvati: mese o rapporto diversi da quelli associati al file, persona,
+     * azienda o rapporto che verrebbero creati (il rapporto nuovo solo tra anagrafiche gia' in archivio: con una
+     * persona o un'azienda nuova e' ovvio).
      */
-    private static List<String> avvisiDiContesto(CedolinoManuale normalizzato, RegistrazioneManuale manuale) {
+    private static List<String> avvisiDiContesto(RegistrazioneManuale manuale) {
         var avvisi = new ArrayList<String>();
-        var persona = manuale.personaPrima();
-        var dipendente = normalizzato.dipendente();
-        if (persona != null && !(stessoNome(persona.nome(), dipendente.nome())
-                && stessoNome(persona.cognome(), dipendente.cognome()))) {
-            avvisi.add(AVVISO_NOME_DIVERSO);
-        }
         var attribuzione = manuale.attribuzione();
         var competenza = manuale.registrazione().competenza();
+        var rapporto = manuale.registrazione().rapporto();
         if (attribuzione != null && competenza != null && !attribuzione.competenza().equals(competenza)) {
             avvisi.add("Il periodo indicato è diverso dal mese associato al file ("
                     + DescrizioneCompetenza.di(attribuzione.competenza()) + ")");
         }
+        if (attribuzione != null && rapporto != null && !attribuzione.rapportoId().equals(rapporto.id())) {
+            avvisi.add(avvisoRapportoDiverso(attribuzione.competenza()));
+        }
         if (manuale.nuovaPersona()) {
             avvisi.add(AVVISO_NUOVA_PERSONA);
         }
-        if (manuale.nuovoRapporto()) {
+        if (manuale.nuovaAzienda()) {
+            avvisi.add(AVVISO_NUOVA_AZIENDA);
+        }
+        if (manuale.nuovoRapporto() && !manuale.nuovaPersona() && !manuale.nuovaAzienda()) {
             avvisi.add(AVVISO_NUOVO_RAPPORTO);
         }
         return avvisi;
     }
 
-    /** Stesso nome a meno di maiuscole e spazi (in archivio i nomi propri sono normalizzati). */
-    private static boolean stessoNome(String archivio, String inserito) {
-        return confrontabile(archivio).equals(confrontabile(inserito));
-    }
-
-    private static String confrontabile(String nome) {
-        return nome == null ? "" : SPAZI.matcher(nome.strip()).replaceAll(" ").toLowerCase(Locale.ITALIAN);
+    /** Il cedolino andrebbe a un rapporto diverso da quello del mese a cui l'utente ha associato il file. */
+    static String avvisoRapportoDiverso(Competenza associata) {
+        return "Persona o azienda diverse da quelle del mese associato al file (" + DescrizioneCompetenza.di(associata)
+                + ")";
     }
 
     /** Il file come elencato, letto nella transazione dell'azione. */

@@ -1,12 +1,14 @@
 package com.fcusumano.sam.cedolini.application;
 
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.CF_GIOVANNA;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.PIVA_ALFA;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.PIVA_GAMMA;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conDatore;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conDipendente;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conPeriodo;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conRatei;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conRetribuzione;
+import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conScelte;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.conTotali;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.essenziale;
 import static com.fcusumano.sam.cedolini.application.CedoliniManualiDiProva.n;
@@ -16,6 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
+import com.fcusumano.sam.anagrafica.AziendaId;
+import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
+import com.fcusumano.sam.anagrafica.RapportoLavoro;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.cedolini.ArchivioCedolini;
 import com.fcusumano.sam.cedolini.AttribuzioneCaricamento;
@@ -40,6 +45,8 @@ import com.fcusumano.sam.cedolini.application.SupportoCaricamenti.EventiRegistra
 import com.fcusumano.sam.cedolini.application.SupportoCaricamenti.LettoreProgrammabile;
 import com.fcusumano.sam.cedolini.application.estrazione.EstrazioneCedolinoException;
 import com.fcusumano.sam.cedolini.application.estrazione.EstrazioneCedolinoException.Motivo;
+import com.fcusumano.sam.cedolini.application.estrazione.InterpreteRispostaEstrazione;
+import com.fcusumano.sam.cedolini.application.estrazione.LettoreCedolini.RisultatoEstrazione;
 import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.DatiNonValidiException;
 import com.fcusumano.sam.shared.DatiNonValidiException.ErroreCampo;
@@ -48,6 +55,7 @@ import com.fcusumano.sam.shared.RisorsaNonTrovataException;
 import com.fcusumano.sam.shared.TipoMensilita;
 import com.fcusumano.sam.shared.UnitaMisura;
 import com.fcusumano.sam.shared.WorkspaceId;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -80,6 +88,12 @@ import org.springframework.test.context.ActiveProfiles;
 class CaricamentiInErroreIntegrationTest {
 
     private static final WorkspaceId WS = WorkspaceId.DEFAULT;
+    /** Persona non presente nelle fixture. */
+    private static final CedolinoManuale.Dipendente GIOVANNA =
+            new CedolinoManuale.Dipendente(CF_GIOVANNA, "Giovanna", "Bianchi", null, null);
+    /** Azienda non presente nelle fixture. */
+    private static final CedolinoManuale.DatoreLavoro GAMMA =
+            new CedolinoManuale.DatoreLavoro(null, PIVA_GAMMA, null, null, "Gamma Servizi S.r.l.", null, null);
     private static final Duration ATTESA_MASSIMA = Duration.ofSeconds(60);
 
     @Autowired
@@ -100,6 +114,10 @@ class CaricamentiInErroreIntegrationTest {
     ArchivioCedolini archivio;
     @Autowired
     ChiusuraCaricamento chiusura;
+    @Autowired
+    AcquisizioneCedolino acquisizione;
+    @Autowired
+    ConsultazioneAnagrafica anagrafica;
 
     @BeforeEach
     void databaseVuoto() {
@@ -436,8 +454,8 @@ class CaricamentiInErroreIntegrationTest {
         });
         assertThat(inErrore.pdf(ultimo.id())).isEmpty();
         List<Runnable> senzaPdf = List.of(
-                () -> inErrore.inserisci(ultimo.id(), essenziale()),
-                () -> inErrore.verifica(ultimo.id(), essenziale()),
+                () -> inErrore.inserisci(ultimo.id(), sceltoDa(aprile)),
+                () -> inErrore.verifica(ultimo.id(), sceltoDa(aprile)),
                 () -> inErrore.rileggi(ultimo.id(), null));
         assertThat(senzaPdf).allSatisfy(azione -> assertThatThrownBy(azione::run)
                 .isInstanceOf(OperazioneNonConsentitaException.class)
@@ -527,7 +545,7 @@ class CaricamentiInErroreIntegrationTest {
         assertThat(segnalazioniDi(aprile.rapportoId(), 2023, 5)).containsExactly("CEDOLINO_IN_ERRORE");
         eventi.azzera();
 
-        var esito = inErrore.inserisci(caricato.id(), essenziale());
+        var esito = inErrore.inserisci(caricato.id(), sceltoDa(aprile));
 
         assertThat(esito.id()).isEqualTo(caricato.id());
         assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
@@ -573,8 +591,8 @@ class CaricamentiInErroreIntegrationTest {
         var aprile = caricaFixture("rossi-alfa-2023-04");
         var contenuto = pdfConTesto("Aprile diverso");
         var caricato = caricaInErrore("aprile.pdf", contenuto);
-        var aprileDiverso = conPeriodo(essenziale(), new CedolinoManuale.Periodo(2023, 4, TipoMensilita.ORDINARIA,
-                null, null));
+        var aprileDiverso = conPeriodo(sceltoDa(aprile), new CedolinoManuale.Periodo(2023, 4,
+                TipoMensilita.ORDINARIA, null, null));
         var prima = conteggi();
 
         var verifica = inErrore.verifica(caricato.id(), aprileDiverso);
@@ -595,11 +613,12 @@ class CaricamentiInErroreIntegrationTest {
 
     @Test
     void iDatiNonValidiNonScrivonoNulla() {
-        caricaFixture("rossi-alfa-2023-04");
+        var aprile = caricaFixture("rossi-alfa-2023-04");
         var caricato = caricaInErrore("non-valido.pdf", pdfConTesto("Dati non validi"));
-        var senzaRagioneSociale = conDatore(essenziale(),
-                new CedolinoManuale.DatoreLavoro(null, "01234567897", null, null, "  ", null, null));
-        var nuovaPersonaSenzaNome = conDipendente(essenziale(),
+        var scelti = sceltoDa(aprile);
+        var senzaRagioneSociale = conDatore(conScelte(scelti, scelti.personaId(), null),
+                new CedolinoManuale.DatoreLavoro(null, PIVA_GAMMA, null, null, "  ", null, null));
+        var nuovaPersonaSenzaNome = conDipendente(conScelte(scelti, null, scelti.aziendaId()),
                 new CedolinoManuale.Dipendente(CF_GIOVANNA, null, "Bianchi", null, null));
         var prima = conteggi();
 
@@ -624,44 +643,49 @@ class CaricamentiInErroreIntegrationTest {
         var prima = conteggi();
         var rigaPrima = rileggi(caricato);
         var elencoPrima = inErrore.elenco();
+        var scelti = sceltoDa(aprile);
 
-        var stessoRapporto = inErrore.verifica(caricato.id(), essenziale());
-        var nomeDiverso = inErrore.verifica(caricato.id(), conDipendente(essenziale(),
-                new CedolinoManuale.Dipendente(CedoliniManualiDiProva.CF_MARIO, "Mariolino", "Rossi", null, null)));
-        var nuovoRapporto = inErrore.verifica(caricato.id(), conDatore(essenziale(),
-                new CedolinoManuale.DatoreLavoro(null, PIVA_GAMMA, null, null, "Gamma Servizi S.r.l.", null, null)));
-        var nuovaPersona = inErrore.verifica(caricato.id(), conDatore(conDipendente(essenziale(),
-                        new CedolinoManuale.Dipendente(CF_GIOVANNA, "Giovanna", "Bianchi", null, null)),
-                new CedolinoManuale.DatoreLavoro(null, PIVA_GAMMA, null, null, "Gamma Servizi S.r.l.", null, null)));
+        var stessoRapporto = inErrore.verifica(caricato.id(), scelti);
+        var nuovaAzienda = inErrore.verifica(caricato.id(), conDatore(conScelte(scelti, scelti.personaId(), null),
+                GAMMA));
+        var nuovaPersona = inErrore.verifica(caricato.id(), conDatore(conDipendente(essenziale(), GIOVANNA), GAMMA));
 
         assertThat(stessoRapporto.esito()).isEqualTo(Esito.ACQUISIBILE);
         assertThat(stessoRapporto.messaggio()).isNull();
         assertThat(stessoRapporto.competenza()).isEqualTo(new Competenza.Mensilita(2023, 5));
         assertThat(stessoRapporto.nuovaPersona()).isFalse();
+        assertThat(stessoRapporto.nuovaAzienda()).isFalse();
         assertThat(stessoRapporto.nuovoRapporto()).isFalse();
         assertThat(stessoRapporto.rapportoId()).isEqualTo(alfa);
         assertThat(stessoRapporto.cedolinoEsistenteId()).isNull();
-        assertThat(stessoRapporto.avvisi()).contains(ValidazioneCedolinoManuale.AVVISO_SOMMA_TRATTENUTE)
-                .anyMatch(a -> a.startsWith("Il periodo indicato è diverso dal mese associato al file ("))
-                .doesNotContain(CaricamentiInErroreService.AVVISO_NOME_DIVERSO,
-                        CaricamentiInErroreService.AVVISO_NUOVA_PERSONA,
-                        CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO);
-        assertThat(nomeDiverso.avvisi()).contains(CaricamentiInErroreService.AVVISO_NOME_DIVERSO);
-        assertThat(nomeDiverso.rapportoId()).isEqualTo(alfa);
+        assertThat(stessoRapporto.avvisi()).contains(ValidazioneCedolinoManuale.AVVISO_SOMMA_TRATTENUTE,
+                        "Il periodo indicato è diverso dal mese associato al file (Giugno 2023)")
+                .doesNotContain(CaricamentiInErroreService.AVVISO_NUOVA_PERSONA,
+                        CaricamentiInErroreService.AVVISO_NUOVA_AZIENDA,
+                        CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO,
+                        "Persona o azienda diverse da quelle del mese associato al file (Giugno 2023)");
 
-        assertThat(nuovoRapporto.esito()).isEqualTo(Esito.ACQUISIBILE);
-        assertThat(nuovoRapporto.nuovaPersona()).isFalse();
-        assertThat(nuovoRapporto.nuovoRapporto()).isTrue();
-        assertThat(nuovoRapporto.rapportoId()).isNull();
-        assertThat(nuovoRapporto.avvisi()).contains(CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO)
-                .doesNotContain(CaricamentiInErroreService.AVVISO_NUOVA_PERSONA);
+        assertThat(nuovaAzienda.esito()).isEqualTo(Esito.ACQUISIBILE);
+        assertThat(nuovaAzienda.nuovaPersona()).isFalse();
+        assertThat(nuovaAzienda.nuovaAzienda()).isTrue();
+        assertThat(nuovaAzienda.nuovoRapporto()).isTrue();
+        assertThat(nuovaAzienda.rapportoId()).isNull();
+        assertThat(nuovaAzienda.avvisi()).as("con un'azienda nuova il rapporto nuovo e' ovvio")
+                .contains(CaricamentiInErroreService.AVVISO_NUOVA_AZIENDA,
+                        "Persona o azienda diverse da quelle del mese associato al file (Giugno 2023)")
+                .doesNotContain(CaricamentiInErroreService.AVVISO_NUOVA_PERSONA,
+                        CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO);
 
         assertThat(nuovaPersona.esito()).isEqualTo(Esito.ACQUISIBILE);
         assertThat(nuovaPersona.nuovaPersona()).isTrue();
+        assertThat(nuovaPersona.nuovaAzienda()).isTrue();
         assertThat(nuovaPersona.nuovoRapporto()).isTrue();
         assertThat(nuovaPersona.rapportoId()).isNull();
-        assertThat(nuovaPersona.avvisi()).contains(CaricamentiInErroreService.AVVISO_NUOVA_PERSONA,
-                CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO);
+        assertThat(nuovaPersona.avvisi()).containsSubsequence(
+                        "Persona o azienda diverse da quelle del mese associato al file (Giugno 2023)",
+                        CaricamentiInErroreService.AVVISO_NUOVA_PERSONA,
+                        CaricamentiInErroreService.AVVISO_NUOVA_AZIENDA)
+                .doesNotContain(CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO);
 
         assertThat(conteggi()).isEqualTo(prima);
         assertThat(rileggi(caricato)).isEqualTo(rigaPrima);
@@ -670,13 +694,182 @@ class CaricamentiInErroreIntegrationTest {
     }
 
     @Test
+    void laVerificaSegnalaUnRapportoNuovoTraAnagraficheInArchivioEDiversoDalMeseAssociato() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var beta = rapporto(caricaFixture("rossi2-beta-2025-01").rapportoId());
+        var caricato = caricaInErrore("altro-rapporto.pdf", pdfConTesto("Cedolino di un altro rapporto"));
+        inErrore.associa(caricato.id(), aprile.rapportoId(), 2023, 5);
+        // Mario Rossi (il primo) non ha cedolini con Beta Consulting: rapporto nuovo tra anagrafiche in archivio
+        var marioInBeta = conScelte(essenziale(), aprile.personaId().valore(), beta.aziendaId().valore());
+
+        var verifica = inErrore.verifica(caricato.id(), marioInBeta);
+
+        assertThat(verifica.esito()).isEqualTo(Esito.ACQUISIBILE);
+        assertThat(verifica.nuovaPersona()).isFalse();
+        assertThat(verifica.nuovaAzienda()).isFalse();
+        assertThat(verifica.nuovoRapporto()).isTrue();
+        assertThat(verifica.rapportoId()).isNull();
+        assertThat(verifica.avvisi()).containsSubsequence(
+                        "Persona o azienda diverse da quelle del mese associato al file (Maggio 2023)",
+                        CaricamentiInErroreService.AVVISO_NUOVO_RAPPORTO)
+                .doesNotContain(CaricamentiInErroreService.AVVISO_NUOVA_PERSONA,
+                        CaricamentiInErroreService.AVVISO_NUOVA_AZIENDA)
+                .noneMatch(a -> a.startsWith("Il periodo indicato"));
+    }
+
+    @Test
+    void conPersonaEAziendaScelteIlCedolinoVaAlLoroRapportoConIDatiInArchivio() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var caricato = caricaInErrore("refusi.pdf", pdfConTesto("Maggio con refusi"));
+        var scelti = sceltoDa(aprile);
+        // dati anagrafici scritti con refusi: contano le anagrafiche scelte
+        var conRefusi = conDatore(conDipendente(scelti, new CedolinoManuale.Dipendente("RSSMRA80A01H501X", "Maria",
+                        "Rosi", null, "000123")),
+                new CedolinoManuale.DatoreLavoro("98765432109", "98765432109", "999", null, "Alfa Sofware",
+                        "Via Verdi 2, 00100 Roma (RM)", "ALFA01"));
+        var prima = conteggi();
+
+        var verifica = inErrore.verifica(caricato.id(), conRefusi);
+        var esito = inErrore.inserisci(caricato.id(), conRefusi);
+
+        assertThat(verifica.rapportoId()).isEqualTo(aprile.rapportoId());
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+        assertThat(esito.personaId()).isEqualTo(aprile.personaId());
+        assertThat(esito.rapportoId()).isEqualTo(aprile.rapportoId());
+        for (var tabella : List.of("persona", "azienda", "rapporto_lavoro")) {
+            assertThat(conteggi().get(tabella)).as(tabella).isEqualTo(prima.get(tabella));
+        }
+        var persona = dsl.fetchSingle("SELECT codice_fiscale, nome, cognome FROM persona");
+        assertThat(persona.intoList()).containsExactly(CedoliniManualiDiProva.CF_MARIO, "Mario", "Rossi");
+        var azienda = dsl.fetchSingle("SELECT codice_fiscale, partita_iva, posizione_inps, ragione_sociale, indirizzo "
+                + "FROM azienda");
+        assertThat(azienda.intoList()).as("chiavi immutate; indirizzo aggiornato dal cedolino piu' recente")
+                .containsExactly(PIVA_ALFA, PIVA_ALFA, "1122334455", "Alfa Software S.r.l.",
+                        "Via Verdi 2, 00100 Roma (RM)");
+        var json = dsl.fetchSingle("SELECT estratto_json FROM cedolino WHERE id = ?", esito.cedolinoId().valore())
+                .get(0, String.class);
+        assertThat(json).contains(CedoliniManualiDiProva.CF_MARIO, "\"Rossi\"", "Alfa Software S.r.l.", PIVA_ALFA)
+                .doesNotContain("RSSMRA80A01H501X", "Rosi", "Maria", "Alfa Sofware", "98765432109");
+    }
+
+    @Test
+    void laSceltaDellAziendaVinceSulRiconoscimento() {
+        // due aziende omonime senza identificativi (righe scritte prima delle regole attuali): il censimento
+        // abbinerebbe la ragione sociale alla prima registrata
+        var prima = inserisciAzienda("Delta Servizi S.r.l.", "DELTA SERVIZI SRL");
+        var seconda = inserisciAzienda("DELTA SERVIZI SRL", "DELTA SERVIZI SRL");
+        var caricato = caricaInErrore("delta.pdf", pdfConTesto("Cedolino della seconda Delta"));
+        var giovannaInDelta = conDatore(conDipendente(essenziale(), GIOVANNA),
+                new CedolinoManuale.DatoreLavoro(null, null, null, null, "Delta Servizi S.r.l.", null, null));
+
+        assertThatThrownBy(() -> inErrore.verifica(caricato.id(), giovannaInDelta))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori()).containsExactly(
+                        new ErroreCampo("datoreLavoro.ragioneSociale", MessaggiCaricamento.RAGIONE_SOCIALE_IN_ARCHIVIO)));
+
+        var esito = inErrore.inserisci(caricato.id(), conScelte(giovannaInDelta, null, seconda));
+
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+        assertThat(rapporto(esito.rapportoId()).aziendaId().valore()).isEqualTo(seconda).isNotEqualTo(prima);
+        assertThat(dsl.fetchCount(dsl.selectFrom("azienda"))).isEqualTo(2);
+    }
+
+    @Test
+    void unaPersonaGiaInArchivioVaSceltaDallElenco() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var caricato = caricaInErrore("persona-esistente.pdf", pdfConTesto("Persona gia' in archivio"));
+        var scelti = sceltoDa(aprile);
+        // "Crea nuovo" con il codice fiscale di Mario Rossi, scritto anche in minuscolo e con spazi
+        var nuovaMaGiaInArchivio = conDipendente(conScelte(scelti, null, scelti.aziendaId()),
+                new CedolinoManuale.Dipendente(" rssmra80a01 h501u", "Mario", "Rossi", null, null));
+        var atteso = new ErroreCampo("dipendente.codiceFiscale",
+                "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco");
+
+        assertNonValidoSenzaScritture(caricato, nuovaMaGiaInArchivio, atteso);
+    }
+
+    @Test
+    void unAziendaGiaInArchivioVaSceltaDallElenco() {
+        caricaFixture("rossi-alfa-2023-04");
+        var beta = caricaFixture("rossi-beta-2025-01");
+        var caricato = caricaInErrore("azienda-esistente.pdf", pdfConTesto("Azienda gia' in archivio"));
+        var mario = conScelte(essenziale(), beta.personaId().valore(), null);
+        Map<CedolinoManuale.DatoreLavoro, ErroreCampo> casi = new LinkedHashMap<>();
+        casi.put(new CedolinoManuale.DatoreLavoro(null, PIVA_ALFA, null, null, "Alfa Nuova S.r.l.", null, null),
+                new ErroreCampo("datoreLavoro.partitaIva", MessaggiCaricamento.PARTITA_IVA_IN_ARCHIVIO));
+        casi.put(new CedolinoManuale.DatoreLavoro(PIVA_ALFA, null, null, null, "Alfa Nuova S.r.l.", null, null),
+                new ErroreCampo("datoreLavoro.codiceFiscale", MessaggiCaricamento.CODICE_FISCALE_AZIENDA_IN_ARCHIVIO));
+        // la matricola INPS di Beta Consulting, stampata attaccata alla posizione INAIL
+        casi.put(new CedolinoManuale.DatoreLavoro(null, null, "7012345678 01", null, "Beta Nuova S.p.A.", null,
+                        null),
+                new ErroreCampo("datoreLavoro.posizioneInps", MessaggiCaricamento.POSIZIONE_INPS_IN_ARCHIVIO));
+        casi.put(new CedolinoManuale.DatoreLavoro(null, null, null, null, "ALFA SOFTWARE SRL", null, null),
+                new ErroreCampo("datoreLavoro.ragioneSociale", MessaggiCaricamento.RAGIONE_SOCIALE_IN_ARCHIVIO));
+
+        casi.forEach((datore, atteso) -> assertNonValidoSenzaScritture(caricato, conDatore(mario, datore), atteso));
+        // una partita IVA diversa distingue un'omonima: e' davvero un'azienda nuova
+        var omonima = conDatore(mario, new CedolinoManuale.DatoreLavoro(null, PIVA_GAMMA, null, null,
+                "ALFA SOFTWARE SRL", null, null));
+        assertThat(inErrore.verifica(caricato.id(), omonima).nuovaAzienda()).isTrue();
+    }
+
+    @Test
+    void unaSceltaNonPiuInArchivioEUnErroreSulCampoDellaScelta() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var caricato = caricaInErrore("scelta-assente.pdf", pdfConTesto("Scelta non piu' in archivio"));
+        var scelti = sceltoDa(aprile);
+        var altro = nuovoWorkspace();
+        dsl.execute("INSERT INTO persona (workspace_id, codice_fiscale, nome, cognome) "
+                + "VALUES (?, ?, 'Giovanna', 'Bianchi')", altro.valore(), CF_GIOVANNA);
+        var personaAltrove = dsl.fetchSingle("SELECT MAX(id) FROM persona WHERE workspace_id = ?", altro.valore())
+                .get(0, Long.class);
+        var aziendaAltrove = inserisciAzienda(altro, "Gamma Servizi S.r.l.", "GAMMA SERVIZI SRL");
+        var persona = new ErroreCampo("personaId", MessaggiCaricamento.PERSONA_NON_IN_ARCHIVIO);
+        var azienda = new ErroreCampo("aziendaId", MessaggiCaricamento.AZIENDA_NON_IN_ARCHIVIO);
+
+        assertNonValidoSenzaScritture(caricato, conScelte(scelti, Long.MAX_VALUE, scelti.aziendaId()), persona);
+        assertNonValidoSenzaScritture(caricato, conScelte(scelti, 0L, scelti.aziendaId()), persona);
+        assertNonValidoSenzaScritture(caricato, conScelte(scelti, personaAltrove, scelti.aziendaId()), persona);
+        assertNonValidoSenzaScritture(caricato, conScelte(scelti, scelti.personaId(), -3L), azienda);
+        assertNonValidoSenzaScritture(caricato, conScelte(scelti, scelti.personaId(), aziendaAltrove), azienda);
+        // le scelte non valide vengono segnalate da sole, prima degli altri errori
+        assertThatThrownBy(() -> inErrore.verifica(caricato.id(), conTotali(conScelte(scelti, Long.MAX_VALUE,
+                Long.MAX_VALUE), new CedolinoManuale.Totali(null, null, null, null, null))))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori())
+                        .containsExactly(persona, azienda));
+    }
+
+    @Test
+    void ilControlloNellaTransazioneBloccaLeAnagraficheCambiateNelFrattempo() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var caricato = caricaInErrore("concorrente.pdf", pdfConTesto("Cedolino con un caricamento concorrente"));
+        // dati preparati quando Mario Rossi e Alfa Software non erano ancora in archivio ("Crea nuovo")
+        var preparato = interpretato(essenziale());
+        var prima = conteggi();
+
+        assertThatThrownBy(() -> acquisizione.acquisisciManuale(WS, caricato.id(), preparato, false,
+                AnagraficheScelte.Scelte.NESSUNA))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori()).containsExactly(
+                        new ErroreCampo("dipendente.codiceFiscale", MessaggiCaricamento.CODICE_FISCALE_PERSONA_IN_ARCHIVIO),
+                        new ErroreCampo("datoreLavoro.partitaIva", MessaggiCaricamento.PARTITA_IVA_IN_ARCHIVIO)));
+        // azienda scelta eliminata nel frattempo
+        var scelte = new AnagraficheScelte.Scelte(aprile.personaId(), new AziendaId(Long.MAX_VALUE));
+        assertThatThrownBy(() -> acquisizione.acquisisciManuale(WS, caricato.id(), interpretato(sceltoDa(aprile)),
+                true, scelte))
+                .isInstanceOfSatisfying(DatiNonValidiException.class, e -> assertThat(e.errori()).containsExactly(
+                        new ErroreCampo("aziendaId", MessaggiCaricamento.AZIENDA_NON_IN_ARCHIVIO)));
+        assertThat(conteggi()).isEqualTo(prima);
+        assertThat(rileggi(caricato).stato()).isEqualTo(StatoCaricamento.ERRORE);
+    }
+
+    @Test
     void dueInserimentiInParalleloAcquisisconoUnSoloCedolino() throws Exception {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
         var caricato = caricaInErrore("parallelo.pdf", pdfConTesto("Inserimento in parallelo"));
         var partenza = new CountDownLatch(1);
         Callable<Object> inserimento = () -> {
             partenza.await();
             try {
-                return inErrore.inserisci(caricato.id(), essenziale());
+                return inErrore.inserisci(caricato.id(), sceltoDa(aprile));
             } catch (OperazioneNonConsentitaException e) {
                 return e;
             }
@@ -695,17 +888,17 @@ class CaricamentiInErroreIntegrationTest {
                 .satisfies(c -> assertThat(((Caricamento) c).stato()).isEqualTo(StatoCaricamento.ACQUISITO));
         assertThat(esiti).filteredOn(OperazioneNonConsentitaException.class::isInstance).singleElement()
                 .satisfies(e -> assertThat(((Exception) e).getMessage()).isEqualTo(MessaggiCaricamento.NON_IN_ERRORE));
-        assertThat(dsl.fetchCount(dsl.selectFrom("cedolino"))).isEqualTo(1);
+        assertThat(dsl.fetchCount(dsl.selectFrom("cedolino"))).isEqualTo(2);
     }
 
     @Test
     void lInserimentoAManoChiudeITentativiSuccessiviInErroreDelloStessoFile() {
-        caricaFixture("rossi-alfa-2023-04");
+        var aprile = caricaFixture("rossi-alfa-2023-04");
         var contenuto = pdfConTesto("Maggio caricato due volte");
         var primo = caricaInErrore("maggio.pdf", contenuto);
         var secondo = caricaInErrore("maggio.pdf", contenuto);
 
-        var esito = inErrore.inserisci(primo.id(), essenziale());
+        var esito = inErrore.inserisci(primo.id(), sceltoDa(aprile));
 
         assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
         assertThat(rileggi(secondo)).satisfies(c -> {
@@ -725,12 +918,12 @@ class CaricamentiInErroreIntegrationTest {
 
     @Test
     void valoriTroppoGrandiSonoErroriDeiDatiEIlFileRestaInErrore() {
-        caricaFixture("rossi-alfa-2023-04");
+        var aprile = caricaFixture("rossi-alfa-2023-04");
         var caricato = caricaInErrore("enorme.pdf", pdfConTesto("Importi enormi"));
-        var nettoEnorme = conTotali(essenziale(), new CedolinoManuale.Totali(null, n("2100.00"), n("450.00"), null,
-                n("999999999")));
+        var nettoEnorme = conTotali(sceltoDa(aprile), new CedolinoManuale.Totali(null, n("2100.00"), n("450.00"),
+                null, n("999999999")));
         // ogni valore nei limiti, ma il valore stimato dei ratei (saldo x paga oraria) non sta nelle colonne
-        var prodottoEnorme = conRatei(conRetribuzione(essenziale(), new ElementiRetributivi(null, null, null, null,
+        var prodottoEnorme = conRatei(conRetribuzione(sceltoDa(aprile), new ElementiRetributivi(null, null, null, null,
                         null, null, null, null, n("99999999"), null, null, null)),
                 List.of(new Rateo(TipoRateo.FERIE, UnitaMisura.ORE, null, null, null, n("99999999"))));
         var prima = conteggi();
@@ -836,7 +1029,8 @@ class CaricamentiInErroreIntegrationTest {
 
     @Test
     void duranteLaNuovaLetturaLeAzioniSulFileSonoRifiutate() {
-        var alfa = caricaFixture("rossi-alfa-2023-04").rapportoId();
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var alfa = aprile.rapportoId();
         var caricato = caricaInErrore("lento.pdf", pdfConTesto("Lettura lenta"));
         lettoreCedolini.rallenta("lento.pdf", Duration.ofSeconds(3));
 
@@ -851,8 +1045,8 @@ class CaricamentiInErroreIntegrationTest {
                 () -> inErrore.rileggi(caricato.id(), null),
                 () -> inErrore.associa(caricato.id(), alfa, 2023, 5),
                 () -> inErrore.rimuoviAssociazione(caricato.id()),
-                () -> inErrore.verifica(caricato.id(), essenziale()),
-                () -> inErrore.inserisci(caricato.id(), essenziale()));
+                () -> inErrore.verifica(caricato.id(), sceltoDa(aprile)),
+                () -> inErrore.inserisci(caricato.id(), sceltoDa(aprile)));
         assertThat(azioni).allSatisfy(azione -> assertThatThrownBy(azione::run)
                 .isInstanceOf(OperazioneNonConsentitaException.class)
                 .hasMessage(MessaggiCaricamento.IN_ELABORAZIONE));
@@ -1019,6 +1213,51 @@ class CaricamentiInErroreIntegrationTest {
         assertThat(esito.motivo()).isEqualTo(MotivoErrore.PDF_SENZA_TESTO);
         assertThat(esito.pdfDisponibile()).isTrue();
         return esito;
+    }
+
+    /**
+     * Il cedolino essenziale di maggio 2023 con persona e azienda scelte dall'elenco: quelle del rapporto del
+     * cedolino acquisito (Mario Rossi in Alfa Software per le fixture "rossi-alfa").
+     */
+    private CedolinoManuale sceltoDa(Caricamento acquisito) {
+        var rapporto = rapporto(acquisito.rapportoId());
+        return conScelte(essenziale(), rapporto.personaId().valore(), rapporto.aziendaId().valore());
+    }
+
+    private RapportoLavoro rapporto(RapportoLavoroId id) {
+        return anagrafica.trovaRapporto(id).orElseThrow();
+    }
+
+    /** Azienda inserita direttamente nel database, senza identificativi (come scritta prima delle regole attuali). */
+    private long inserisciAzienda(String ragioneSociale, String normalizzata) {
+        return inserisciAzienda(WS, ragioneSociale, normalizzata);
+    }
+
+    private long inserisciAzienda(WorkspaceId workspace, String ragioneSociale, String normalizzata) {
+        dsl.execute("INSERT INTO azienda (workspace_id, ragione_sociale, ragione_sociale_normalizzata) "
+                + "VALUES (?, ?, ?)", workspace.valore(), ragioneSociale, normalizzata);
+        return dsl.fetchSingle("SELECT MAX(id) FROM azienda WHERE workspace_id = ?", workspace.valore())
+                .get(0, Long.class);
+    }
+
+    /** Il cedolino inserito a mano come lo prepara il servizio: validato, normalizzato e interpretato. */
+    private RisultatoEstrazione interpretato(CedolinoManuale dati) {
+        var normalizzato = ValidazioneCedolinoManuale.normalizza(dati);
+        return InterpreteRispostaEstrazione.standard(Clock.systemUTC()).interpreta(
+                JsonCedolinoManuale.scrivi(normalizzato), ModelliEstrazione.MODELLO_INSERIMENTO_MANUALE);
+    }
+
+    /** Verifica e inserimento rifiutati con il solo errore atteso, senza scritture: il file resta in errore. */
+    private void assertNonValidoSenzaScritture(Caricamento caricato, CedolinoManuale dati, ErroreCampo atteso) {
+        var prima = conteggi();
+        assertThatThrownBy(() -> inErrore.verifica(caricato.id(), dati))
+                .isInstanceOfSatisfying(DatiNonValidiException.class,
+                        e -> assertThat(e.errori()).containsExactly(atteso));
+        assertThatThrownBy(() -> inErrore.inserisci(caricato.id(), dati))
+                .isInstanceOfSatisfying(DatiNonValidiException.class,
+                        e -> assertThat(e.errori()).containsExactly(atteso));
+        assertThat(conteggi()).isEqualTo(prima);
+        assertThat(rileggi(caricato).stato()).isEqualTo(StatoCaricamento.ERRORE);
     }
 
     private Caricamento caricaFixture(String nome) {

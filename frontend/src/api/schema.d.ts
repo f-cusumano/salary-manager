@@ -55,9 +55,9 @@ export interface paths {
     };
     /**
      * Elenco aziende per la scelta del datore di lavoro
-     * @description Aziende del workspace ordinate per ragione sociale, con l'etichetta anti-omonimia calcolata su tutte le
-     *     aziende del workspace. L'inserimento a mano la usa per scegliere un'azienda gia' in archivio invece di
-     *     riscriverne i dati. Lista vuota prima dei caricamenti.
+     * @description Aziende del workspace ordinate per ragione sociale (senza distinzione tra maiuscole e minuscole), poi per id,
+     *     con l'etichetta anti-omonimia calcolata su tutte le aziende del workspace. L'inserimento a mano la usa per
+     *     scegliere un'azienda gia' in archivio invece di riscriverne i dati. Lista vuota prima dei caricamenti.
      */
     get: operations['elencoAziende'];
     put?: never;
@@ -1028,13 +1028,17 @@ export interface components {
       nuovaPersona: boolean;
       /** @description Verrebbe creata una nuova azienda (non scelta dall'elenco, `aziendaId` null) */
       nuovaAzienda: boolean;
-      /** @description Verrebbe creato un nuovo rapporto di lavoro */
+      /** @description Verrebbe creato un nuovo rapporto di lavoro (sempre, se la persona o l'azienda sono nuove) */
       nuovoRapporto: boolean;
       /** @description Rapporto esistente a cui andrebbe il cedolino; null se nuovo o non ACQUISIBILE */
       rapportoId: components['schemas']['Id'] | null;
       /** @description Cedolino gia' presente con cui confligge (DUPLICATO, AGGIUNTIVO_NON_GESTITO) */
       cedolinoEsistenteId: components['schemas']['Id'] | null;
-      /** @description Controlli di coerenza non superati e avvisi sul contesto (non bloccanti); vuoto se nessuno */
+      /**
+       * @description Controlli di coerenza non superati e avvisi sul contesto (non bloccanti), in quest'ordine: periodo
+       *     diverso dal mese associato al file, persona o azienda diverse da quelle del mese associato, nuova
+       *     persona, nuova azienda, nuovo rapporto tra persona e azienda gia' in archivio. Vuoto se nessuno
+       */
       avvisi: string[];
     };
     /**

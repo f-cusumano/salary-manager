@@ -4,6 +4,7 @@ import static com.fcusumano.sam.web.api.Numeri.esatto;
 import static com.fcusumano.sam.web.api.Numeri.euro;
 
 import com.fcusumano.sam.anagrafica.Azienda;
+import com.fcusumano.sam.anagrafica.AziendaSelezionabile;
 import com.fcusumano.sam.anagrafica.PeriodoRapporto;
 import com.fcusumano.sam.anagrafica.PersonaSintesi;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto;
@@ -27,6 +28,7 @@ import com.fcusumano.sam.segnalazioni.Evidenza;
 import com.fcusumano.sam.segnalazioni.Segnalazione;
 import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.web.api.dto.AttribuzioneCaricamentoDto;
+import com.fcusumano.sam.web.api.dto.AziendaSelezionabileDto;
 import com.fcusumano.sam.web.api.dto.AziendaSintesiDto;
 import com.fcusumano.sam.web.api.dto.CaricamentoDto;
 import com.fcusumano.sam.web.api.dto.CaricamentoInErroreDto;
@@ -58,7 +60,14 @@ final class Mappatura {
     // ------------------------------------------------------------------------------------------ anagrafica e CCNL
 
     static PersonaSintesiDto persona(PersonaSintesi p) {
-        return new PersonaSintesiDto(p.id().valore(), p.nome(), p.cognome(), p.codiceFiscale(), p.etichetta());
+        return new PersonaSintesiDto(p.id().valore(), p.nome(), p.cognome(), p.codiceFiscale(), p.dataNascita(),
+                p.etichetta());
+    }
+
+    static AziendaSelezionabileDto aziendaSelezionabile(AziendaSelezionabile s) {
+        var a = s.azienda();
+        return new AziendaSelezionabileDto(a.id().valore(), a.ragioneSociale(), a.partitaIva(), a.codiceFiscale(),
+                a.posizioneInps(), a.indirizzo(), a.codiceAzienda(), s.etichetta());
     }
 
     static AziendaSintesiDto azienda(Azienda a) {
@@ -239,16 +248,20 @@ final class Mappatura {
 
     static VerificaCedolinoManualeDto verifica(VerificaCedolinoManuale v) {
         return new VerificaCedolinoManualeDto(v.esito(), v.messaggio(), competenza(v.competenza()),
-                v.competenza() == null ? null : Titoli.di(v.competenza()), v.nuovaPersona(), v.nuovoRapporto(),
+                v.competenza() == null ? null : Titoli.di(v.competenza()), v.nuovaPersona(), v.nuovaAzienda(),
+                v.nuovoRapporto(),
                 v.rapportoId() == null ? null : v.rapportoId().valore(), id(v.cedolinoEsistenteId()), v.avvisi());
     }
 
     /**
      * Cedolino inserito a mano: solo forma, nessuna normalizzazione (la fa il modulo cedolini, che valida anche i
-     * dati). Un'area assente resta null, le liste assenti diventano vuote.
+     * dati e gli id delle anagrafiche scelte, passati cosi' come sono). Un'area assente resta null, le liste assenti
+     * diventano vuote.
      */
     static CedolinoManuale cedolinoManuale(CedolinoManualeDto d) {
         return new CedolinoManuale(
+                d.personaId(),
+                d.aziendaId(),
                 se(d.dipendente(), p -> new CedolinoManuale.Dipendente(p.codiceFiscale(), p.nome(), p.cognome(),
                         p.dataNascita(), p.codiceDipendente())),
                 se(d.datoreLavoro(), a -> new CedolinoManuale.DatoreLavoro(a.codiceFiscale(), a.partitaIva(),

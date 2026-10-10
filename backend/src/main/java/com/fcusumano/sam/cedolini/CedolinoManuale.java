@@ -14,6 +14,13 @@ import java.util.List;
  * sono mai null. Il cedolino diventa il JSON dello schema e segue lo stesso percorso dei lettori (normalizzazione,
  * controlli, censimento, competenza, duplicati).
  *
+ * @param personaId               persona gia' censita scelta dall'elenco, null per una persona nuova: se indicata,
+ *                                codice fiscale, nome, cognome e data di nascita (se nota) sono quelli in archivio
+ *                                (i valori di {@code dipendente} per questi campi sono ignorati); valore grezzo,
+ *                                validato dal modulo cedolini
+ * @param aziendaId               azienda gia' censita scelta dall'elenco, null per un'azienda nuova: se indicata,
+ *                                ragione sociale, partita IVA, codice fiscale e posizione INPS sono quelli in archivio
+ *                                e il cedolino va proprio a questa azienda; valore grezzo, validato dal modulo cedolini
  * @param retribuzione            {@link ElementiRetributivi#superminimoAssorbibile()} null = non indicato
  * @param voci                    voci nell'ordine di stampa; la categoria e' obbligatoria
  * @param tfr                     null se il cedolino non riporta dati TFR
@@ -21,6 +28,8 @@ import java.util.List;
  * @param contieneQuattordicesima forzato a true per il tipo QUATTORDICESIMA
  */
 public record CedolinoManuale(
+        Long personaId,
+        Long aziendaId,
         Dipendente dipendente,
         DatoreLavoro datoreLavoro,
         DatiContrattuali datiContrattuali,

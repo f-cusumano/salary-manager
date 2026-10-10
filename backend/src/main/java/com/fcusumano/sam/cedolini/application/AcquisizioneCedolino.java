@@ -5,7 +5,6 @@ import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
 import com.fcusumano.sam.anagrafica.DatiAzienda;
 import com.fcusumano.sam.anagrafica.DatiPersona;
 import com.fcusumano.sam.anagrafica.DatiRapporto;
-import com.fcusumano.sam.anagrafica.PersonaSintesi;
 import com.fcusumano.sam.anagrafica.RapportoLavoro;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.anagrafica.RapportoSintesi;
@@ -13,6 +12,7 @@ import com.fcusumano.sam.cedolini.CaricamentiInErroreModificati;
 import com.fcusumano.sam.cedolini.CaricamentoId;
 import com.fcusumano.sam.cedolini.CedolinoAcquisito;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
+import com.fcusumano.sam.cedolini.application.AnagraficheScelte.Scelte;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.AttribuzioneSalvata;
 import com.fcusumano.sam.cedolini.application.CedoliniRepository.CedolinoConImporti;
 import com.fcusumano.sam.cedolini.application.CedoliniRepository.NuovoCedolino;
@@ -33,10 +33,10 @@ import com.fcusumano.sam.cedolini.domain.TipoDichiarato;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
 import com.fcusumano.sam.ccnl.Ccnl;
 import com.fcusumano.sam.shared.Competenza;
+import com.fcusumano.sam.shared.DatiNonValidiException;
 import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
 import com.fcusumano.sam.shared.WorkspaceId;
 import java.time.YearMonth;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -56,7 +56,9 @@ import org.springframework.stereotype.Component;
  * <p>
  * L'inserimento a mano di un file in errore ({@link #acquisisciManuale}) passa dalla stessa registrazione con il PDF
  * originale conservato; la sua prova esegue l'acquisizione per intero e annulla la transazione (i listener degli
- * eventi sono sincroni: anche i loro ricalcoli vengono annullati).
+ * eventi sono sincroni: anche i loro ricalcoli vengono annullati). Persona e azienda scelte dall'elenco sono usate
+ * esattamente ({@link AnagraficheScelte}): la persona e' ritrovata per il codice fiscale in archivio, l'azienda e'
+ * collegata per id senza abbinamento, e il rapporto risultante deve essere il loro.
  * Nei log compaiono solo id.
  */
 @Component
@@ -105,15 +107,15 @@ class AcquisizioneCedolino {
     }
 
     /**
-     * Esito di un inserimento a mano. Persona, rapporti e associazione precedenti alla registrazione sono rilevati solo
-     * nelle prove (altrimenti valgono null e false).
+     * Esito di un inserimento a mano. Anagrafiche nuove, rapporti e associazione precedenti alla registrazione sono
+     * rilevati solo nelle prove (altrimenti valgono false e null).
      *
-     * @param personaPrima  persona con lo stesso codice fiscale gia' presente, null se assente
-     * @param nuovaPersona  la registrazione crea (o creerebbe) la persona
+     * @param nuovaPersona  la registrazione crea (o creerebbe) la persona: non e' stata scelta dall'elenco
+     * @param nuovaAzienda  la registrazione crea (o creerebbe) l'azienda: non e' stata scelta dall'elenco
      * @param nuovoRapporto la registrazione crea (o creerebbe) il rapporto di lavoro
      * @param attribuzione  mensilita' a cui l'utente aveva associato il file, null se assente
      */
-    record RegistrazioneManuale(Registrazione registrazione, PersonaSintesi personaPrima, boolean nuovaPersona,
+    record RegistrazioneManuale(Registrazione registrazione, boolean nuovaPersona, boolean nuovaAzienda,
                                 boolean nuovoRapporto, AttribuzioneSalvata attribuzione) {
     }
 
@@ -126,7 +128,7 @@ class AcquisizioneCedolino {
      */
     EsitoAcquisizione acquisisci(DocumentoCaricato documento, RisultatoEstrazione estrazione) {
         return scritture.inTransazione(documento.workspace(), stato -> {
-            var esito = registra(documento, estrazione, true).esito();
+            var esito = registra(documento, estrazione, true, Scelte.NESSUNA).esito();
             if (esito instanceof Scartato) {
                 stato.setRollbackOnly();
             }
@@ -136,56 +138,79 @@ class AcquisizioneCedolino {
 
     /**
      * Inserimento a mano: registra il cedolino del file in errore a cui appartiene il caricamento, con il PDF originale
-     * conservato del file e il suo hash, in una sola transazione serializzata. La transazione e' annullata se il
-     * cedolino e' scartato e sempre nelle prove.
+     * conservato del file e il suo hash, in una sola transazione serializzata. Prima della registrazione ricontrolla le
+     * anagrafiche ({@link AnagraficheScelte}): quelle scelte devono essere ancora in archivio, quelle nuove non devono
+     * esserci (un caricamento concorrente puo' averle eliminate o create). La transazione e' annullata se il cedolino e'
+     * scartato e sempre nelle prove.
      *
-     * @param prova true per la prova: acquisizione completa poi annullata, senza log dell'acquisizione
+     * @param prova  true per la prova: acquisizione completa poi annullata, senza log dell'acquisizione
+     * @param scelte persona e azienda scelte dall'elenco; il cedolino ne riporta gia' i dati in archivio
      * @throws com.fcusumano.sam.shared.RisorsaNonTrovataException se il caricamento non esiste nel workspace
      * @throws OperazioneNonConsentitaException                    se il file non e' piu' in errore, e' in
      *                                                             elaborazione o non ha il PDF conservato
+     * @throws com.fcusumano.sam.shared.DatiNonValidiException     se un'anagrafica scelta non e' piu' in archivio o
+     *                                                             una nuova lo e' (nulla viene scritto)
      * @throws CedolinoNonAcquisibileException                     se mancano dati indispensabili
      */
     RegistrazioneManuale acquisisciManuale(WorkspaceId workspace, CaricamentoId caricamentoId,
-                                           RisultatoEstrazione estrazione, boolean prova) {
+                                           RisultatoEstrazione estrazione, boolean prova, Scelte scelte) {
         return scritture.inTransazione(workspace, stato -> {
             var file = ControlliFileInErrore.daRisolvere(caricamenti, workspace, caricamentoId);
             var pdf = caricamenti.pdf(workspace, file.hash())
                     .orElseThrow(() -> new OperazioneNonConsentitaException(MessaggiCaricamento.PDF_NON_CONSERVATO));
-            Optional<PersonaSintesi> personaPrima = Optional.empty();
+            ricontrollaAnagrafiche(estrazione.cedolino(), scelte);
             Set<RapportoLavoroId> rapportiPrima = Set.of();
             AttribuzioneSalvata attribuzione = null;
             if (prova) {
-                var dipendente = estrazione.cedolino().dipendente();
-                var codiceFiscale = dipendente == null ? null : dipendente.codiceFiscale();
-                personaPrima = consultazione.elencoPersone().stream()
-                        .filter(p -> p.codiceFiscale().equals(codiceFiscale))
-                        .findFirst();
-                rapportiPrima = personaPrima
-                        .map(p -> consultazione.rapportiDiPersona(p.id()).stream().map(RapportoSintesi::id)
-                                .collect(Collectors.toSet()))
-                        .orElse(Set.of());
+                if (scelte.persona() != null) {
+                    rapportiPrima = consultazione.rapportiDiPersona(scelte.persona()).stream()
+                            .map(RapportoSintesi::id).collect(Collectors.toSet());
+                }
                 attribuzione = caricamenti.attribuzione(workspace, file.hash()).orElse(null);
             }
             var registrazione = registra(new DocumentoCaricato(workspace, caricamentoId, pdf, file.hash()), estrazione,
-                    !prova);
+                    !prova, scelte);
             if (prova || registrazione.esito() instanceof Scartato) {
                 stato.setRollbackOnly();
             }
             if (!prova) {
-                return new RegistrazioneManuale(registrazione, null, false, false, null);
+                return new RegistrazioneManuale(registrazione, false, false, false, null);
             }
             var rapporto = registrazione.rapporto();
-            return new RegistrazioneManuale(registrazione, personaPrima.orElse(null), personaPrima.isEmpty(),
+            return new RegistrazioneManuale(registrazione, scelte.persona() == null, scelte.azienda() == null,
                     rapporto != null && !rapportiPrima.contains(rapporto.id()), attribuzione);
         });
+    }
+
+    /**
+     * Anagrafiche scelte ancora in archivio e anagrafiche nuove non in archivio, sui dati interpretati (quelli che il
+     * censimento usera').
+     *
+     * @throws com.fcusumano.sam.shared.DatiNonValidiException altrimenti
+     */
+    private void ricontrollaAnagrafiche(CedolinoEstratto estratto, Scelte scelte) {
+        AnagraficheScelte.risolvi(consultazione, scelte);
+        var dipendente = estratto.dipendente();
+        var datore = estratto.datoreLavoro();
+        var errori = AnagraficheScelte.giaInArchivio(consultazione,
+                dipendente == null ? null : dipendente.codiceFiscale(),
+                datore == null ? null : new DatiAzienda(datore.codiceFiscale(), datore.partitaIva(),
+                        datore.posizioneInps(), datore.ragioneSociale(), datore.indirizzo(), datore.codiceAzienda()),
+                scelte);
+        if (!errori.isEmpty()) {
+            log.info("Inserimento a mano: anagrafica nuova gia' in archivio rilevata nella transazione");
+            throw new DatiNonValidiException(errori);
+        }
     }
 
     /**
      * Registra il cedolino nella transazione corrente (che il chiamante annulla se scartato).
      *
      * @param registraLog false nelle prove (transazione annullata): nessuna riga di log sull'acquisizione
+     * @param scelte      anagrafiche scelte dall'elenco ({@link Scelte#NESSUNA} per i cedolini letti dai PDF)
      */
-    private Registrazione registra(DocumentoCaricato documento, RisultatoEstrazione estrazione, boolean registraLog) {
+    private Registrazione registra(DocumentoCaricato documento, RisultatoEstrazione estrazione, boolean registraLog,
+                                   Scelte scelte) {
         var ws = documento.workspace();
         var giaCaricato = cedolini.perHash(ws, documento.hash());
         if (giaCaricato.isPresent()) {
@@ -198,7 +223,7 @@ class AcquisizioneCedolino {
                 .orElseThrow(() -> new CedolinoNonAcquisibileException(Dato.PERIODO,
                         MessaggiCaricamento.PERIODO_NON_LEGGIBILE));
         var tipo = ConversioneCedolinoEstratto.tipo(estratto);
-        var rapporto = censisci(estratto, periodo);
+        var rapporto = censisci(estratto, periodo, scelte);
 
         var assunzioneStampata = ConversioneCedolinoEstratto.dataAssunzione(estratto);
         var cessazioneStampata = ConversioneCedolinoEstratto.dataCessazione(estratto);
@@ -261,7 +286,13 @@ class AcquisizioneCedolino {
         return new Registrazione(new Acquisito(id), rapporto, competenza);
     }
 
-    private RapportoLavoro censisci(CedolinoEstratto estratto, YearMonth periodo) {
+    /**
+     * Persona, azienda e rapporto del cedolino. Una persona scelta e' ritrovata per il suo codice fiscale (gia' quello
+     * in archivio, univoco nel workspace); un'azienda scelta e' collegata per id, senza abbinamento.
+     *
+     * @throws IllegalStateException se il rapporto non e' quello delle anagrafiche scelte (difetto: mai atteso)
+     */
+    private RapportoLavoro censisci(CedolinoEstratto estratto, YearMonth periodo, Scelte scelte) {
         var dipendente = estratto.dipendente();
         if (dipendente == null || dipendente.codiceFiscale() == null) {
             throw new CedolinoNonAcquisibileException(Dato.CODICE_FISCALE,
@@ -273,12 +304,15 @@ class AcquisizioneCedolino {
         }
         var persona = censimento.trovaOCreaPersona(new DatiPersona(dipendente.codiceFiscale(), dipendente.nome(),
                 dipendente.cognome(), ConversioneCedolinoEstratto.dataNascita(estratto)));
-        var azienda = censimento.trovaOCreaAzienda(new DatiAzienda(datore.codiceFiscale(), datore.partitaIva(),
-                datore.posizioneInps(), datore.ragioneSociale(), datore.indirizzo(), datore.codiceAzienda(), periodo));
+        var datiAzienda = new DatiAzienda(datore.codiceFiscale(), datore.partitaIva(), datore.posizioneInps(),
+                datore.ragioneSociale(), datore.indirizzo(), datore.codiceAzienda(), periodo);
+        var azienda = scelte.azienda() != null
+                ? censimento.aggiornaAziendaScelta(scelte.azienda(), datiAzienda)
+                : censimento.trovaOCreaAzienda(datiAzienda);
         var contratto = estratto.datiContrattuali();
         String ccnlTesto = contratto == null ? null : contratto.ccnl();
         String ccnl = ccnlTesto == null ? null : catalogoCcnl.riconosci(ccnlTesto).map(Ccnl::codice).orElse(null);
-        return censimento.trovaOCreaRapporto(persona.id(), azienda.id(), new DatiRapporto(
+        var rapporto = censimento.trovaOCreaRapporto(persona.id(), azienda.id(), new DatiRapporto(
                 ConversioneCedolinoEstratto.dataAssunzione(estratto),
                 ConversioneCedolinoEstratto.dataCessazione(estratto),
                 contratto == null ? null : contratto.qualifica(),
@@ -286,6 +320,11 @@ class AcquisizioneCedolino {
                 dipendente.codiceDipendente(),
                 ccnl,
                 periodo));
+        if ((scelte.persona() != null && !scelte.persona().equals(rapporto.personaId()))
+                || (scelte.azienda() != null && !scelte.azienda().equals(rapporto.aziendaId()))) {
+            throw new IllegalStateException("Rapporto diverso dalle anagrafiche scelte");
+        }
+        return rapporto;
     }
 
     private static Scartato conflitto(CedolinoConImporti esistente, CedolinoEstratto estratto) {

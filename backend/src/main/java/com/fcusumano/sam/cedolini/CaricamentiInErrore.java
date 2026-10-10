@@ -58,17 +58,23 @@ public interface CaricamentiInErrore {
     List<Caricamento> rileggi(CaricamentoId id, String password);
 
     /**
-     * Prova l'inserimento a mano senza salvare nulla: competenza, conflitti, persona e rapporto nuovi, avvisi.
+     * Prova l'inserimento a mano senza salvare nulla: competenza, conflitti, persona, azienda e rapporto nuovi, avvisi.
      *
-     * @throws com.fcusumano.sam.shared.DatiNonValidiException dati mancanti o non validi, campo per campo
+     * @throws com.fcusumano.sam.shared.DatiNonValidiException dati mancanti o non validi, campo per campo: anche
+     *                                                         {@code personaId} o {@code aziendaId} se l'anagrafica
+     *                                                         scelta non e' (piu') in archivio, e i dati anagrafici
+     *                                                         di una persona o un'azienda "nuova" (id null) che e' gia'
+     *                                                         in archivio e va scelta dall'elenco
      */
     VerificaCedolinoManuale verifica(CaricamentoId id, CedolinoManuale dati);
 
     /**
-     * Archivia il cedolino inserito a mano con il PDF originale conservato del file, come farebbe un lettore.
+     * Archivia il cedolino inserito a mano con il PDF originale conservato del file, come farebbe un lettore. Persona e
+     * azienda scelte dall'elenco sono usate esattamente: il cedolino va al loro rapporto (creato se manca).
      *
      * @return il caricamento ACQUISITO, con cedolino, persona e rapporto
-     * @throws com.fcusumano.sam.shared.DatiNonValidiException          dati mancanti o non validi, campo per campo
+     * @throws com.fcusumano.sam.shared.DatiNonValidiException          dati mancanti o non validi, campo per campo,
+     *                                                                  come nella verifica
      * @throws com.fcusumano.sam.shared.OperazioneNonConsentitaException cedolino della stessa mensilita' gia' presente
      *                                                                  (il file resta in errore)
      */

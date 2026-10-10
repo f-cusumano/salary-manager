@@ -405,9 +405,8 @@ class CaricamentiInErroreApiTest extends ApiWebMvcTest {
     @Test
     void verificaConIlCedolinoConvertitoCampoPerCampo() throws Exception {
         when(caricamentiInErrore.verifica(eq(CARICAMENTO), any())).thenReturn(new VerificaCedolinoManuale(
-                Esito.ACQUISIBILE, null, MAGGIO, false, true, null, null,
-                List.of("Verrà creato un nuovo rapporto di lavoro: se l'azienda esiste già controlla ragione sociale, "
-                        + "partita IVA e codice fiscale")));
+                Esito.ACQUISIBILE, null, MAGGIO, false, true, true, null, null,
+                List.of("Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice fiscale")));
 
         mvc.perform(post("/api/v1/caricamenti/40/cedolino/verifica").contentType(MediaType.APPLICATION_JSON)
                         .content(CEDOLINO))
@@ -417,6 +416,7 @@ class CaricamentiInErroreApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.competenza.chiave").value("2023.05"))
                 .andExpect(jsonPath("$.titolo").value("Maggio 2023"))
                 .andExpect(jsonPath("$.nuovaPersona").value(false))
+                .andExpect(jsonPath("$.nuovaAzienda").value(true))
                 .andExpect(jsonPath("$.nuovoRapporto").value(true))
                 .andExpect(jsonPath("$.rapportoId").value(nullValue()))
                 .andExpect(jsonPath("$.cedolinoEsistenteId").value(nullValue()))
@@ -425,6 +425,8 @@ class CaricamentiInErroreApiTest extends ApiWebMvcTest {
         var dati = ArgumentCaptor.forClass(CedolinoManuale.class);
         verify(caricamentiInErrore).verifica(eq(CARICAMENTO), dati.capture());
         var c = dati.getValue();
+        assertThat(c.personaId()).as("persona da creare: nessuna scelta").isNull();
+        assertThat(c.aziendaId()).isNull();
         assertThat(c.dipendente()).isEqualTo(new CedolinoManuale.Dipendente(DatiDiProva.CF_ROSSI, "Mario", "Rossi",
                 LocalDate.of(1980, 1, 1), "D001"));
         assertThat(c.datoreLavoro()).isEqualTo(new CedolinoManuale.DatoreLavoro(null, "IT01234567897", "1122334455",
@@ -458,10 +460,72 @@ class CaricamentiInErroreApiTest extends ApiWebMvcTest {
     }
 
     @Test
+    void leAnagraficheScelteDallElencoArrivanoAlServizio() throws Exception {
+        when(caricamentiInErrore.verifica(eq(CARICAMENTO), any())).thenReturn(new VerificaCedolinoManuale(
+                Esito.ACQUISIBILE, null, MAGGIO, false, false, false, RAPPORTO, null, List.of()));
+        when(caricamentiInErrore.inserisci(eq(CARICAMENTO), any())).thenReturn(new Caricamento(CARICAMENTO,
+                LOTTO_IN_ERRORE, "maggio.pdf", 2048, StatoCaricamento.ACQUISITO, null, null, false, new CedolinoId(60),
+                null, new PersonaId(1), RAPPORTO, ISTANTE, ISTANTE.plusSeconds(30)));
+
+        mvc.perform(post("/api/v1/caricamenti/40/cedolino/verifica").contentType(MediaType.APPLICATION_JSON)
+                        .content(conScelte(1, 3)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nuovaPersona").value(false))
+                .andExpect(jsonPath("$.nuovaAzienda").value(false))
+                .andExpect(jsonPath("$.nuovoRapporto").value(false))
+                .andExpect(jsonPath("$.rapportoId").value(7));
+        mvc.perform(post("/api/v1/caricamenti/40/cedolino").contentType(MediaType.APPLICATION_JSON)
+                        .content(conScelte(1, 3)))
+                .andExpect(status().isCreated());
+
+        var verificato = ArgumentCaptor.forClass(CedolinoManuale.class);
+        verify(caricamentiInErrore).verifica(eq(CARICAMENTO), verificato.capture());
+        assertThat(verificato.getValue().personaId()).isEqualTo(1L);
+        assertThat(verificato.getValue().aziendaId()).isEqualTo(3L);
+        var inserito = ArgumentCaptor.forClass(CedolinoManuale.class);
+        verify(caricamentiInErrore).inserisci(eq(CARICAMENTO), inserito.capture());
+        assertThat(inserito.getValue().personaId()).isEqualTo(1L);
+        assertThat(inserito.getValue().aziendaId()).isEqualTo(3L);
+        assertThat(inserito.getValue().dipendente().codiceFiscale()).isEqualTo(DatiDiProva.CF_ROSSI);
+    }
+
+    @Test
+    void unaSceltaNonPiuInArchivio400SulCampoDellaScelta() throws Exception {
+        when(caricamentiInErrore.inserisci(eq(CARICAMENTO), any())).thenThrow(new DatiNonValidiException(List.of(
+                new ErroreCampo("personaId", "La persona scelta non è più in archivio: scegline un'altra o creane "
+                        + "una nuova"))));
+        when(caricamentiInErrore.verifica(eq(CARICAMENTO), any())).thenThrow(new DatiNonValidiException(List.of(
+                new ErroreCampo("datoreLavoro.partitaIva", "Questa partita IVA è già in archivio: seleziona "
+                        + "l'azienda dall'elenco"))));
+
+        mvc.perform(post("/api/v1/caricamenti/40/cedolino").contentType(MediaType.APPLICATION_JSON)
+                        .content(conScelte(987654, 3)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                        .value("La persona scelta non è più in archivio: scegline un'altra o creane una nuova"))
+                .andExpect(jsonPath("$.errori", hasSize(1)))
+                .andExpect(jsonPath("$.errori[0].campo").value("personaId"));
+        mvc.perform(post("/api/v1/caricamenti/40/cedolino/verifica").contentType(MediaType.APPLICATION_JSON)
+                        .content(CEDOLINO))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errori[0].campo").value("datoreLavoro.partitaIva"))
+                .andExpect(content().string(not(containsString("01234567897"))));
+    }
+
+    @Test
+    void unIdentificativoDiSceltaNonNumericoEUnCorpoNonValido() throws Exception {
+        mvc.perform(post("/api/v1/caricamenti/40/cedolino/verifica").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"personaId\": \"Mario Rossi\", " + CEDOLINO.strip().substring(1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Corpo della richiesta mancante o non valido (JSON atteso)."));
+        verify(caricamentiInErrore, never()).verifica(any(), any());
+    }
+
+    @Test
     void verificaDiUnDuplicato() throws Exception {
         when(caricamentiInErrore.verifica(eq(CARICAMENTO), any())).thenReturn(new VerificaCedolinoManuale(
                 Esito.DUPLICATO, "Cedolino di Maggio 2023 già presente con gli stessi importi: scartato", null,
-                false, false, RAPPORTO, new CedolinoId(16), List.of()));
+                false, false, false, RAPPORTO, new CedolinoId(16), List.of()));
 
         mvc.perform(post("/api/v1/caricamenti/40/cedolino/verifica").contentType(MediaType.APPLICATION_JSON)
                         .content(CEDOLINO))
@@ -574,6 +638,12 @@ class CaricamentiInErroreApiTest extends ApiWebMvcTest {
     }
 
     // ------------------------------------------------------------------------------------------ supporto
+
+    /** Il cedolino di prova con la persona e l'azienda scelte dall'elenco. */
+    private static String conScelte(long personaId, long aziendaId) {
+        return "{\"personaId\": " + personaId + ", \"aziendaId\": " + aziendaId + ", "
+                + CEDOLINO.strip().substring(1);
+    }
 
     private static Caricamento inCoda(long id) {
         return new Caricamento(new CaricamentoId(id), NUOVO_LOTTO, "maggio.pdf", PDF.length, StatoCaricamento.IN_CODA,

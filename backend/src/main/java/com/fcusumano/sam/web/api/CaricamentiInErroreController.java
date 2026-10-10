@@ -170,7 +170,8 @@ class CaricamentiInErroreController {
             summary = "Prova l'inserimento a mano senza salvare (competenza, conflitti, nuove anagrafiche, avvisi)",
             description = "Esegue l'acquisizione vera e propria e la annulla: nessun dato viene salvato. 400 con "
                     + "errori (percorsi dello schema CedolinoManuale) se mancano dati obbligatori o ci sono valori non "
-                    + "validi.")
+                    + "validi, anche su personaId o aziendaId se l'anagrafica scelta non e' (piu') in archivio e sui "
+                    + "dati anagrafici di una persona o un'azienda nuova gia' in archivio (va scelta dall'elenco).")
     @ApiResponse(responseCode = "200", description = "Esito della prova")
     @Risposte.RichiestaNonValida
     @Risposte.NonTrovato
@@ -186,9 +187,10 @@ class CaricamentiInErroreController {
     @Operation(operationId = "inserisciCedolinoManuale",
             summary = "Inserisce a mano il cedolino di un file in errore (stesso percorso dei lettori)",
             description = "I dati seguono lo stesso percorso dei cedolini letti dai PDF (censimento, competenza, "
-                    + "duplicati, ricalcolo); il PDF conservato diventa il PDF del cedolino. 400 con errori come nella "
-                    + "verifica; 409 se il cedolino risulta un duplicato o un aggiuntivo non gestito (il file resta in "
-                    + "errore).")
+                    + "duplicati, ricalcolo); il PDF conservato diventa il PDF del cedolino. Persona e azienda scelte "
+                    + "dall'elenco (personaId, aziendaId) sono usate esattamente: il cedolino va al loro rapporto "
+                    + "(creato se manca). 400 con errori come nella verifica; 409 se il cedolino risulta un duplicato "
+                    + "o un aggiuntivo non gestito (il file resta in errore).")
     @ApiResponse(responseCode = "201", description = "Cedolino acquisito; il caricamento e' ACQUISITO")
     @Risposte.RichiestaNonValida
     @Risposte.NonTrovato
