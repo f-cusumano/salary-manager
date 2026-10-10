@@ -528,6 +528,9 @@ export function richiestaDa(valori: ValoriCedolinoManuale): CedolinoManuale {
   const { superminimoAssorbibile, ...importiRetribuzione } = retribuzione;
   const presenti = buoniPasto.presenti;
   return {
+    // nessuna anagrafica scelta dall'elenco: persona e azienda si censiscono dai dati inseriti
+    personaId: null,
+    aziendaId: null,
     dipendente: {
       codiceFiscale: testoDa(dipendente.codiceFiscale),
       nome: testoDa(dipendente.nome),

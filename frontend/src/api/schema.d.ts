@@ -13,7 +13,8 @@ export interface paths {
     };
     /**
      * Elenco persone per la tendina
-     * @description Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti.
+     * @description Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti. Usata anche
+     *     dall'inserimento a mano per scegliere una persona gia' in archivio.
      */
     get: operations['elencoPersone'];
     put?: never;
@@ -37,6 +38,28 @@ export interface paths {
      *     con `attuale = true`.
      */
     get: operations['rapportiDiPersona'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/aziende': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Elenco aziende per la scelta del datore di lavoro
+     * @description Aziende del workspace ordinate per ragione sociale, con l'etichetta anti-omonimia calcolata su tutte le
+     *     aziende del workspace. L'inserimento a mano la usa per scegliere un'azienda gia' in archivio invece di
+     *     riscriverne i dati. Lista vuota prima dei caricamenti.
+     */
+    get: operations['elencoAziende'];
     put?: never;
     post?: never;
     delete?: never;
@@ -311,8 +334,12 @@ export interface paths {
      * @description Esegue l'acquisizione vera e propria e la annulla: nessun dato viene salvato. 400 con `errori` (percorsi
      *     dello schema CedolinoManuale) se mancano dati obbligatori o ci sono valori non validi (importi e quantita'
      *     con al massimo 8 cifre intere e 5 decimali); un errore generale (`campo` null) se un valore calcolato
-     *     dall'acquisizione supera i limiti dell'archivio. 404 se il caricamento non esiste; 409 se il file non e' piu'
-     *     in errore, il PDF non e' conservato o e' in corso un nuovo tentativo.
+     *     dall'acquisizione supera i limiti dell'archivio. 400 anche sul campo `personaId` o `aziendaId` se
+     *     l'anagrafica scelta non e' (piu') in archivio, e su `dipendente.codiceFiscale`,
+     *     `datoreLavoro.partitaIva`, `datoreLavoro.codiceFiscale`, `datoreLavoro.posizioneInps` o
+     *     `datoreLavoro.ragioneSociale` se una persona o un'azienda "nuova" (id null) e' gia' in archivio: va scelta
+     *     dall'elenco. 404 se il caricamento non esiste; 409 se il file non e' piu' in errore, il PDF non e'
+     *     conservato o e' in corso un nuovo tentativo.
      */
     post: operations['verificaCedolinoManuale'];
     delete?: never;
@@ -333,8 +360,10 @@ export interface paths {
     /**
      * Inserisce a mano il cedolino di un file in errore (stesso percorso dei lettori)
      * @description I dati seguono lo stesso percorso dei cedolini letti dai PDF (censimento, competenza, duplicati, ricalcolo);
-     *     il PDF conservato diventa il PDF del cedolino. 400 con `errori` come nella verifica; 409 se il cedolino
-     *     risulta un duplicato o un aggiuntivo non gestito (il file resta in errore).
+     *     il PDF conservato diventa il PDF del cedolino. Persona e azienda scelte dall'elenco (`personaId`,
+     *     `aziendaId`) sono usate esattamente: il cedolino va al loro rapporto (creato se manca). 400 con `errori`
+     *     come nella verifica; 409 se il cedolino risulta un duplicato o un aggiuntivo non gestito (il file resta in
+     *     errore).
      */
     post: operations['inserisciCedolinoManuale'];
     delete?: never;
@@ -441,8 +470,8 @@ export interface components {
     };
     ErroreCampo: {
       /**
-       * @description Percorso nello schema della richiesta (es. totali.netto, voci[2].descrizione, mese); null per un errore
-       *     generale
+       * @description Percorso nello schema della richiesta (es. totali.netto, voci[2].descrizione, personaId, mese); null per
+       *     un errore generale
        */
       campo: string | null;
       /** @description Messaggio per l'utente (non ripete mai i valori inviati) */
@@ -466,6 +495,11 @@ export interface components {
       cognome: string;
       codiceFiscale: string;
       /**
+       * Format: date
+       * @description Data di nascita, se nota (precompila l'inserimento a mano)
+       */
+      dataNascita: string | null;
+      /**
        * @description "Nome Cognome"; in caso di omonimia "Nome Cognome (CODICEFISCALE)"
        * @example Mario Rossi
        */
@@ -488,6 +522,23 @@ export interface components {
       codiceFiscale: string | null;
       posizioneInps: string | null;
       indirizzo: string | null;
+    };
+    /** @description Voce dell'elenco aziende (scelta del datore di lavoro nell'inserimento a mano) */
+    AziendaSelezionabile: {
+      id: components['schemas']['Id'];
+      ragioneSociale: string;
+      partitaIva: string | null;
+      codiceFiscale: string | null;
+      /** @description Matricola INPS come registrata (normalizzata a 10 cifre quando presenti) */
+      posizioneInps: string | null;
+      indirizzo: string | null;
+      codiceAzienda: string | null;
+      /**
+       * @description Ragione sociale; solo in caso di omonimia tra le aziende del workspace si aggiunge un identificativo:
+       *     "Ragione sociale (P.IVA 01234567890)", in mancanza di partita IVA "(CF ...)", poi "(Pos. INPS ...)"
+       * @example Alfa Software S.r.l.
+       */
+      etichetta: string;
     };
     RapportoSintesi: {
       id: components['schemas']['Id'];
@@ -973,8 +1024,10 @@ export interface components {
        * @example Maggio 2023
        */
       titolo: string | null;
-      /** @description Verrebbe creata una nuova persona (codice fiscale non censito) */
+      /** @description Verrebbe creata una nuova persona (non scelta dall'elenco, `personaId` null) */
       nuovaPersona: boolean;
+      /** @description Verrebbe creata una nuova azienda (non scelta dall'elenco, `aziendaId` null) */
+      nuovaAzienda: boolean;
       /** @description Verrebbe creato un nuovo rapporto di lavoro */
       nuovoRapporto: boolean;
       /** @description Rapporto esistente a cui andrebbe il cedolino; null se nuovo o non ACQUISIBILE */
@@ -986,11 +1039,28 @@ export interface components {
     };
     /**
      * @description Cedolino inserito a mano per un file in errore: stessi campi e percorsi dello schema di lettura
-     *     (prompts/cedolino-schema-v1.json) con tipi JSON; null = non stampato; liste mai null. Obbligatori (400 con
-     *     `errori` se mancanti): periodo.anno/mese/tipo, dipendente.codiceFiscale/nome/cognome,
-     *     datoreLavoro.ragioneSociale, totali.totaleCompetenze/totaleTrattenute/netto.
+     *     (prompts/cedolino-schema-v1.json) con tipi JSON, piu' la persona e l'azienda scelte dall'elenco
+     *     (`personaId`, `aziendaId`); null = non stampato; liste mai null. Obbligatori (400 con `errori` se mancanti):
+     *     periodo.anno/mese/tipo, dipendente.codiceFiscale/nome/cognome (se `personaId` e' null),
+     *     datoreLavoro.ragioneSociale (se `aziendaId` e' null), totali.totaleCompetenze/totaleTrattenute/netto.
      */
     CedolinoManuale: {
+      /**
+       * @description Persona gia' in archivio scelta dall'elenco (GET /api/v1/persone); null = nuova persona ("Crea nuovo").
+       *     Se indicata, codice fiscale, nome, cognome e (se nota) data di nascita sono quelli in archivio: i valori
+       *     inviati in `dipendente` per questi campi sono ignorati. Con null, un codice fiscale gia' in archivio e'
+       *     un errore: la persona va scelta dall'elenco.
+       */
+      personaId: components['schemas']['Id'] | null;
+      /**
+       * @description Azienda gia' in archivio scelta dall'elenco (GET /api/v1/aziende); null = nuova azienda ("Crea nuova"). Se
+       *     indicata, ragione sociale, partita IVA, codice fiscale e posizione INPS sono quelli in archivio (i valori
+       *     inviati sono ignorati) e il cedolino va proprio a questa azienda; indirizzo, codice azienda e posizione
+       *     INAIL restano quelli inviati. Con null, dati che il censimento abbinerebbe a un'azienda gia' in archivio
+       *     (partita IVA, codice fiscale, posizione INPS o ragione sociale) sono un errore: l'azienda va scelta
+       *     dall'elenco.
+       */
+      aziendaId: components['schemas']['Id'] | null;
       dipendente: components['schemas']['DipendenteManuale'];
       datoreLavoro: components['schemas']['DatoreLavoroManuale'];
       datiContrattuali: components['schemas']['DatiContrattualiManuali'];
@@ -1157,6 +1227,26 @@ export interface operations {
       };
       400: components['responses']['RichiestaNonValida'];
       404: components['responses']['NonTrovato'];
+    };
+  };
+  elencoAziende: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Elenco aziende */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AziendaSelezionabile'][];
+        };
+      };
     };
   };
   dettaglioRapporto: {

@@ -441,6 +441,7 @@ describe('backend simulato: inserimento a mano', () => {
       competenza: expect.objectContaining({ chiave: '2025.08', tipo: 'ORDINARIA' }) as unknown,
       titolo: 'Agosto 2025',
       nuovaPersona: false,
+      nuovaAzienda: false,
       nuovoRapporto: false,
       rapportoId: 1,
       cedolinoEsistenteId: null,

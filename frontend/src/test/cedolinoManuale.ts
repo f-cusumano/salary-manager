@@ -8,6 +8,8 @@ export function cedolinoManuale(
   modifiche: (dati: CedolinoManuale) => void = () => undefined,
 ): CedolinoManuale {
   const dati: CedolinoManuale = {
+    personaId: null,
+    aziendaId: null,
     dipendente: {
       codiceFiscale: 'rssmra80a01h501u ',
       nome: 'Mario',

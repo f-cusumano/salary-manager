@@ -704,6 +704,7 @@ export function verificaManuale(db: MockDb, caricamentoId: number, corpo: unknow
     competenza: scarto ? null : competenza,
     titolo: scarto ? null : titolo,
     nuovaPersona: !persona,
+    nuovaAzienda: ![...db.rapporti.values()].some((r) => stessaAzienda(r.azienda, dati.datoreLavoro)),
     nuovoRapporto: !rapporto,
     rapportoId: scarto ? null : (rapporto?.id ?? null),
     cedolinoEsistenteId: scarto?.cedolinoId ?? null,
@@ -781,6 +782,7 @@ export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unkno
     nome: dati.dipendente.nome ?? '',
     cognome: dati.dipendente.cognome ?? '',
     codiceFiscale: dati.dipendente.codiceFiscale ?? '',
+    dataNascita: dati.dipendente.dataNascita,
     etichetta: `${dati.dipendente.nome ?? ''} ${dati.dipendente.cognome ?? ''}`,
   };
   const rapporto = valutazione.rapporto ?? nuovoRapporto(db, dati, persona, periodo);

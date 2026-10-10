@@ -21,6 +21,8 @@ security: []
 tags:
   - name: persone
     description: Persone e loro rapporti di lavoro
+  - name: aziende
+    description: Aziende (datori di lavoro)
   - name: rapporti
     description: Dettaglio rapporto (segnalazioni, riepilogo, mensilita'), note e CCNL
   - name: cedolini
@@ -36,7 +38,9 @@ paths:
       tags: [persone]
       operationId: elencoPersone
       summary: Elenco persone per la tendina
-      description: Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti.
+      description: |
+        Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti. Usata anche
+        dall'inserimento a mano per scegliere una persona gia' in archivio.
       responses:
         '200':
           description: Elenco persone
@@ -66,6 +70,24 @@ paths:
                 items: { $ref: '#/components/schemas/RapportoSintesi' }
         '400': { $ref: '#/components/responses/RichiestaNonValida' }
         '404': { $ref: '#/components/responses/NonTrovato' }
+
+  /api/v1/aziende:
+    get:
+      tags: [aziende]
+      operationId: elencoAziende
+      summary: Elenco aziende per la scelta del datore di lavoro
+      description: |
+        Aziende del workspace ordinate per ragione sociale, con l'etichetta anti-omonimia calcolata su tutte le
+        aziende del workspace. L'inserimento a mano la usa per scegliere un'azienda gia' in archivio invece di
+        riscriverne i dati. Lista vuota prima dei caricamenti.
+      responses:
+        '200':
+          description: Elenco aziende
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AziendaSelezionabile' }
 
   /api/v1/rapporti/{rapportoId}:
     get:
@@ -411,8 +433,12 @@ paths:
         Esegue l'acquisizione vera e propria e la annulla: nessun dato viene salvato. 400 con `errori` (percorsi
         dello schema CedolinoManuale) se mancano dati obbligatori o ci sono valori non validi (importi e quantita'
         con al massimo 8 cifre intere e 5 decimali); un errore generale (`campo` null) se un valore calcolato
-        dall'acquisizione supera i limiti dell'archivio. 404 se il caricamento non esiste; 409 se il file non e' piu'
-        in errore, il PDF non e' conservato o e' in corso un nuovo tentativo.
+        dall'acquisizione supera i limiti dell'archivio. 400 anche sul campo `personaId` o `aziendaId` se
+        l'anagrafica scelta non e' (piu') in archivio, e su `dipendente.codiceFiscale`,
+        `datoreLavoro.partitaIva`, `datoreLavoro.codiceFiscale`, `datoreLavoro.posizioneInps` o
+        `datoreLavoro.ragioneSociale` se una persona o un'azienda "nuova" (id null) e' gia' in archivio: va scelta
+        dall'elenco. 404 se il caricamento non esiste; 409 se il file non e' piu' in errore, il PDF non e'
+        conservato o e' in corso un nuovo tentativo.
       parameters:
         - $ref: '#/components/parameters/CaricamentoId'
       requestBody:
@@ -437,8 +463,10 @@ paths:
       summary: Inserisce a mano il cedolino di un file in errore (stesso percorso dei lettori)
       description: |
         I dati seguono lo stesso percorso dei cedolini letti dai PDF (censimento, competenza, duplicati, ricalcolo);
-        il PDF conservato diventa il PDF del cedolino. 400 con `errori` come nella verifica; 409 se il cedolino
-        risulta un duplicato o un aggiuntivo non gestito (il file resta in errore).
+        il PDF conservato diventa il PDF del cedolino. Persona e azienda scelte dall'elenco (`personaId`,
+        `aziendaId`) sono usate esattamente: il cedolino va al loro rapporto (creato se manca). 400 con `errori`
+        come nella verifica; 409 se il cedolino risulta un duplicato o un aggiuntivo non gestito (il file resta in
+        errore).
       parameters:
         - $ref: '#/components/parameters/CaricamentoId'
       requestBody:
@@ -603,8 +631,8 @@ components:
       properties:
         campo:
           description: |
-            Percorso nello schema della richiesta (es. totali.netto, voci[2].descrizione, mese); null per un errore
-            generale
+            Percorso nello schema della richiesta (es. totali.netto, voci[2].descrizione, personaId, mese); null per
+            un errore generale
           type: [string, 'null']
         messaggio:
           description: Messaggio per l'utente (non ripete mai i valori inviati)
@@ -633,12 +661,16 @@ components:
     # ---------------------------------------------------------------- persone e rapporti
     PersonaSintesi:
       type: object
-      required: [id, nome, cognome, codiceFiscale, etichetta]
+      required: [id, nome, cognome, codiceFiscale, dataNascita, etichetta]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         nome: { type: string }
         cognome: { type: string }
         codiceFiscale: { type: string }
+        dataNascita:
+          description: Data di nascita, se nota (precompila l'inserimento a mano)
+          type: [string, 'null']
+          format: date
         etichetta:
           description: '"Nome Cognome"; in caso di omonimia "Nome Cognome (CODICEFISCALE)"'
           type: string
@@ -672,6 +704,27 @@ components:
         codiceFiscale: { type: [string, 'null'] }
         posizioneInps: { type: [string, 'null'] }
         indirizzo: { type: [string, 'null'] }
+
+    AziendaSelezionabile:
+      description: Voce dell'elenco aziende (scelta del datore di lavoro nell'inserimento a mano)
+      type: object
+      required: [id, ragioneSociale, partitaIva, codiceFiscale, posizioneInps, indirizzo, codiceAzienda, etichetta]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        ragioneSociale: { type: string }
+        partitaIva: { type: [string, 'null'] }
+        codiceFiscale: { type: [string, 'null'] }
+        posizioneInps:
+          description: Matricola INPS come registrata (normalizzata a 10 cifre quando presenti)
+          type: [string, 'null']
+        indirizzo: { type: [string, 'null'] }
+        codiceAzienda: { type: [string, 'null'] }
+        etichetta:
+          description: |
+            Ragione sociale; solo in caso di omonimia tra le aziende del workspace si aggiunge un identificativo:
+            "Ragione sociale (P.IVA 01234567890)", in mancanza di partita IVA "(CF ...)", poi "(Pos. INPS ...)"
+          type: string
+          examples: ['Alfa Software S.r.l.']
 
     RapportoSintesi:
       type: object
@@ -1563,6 +1616,7 @@ components:
         - competenza
         - titolo
         - nuovaPersona
+        - nuovaAzienda
         - nuovoRapporto
         - rapportoId
         - cedolinoEsistenteId
@@ -1584,7 +1638,10 @@ components:
           type: [string, 'null']
           examples: ['Maggio 2023']
         nuovaPersona:
-          description: Verrebbe creata una nuova persona (codice fiscale non censito)
+          description: Verrebbe creata una nuova persona (non scelta dall'elenco, `personaId` null)
+          type: boolean
+        nuovaAzienda:
+          description: Verrebbe creata una nuova azienda (non scelta dall'elenco, `aziendaId` null)
           type: boolean
         nuovoRapporto:
           description: Verrebbe creato un nuovo rapporto di lavoro
@@ -1608,11 +1665,14 @@ components:
     CedolinoManuale:
       description: |
         Cedolino inserito a mano per un file in errore: stessi campi e percorsi dello schema di lettura
-        (prompts/cedolino-schema-v1.json) con tipi JSON; null = non stampato; liste mai null. Obbligatori (400 con
-        `errori` se mancanti): periodo.anno/mese/tipo, dipendente.codiceFiscale/nome/cognome,
-        datoreLavoro.ragioneSociale, totali.totaleCompetenze/totaleTrattenute/netto.
+        (prompts/cedolino-schema-v1.json) con tipi JSON, piu' la persona e l'azienda scelte dall'elenco
+        (`personaId`, `aziendaId`); null = non stampato; liste mai null. Obbligatori (400 con `errori` se mancanti):
+        periodo.anno/mese/tipo, dipendente.codiceFiscale/nome/cognome (se `personaId` e' null),
+        datoreLavoro.ragioneSociale (se `aziendaId` e' null), totali.totaleCompetenze/totaleTrattenute/netto.
       type: object
       required:
+        - personaId
+        - aziendaId
         - dipendente
         - datoreLavoro
         - datiContrattuali
@@ -1629,6 +1689,26 @@ components:
         - contieneTredicesima
         - contieneQuattordicesima
       properties:
+        personaId:
+          description: |
+            Persona gia' in archivio scelta dall'elenco (GET /api/v1/persone); null = nuova persona ("Crea nuovo").
+            Se indicata, codice fiscale, nome, cognome e (se nota) data di nascita sono quelli in archivio: i valori
+            inviati in `dipendente` per questi campi sono ignorati. Con null, un codice fiscale gia' in archivio e'
+            un errore: la persona va scelta dall'elenco.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        aziendaId:
+          description: |
+            Azienda gia' in archivio scelta dall'elenco (GET /api/v1/aziende); null = nuova azienda ("Crea nuova"). Se
+            indicata, ragione sociale, partita IVA, codice fiscale e posizione INPS sono quelli in archivio (i valori
+            inviati sono ignorati) e il cedolino va proprio a questa azienda; indirizzo, codice azienda e posizione
+            INAIL restano quelli inviati. Con null, dati che il censimento abbinerebbe a un'azienda gia' in archivio
+            (partita IVA, codice fiscale, posizione INPS o ragione sociale) sono un errore: l'azienda va scelta
+            dall'elenco.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
         dipendente: { $ref: '#/components/schemas/DipendenteManuale' }
         datoreLavoro: { $ref: '#/components/schemas/DatoreLavoroManuale' }
         datiContrattuali: { $ref: '#/components/schemas/DatiContrattualiManuali' }

@@ -93,6 +93,7 @@ const MARIO: PersonaSintesi = {
   nome: 'Mario',
   cognome: 'Rossi',
   codiceFiscale: 'RSSMRA80A01H501U',
+  dataNascita: '1980-01-01',
   etichetta: 'Mario Rossi',
 };
 
@@ -101,6 +102,7 @@ const LAURA: PersonaSintesi = {
   nome: 'Laura',
   cognome: 'Bianchi',
   codiceFiscale: 'BNCLRA85M41F205X',
+  dataNascita: '1985-08-01',
   etichetta: 'Laura Bianchi',
 };
 
