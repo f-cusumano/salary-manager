@@ -1,0 +1,34 @@
+.riquadro {
+  position: relative;
+  overflow: hidden;
+  border: 1.5px solid var(--mantine-color-orange-5);
+  background-color: var(--mantine-color-orange-0);
+}
+
+.filigrana {
+  position: absolute;
+  right: -14px;
+  bottom: -22px;
+  width: 120px;
+  height: 120px;
+  color: var(--mantine-color-orange-5);
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.contenuto {
+  position: relative;
+}
+
+.descrizione {
+  color: var(--mantine-color-orange-8);
+}
+
+.gravita {
+  flex-shrink: 0;
+  text-transform: none;
+}
+
+.evidenze {
+  color: var(--mantine-color-orange-9);
+}

@@ -1,0 +1,191 @@
+# =====================================================================================================
+# Salary Manager - configurazione applicativa (fase 1: utente singolo, nessun login)
+# Le variabili SAM_* (d'ambiente o nel file .env) permettono di cambiare i default senza toccare questo file.
+# La chiave API Anthropic NON va mai messa qui: si legge solo da ANTHROPIC_API_KEY, variabile d'ambiente o file .env
+# (un valore scritto qui verrebbe ignorato).
+# =====================================================================================================
+
+spring:
+  application:
+    name: salary-manager
+
+  # File .env della radice del progetto, lo stesso di Docker Compose (modello: .env.example; ignorato da git): avviando
+  # il backend da backend/ con mvnw, ANTHROPIC_API_KEY e le variabili SAM_* dei segnaposto di questo file valgono come
+  # se fossero nell'ambiente. Sintassi di Compose, letta in UTF-8 da shared.config.CaricatoreFileEnv (estensione
+  # [.env]). Le variabili d'ambiente vere hanno la precedenza; con un profilo attivo si legge anche .env-<profilo>.
+  # SAM_ENV_FILE indica un altro file (surefire lo punta a un file inesistente: i test non leggono il .env).
+  config:
+    import: optional:file:${SAM_ENV_FILE:../.env}[.env]
+
+  # Thread virtuali per richieste HTTP ed elaborazioni asincrone dei caricamenti
+  threads:
+    virtual:
+      enabled: true
+
+  # H2 su file in modalita' compatibilita' PostgreSQL. Le DDL Liquibase sono PostgreSQL-compatibili:
+  # per passare a PostgreSQL basta cambiare url/credenziali e il dialetto jOOQ.
+  datasource:
+    url: jdbc:h2:file:${salary-manager.database.path};MODE=PostgreSQL;DEFAULT_NULL_ORDERING=HIGH
+    username: ${SAM_DB_USER:sa}
+    password: ${SAM_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+  jooq:
+    # H2 per H2 su file; POSTGRES quando si passera' a PostgreSQL
+    sql-dialect: ${SAM_JOOQ_DIALECT:H2}
+
+  # Upload multiplo: fino a 25MB per singolo PDF
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 500MB
+
+  mvc:
+    problemdetails:
+      enabled: true
+
+  # Nessun utente generato: la sicurezza e' permit-all (vedi web.config.SecurityConfiguration)
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+
+server:
+  port: ${SAM_PORT:8080}
+  # Interfaccia di ascolto: solo locale, perche' in fase 1 non c'e' login. Nel container Docker SAM_SERVER_ADDRESS e'
+  # 0.0.0.0 (lo raggiunge nginx); a decidere chi arriva al container sono le porte pubblicate (SAM_BIND_ADDRESS)
+  address: ${SAM_SERVER_ADDRESS:127.0.0.1}
+  tomcat:
+    # Parti ammesse in una richiesta multipart (un PDF per parte, piu' la password del lotto): il default di
+    # Tomcat (50) bloccherebbe il caricamento di molti cedolini insieme. Il limite in byte resta max-request-size.
+    max-part-count: 1001
+    # Corpo letto e scartato dopo un rifiuto (es. PDF oltre max-file-size): senza, Tomcat chiude la connessione e il
+    # browser vede un errore di rete invece della risposta 413 con il messaggio
+    max-swallow-size: ${spring.servlet.multipart.max-request-size}
+  error:
+    include-stacktrace: never
+    include-message: never
+
+# Documentazione OpenAPI generata (da allineare al contratto docs/openapi.yaml)
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+  paths-to-match: /api/**
+
+salary-manager:
+  database:
+    # Percorso del file H2 (senza estensione), relativo alla cartella di avvio del backend
+    path: ${SAM_DB_PATH:./data/salary-manager}
+
+  # Cartella locale dei cedolini reali (contengono dati personali: esclusa da git), usata solo dai test facoltativi
+  # @Tag("campioni") (lettore locale, senza rete) e @Tag("live") (Claude)
+  samples-dir: ${SAM_SAMPLES_DIR:../samples}
+
+  # Lettore dei cedolini (interpretazione dei PDF caricati):
+  #   locale  = lettore locale, gratuito e offline: legge il testo dei PDF nei layout noti (JOB Sistemi, Zucchetti,
+  #             modulo M39320 degli studi paghe); scansioni e layout sconosciuti finiscono in errore con il
+  #             suggerimento di Claude
+  #   claude  = Claude tramite l'API Anthropic (a pagamento, chiave ANTHROPIC_API_KEY; impostazioni in "ai" qui sotto)
+  #   fixture = JSON di fixture (test, modalita' demo e sviluppo offline)
+  lettore: ${SAM_LETTORE:locale}
+  # Letture contemporanee massime dei cedolini caricati (qualunque lettore)
+  letture-contemporanee: 2
+  # JSON del lettore fixture; i PDF di prova sono nella cartella sorella fixtures/pdf/
+  fixture-dir: classpath:fixtures/cedolini/
+
+  # Lettore Claude (solo con lettore: claude)
+  ai:
+    model: ${SAM_AI_MODEL:claude-opus-5-5}
+    # low | medium | high | xhigh | max
+    effort: ${SAM_AI_EFFORT:medium}
+    # Token massimi in output (thinking compreso: su claude-opus-5-5 il thinking e' sempre attivo).
+    # Oltre 21333 l'adapter usa lo streaming.
+    max-tokens: 32000
+    timeout: 5m
+    # Richieste contemporanee massime all'API
+    concurrency: 2
+    max-retries: 2
+    # Fallback lato server sui rifiuti (beta server-side-fallback-2026-07-01, "fallbacks": "default"): se il modello
+    # rifiuta per una categoria di sicurezza, l'API ripete la richiesta sul modello di fallback raccomandato.
+    fallback-rifiuti: ${SAM_AI_FALLBACK_RIFIUTI:true}
+
+  # Lettura dei PDF caricati
+  pdf:
+    # Password provate per i PDF protetti, dopo quella indicata per il lotto e prima dei codici fiscali delle persone
+    # censite. Solo da variabile d'ambiente o file .env (separate da virgola), mai in file versionati.
+    password-candidate: ${SAM_PDF_PASSWORD_CANDIDATE:}
+    # Limite della richiesta all'API: il PDF in base64 (+33%) deve starci (PDF fino a circa 23MB)
+    dimensione-massima-richiesta: 32MB
+    # Pagine massime per PDF inviato all'API
+    pagine-massime: 100
+    # Dimensione massima di un flusso compresso del PDF una volta decompresso (protezione dalle "bombe" di
+    # decompressione): oltre, il PDF e' trattato come danneggiato
+    limite-decompressione: 100MB
+
+  storage:
+    # Segnaposto: {anno}, {mese} (01..14 oppure TFR01, TFR02, ...), {idAzienda}, {idPersona}
+    nome-file-pattern: "{anno}.{mese}_{idAzienda}_{idPersona}.pdf"
+
+  # Parametri delle stime TFR. Valori indicativi: verificare prima dell'uso in casi reali.
+  tfr:
+    # Aliquota della tassazione separata usata per la stima del netto (aliquota del primo scaglione IRPEF)
+    aliquota-stimata: 0.23
+    # Imposta sostitutiva sulla rivalutazione (stima quando la rivalutazione e' stampata senza imposta)
+    imposta-sostitutiva-rivalutazione: 0.17
+    # Quota annua = retribuzione utile / 13,5
+    divisore-quota: 13.5
+    # Tasso annuo indicativo di rivalutazione (1,5% + 75% di un'inflazione del 2%), solo per la stima "ad oggi"
+    # del TFR dei rapporti in corso
+    tasso-rivalutazione-default: 0.03
+    # Mesi massimi proiettati dall'ultimo cedolino nella stima "ad oggi" (0 = nessuna proiezione)
+    mesi-massimi-proiezione: 12
+
+  # Stima del valore di ferie e permessi quando il cedolino non riporta paga giornaliera/oraria o divisori
+  ferie:
+    divisore-giornaliero: 26
+    divisore-orario: 173
+    ore-giornaliere: 8
+
+  # Calcoli derivati (riepilogo del rapporto e indicatori per mensilita')
+  calcoli:
+    # Variazione minima (euro) del lordo contrattuale o degli scatti considerata un aumento
+    tolleranza-aumento: 0.01
+    # Mensilita' assunte per la RAL quando il CCNL del rapporto non e' indicato (RAL marcata come stimata)
+    mensilita-senza-ccnl: 13
+    # Ultimi cedolini ordinari esaminati per "Buoni pasto: SI"
+    cedolini-buoni-pasto: 3
+
+  # Regole di segnalazione (anomalie): nel dubbio non si segnala
+  segnalazioni:
+    # Scostamento massimo (euro) tra fondo TFR al 31/12 stampato e fondo atteso (controllo di coerenza TFR)
+    tolleranza-tfr: 5.00
+    # Calo minimo (euro) considerato per fondo TFR, importo degli scatti e progressivi annui
+    tolleranza-importi: 1.00
+    # Mesi dopo la cessazione prima di segnalare il cedolino di fine rapporto mancante
+    mesi-attesa-fine-rapporto: 2
+    # CCNL in cui la tredicesima degli operai e' accantonata presso la Cassa Edile (non pagata in busta)
+    ccnl-tredicesima-cassa-edile: EDILIZIA_INDUSTRIA
+
+  web:
+    # Origini ammesse per CORS (server di sviluppo Vite)
+    cors-allowed-origins: ${SAM_CORS_ORIGINS:http://localhost:5173}
+    # Nomi host ammessi nell'header Host, separati da virgola (protezione dal DNS rebinding: in fase 1 non c'e'
+    # login). Chi pubblica l'applicazione con un altro nome o indirizzo (SAM_BIND_ADDRESS=0.0.0.0 con Docker,
+    # SAM_SERVER_ADDRESS=0.0.0.0 con mvnw) deve aggiungerlo
+    allowed-hosts: ${SAM_ALLOWED_HOSTS:localhost,127.0.0.1,[::1],::1}
+
+# Log senza dati personali: a INFO non si loggano codici fiscali, nomi o importi (mascherarli se necessario).
+# I log SQL con i valori dei parametri (jOOQ LoggerListener a DEBUG) restano disattivati.
+logging:
+  level:
+    root: INFO
+    com.fcusumano.sam: INFO
+    org.jooq.tools.LoggerListener: WARN
+    org.jooq.Constants: WARN

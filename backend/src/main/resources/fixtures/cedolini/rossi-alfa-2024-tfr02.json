@@ -1,0 +1,179 @@
+{
+  "numeroCedoliniNelDocumento": 1,
+  "dipendente": {
+    "codiceFiscale": "RSSMRA80A01H501U",
+    "nome": "Mario",
+    "cognome": "Rossi",
+    "dataNascita": "1980-01-01",
+    "codiceDipendente": "000123"
+  },
+  "datoreLavoro": {
+    "codiceFiscale": "01234567897",
+    "partitaIva": "01234567897",
+    "posizioneInps": "1122334455",
+    "posizioneInail": "98765432/10",
+    "ragioneSociale": "Alfa Software S.r.l.",
+    "indirizzo": "Via Roma 1, 00100 Roma (RM)",
+    "codiceAzienda": "ALFA01"
+  },
+  "datiContrattuali": {
+    "dataAssunzione": "2021-09-01",
+    "dataCessazione": "2024-06-15",
+    "qualifica": "Impiegato - Programmatore",
+    "livello": "5",
+    "ccnl": "CCNL Metalmeccanica Industria",
+    "codiceCnel": ""
+  },
+  "periodo": {
+    "anno": 2024,
+    "mese": 9,
+    "tipo": "FINE_RAPPORTO",
+    "dataElaborazione": "2024-09-25",
+    "meseVariabili": ""
+  },
+  "totali": {
+    "lordo": "150.00",
+    "totaleCompetenze": "150.00",
+    "totaleTrattenute": "45.12",
+    "arrotondamento": "0.12",
+    "netto": "105.00"
+  },
+  "retribuzione": {
+    "minimo": "2123.50000",
+    "contingenza": "",
+    "superminimo": "176.50000",
+    "superminimoAssorbibile": "SI",
+    "importoScatti": "25.00000",
+    "altriElementiFissi": "",
+    "retribuzioneBase": "",
+    "totale": "2325.00000",
+    "pagaOraria": "13.43931",
+    "pagaGiornaliera": "89.42308",
+    "divisoreOrario": "",
+    "divisoreGiornaliero": ""
+  },
+  "voci": [
+    {
+      "codice": "0560",
+      "descrizione": "Arretrati rinnovo CCNL",
+      "categoria": "COMPETENZA",
+      "quantita": "",
+      "unita": "",
+      "base": "",
+      "importoCompetenza": "150.00",
+      "importoTrattenuta": ""
+    },
+    {
+      "codice": "7000",
+      "descrizione": "Contributo IVS",
+      "categoria": "TRATTENUTA_PREVIDENZIALE",
+      "quantita": "9.19",
+      "unita": "%",
+      "base": "150.00",
+      "importoCompetenza": "",
+      "importoTrattenuta": "13.79"
+    },
+    {
+      "codice": "2010",
+      "descrizione": "Ritenute IRPEF",
+      "categoria": "TRATTENUTA_FISCALE",
+      "quantita": "",
+      "unita": "",
+      "base": "136.21",
+      "importoCompetenza": "",
+      "importoTrattenuta": "31.33"
+    }
+  ],
+  "ratei": [],
+  "tfr": {
+    "fondo31DicembreAnnoPrecedente": "",
+    "rivalutazione": "",
+    "impostaSostitutiva": "",
+    "quotaAnno": "",
+    "quotaMese": "",
+    "quotaFondi": "",
+    "quotaBusta": "",
+    "anticipi": "",
+    "retribuzioneUtile": "",
+    "liquidatoLordo": "",
+    "ritenuta": ""
+  },
+  "presenze": {
+    "giorniLavorati": "",
+    "oreLavorate": "",
+    "giorniRetribuiti": ""
+  },
+  "scatti": {
+    "numeroScatti": "1",
+    "dataProssimoScatto": ""
+  },
+  "buoniPasto": {
+    "presenti": false,
+    "numero": "",
+    "valoreUnitario": "",
+    "importo": ""
+  },
+  "progressivi": {
+    "imponibilePrevidenziale": "17605.00",
+    "imponibileIrpef": "15987.08",
+    "irpefTrattenuta": "4343.96"
+  },
+  "contieneTredicesima": false,
+  "contieneQuattordicesima": false,
+  "confidenza": {
+    "complessiva": 0.92,
+    "campi": [
+      {
+        "campo": "dipendente.codiceFiscale",
+        "valore": 0.99
+      },
+      {
+        "campo": "datoreLavoro.ragioneSociale",
+        "valore": 0.98
+      },
+      {
+        "campo": "periodo.anno",
+        "valore": 0.99
+      },
+      {
+        "campo": "periodo.mese",
+        "valore": 0.99
+      },
+      {
+        "campo": "periodo.tipo",
+        "valore": 0.95
+      },
+      {
+        "campo": "totali.netto",
+        "valore": 0.98
+      },
+      {
+        "campo": "totali.totaleCompetenze",
+        "valore": 0.97
+      },
+      {
+        "campo": "retribuzione.totale",
+        "valore": 0.95
+      },
+      {
+        "campo": "tfr.fondo31DicembreAnnoPrecedente",
+        "valore": 0.93
+      },
+      {
+        "campo": "datiContrattuali.dataAssunzione",
+        "valore": 0.97
+      },
+      {
+        "campo": "datiContrattuali.ccnl",
+        "valore": 0.9
+      }
+    ]
+  },
+  "campiNonTrovati": [
+    "datiContrattuali.codiceCnel",
+    "scatti.dataProssimoScatto"
+  ],
+  "avvisi": [
+    "Periodo di retribuzione successivo al mese di cessazione: tipo FINE_RAPPORTO"
+  ]
+}

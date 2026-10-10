@@ -1,0 +1,265 @@
+{
+  "$defs": {
+    "testo": {
+      "type": "string",
+      "description": "Testo come stampato (spazi multipli ridotti a uno). Stringa vuota se non stampato."
+    },
+    "importo": {
+      "type": "string",
+      "description": "Numero decimale con il punto come separatore decimale e senza separatore delle migliaia, es. \"1234.56\" o \"0.05000\"; segno meno solo dove indicato. Stringa vuota se non stampato."
+    },
+    "data": {
+      "type": "string",
+      "description": "Data ISO yyyy-MM-dd normalizzata da qualunque formato stampato (\"1/05/2020\", \"15-01-1985\", \"15011985\", \"042022\", \"4-2022\"); se e' stampato solo mese e anno usare il primo giorno del mese. Stringa vuota se non stampata."
+    },
+    "siNo": {
+      "type": "string",
+      "enum": ["SI", "NO", "NON_INDICATO"]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "numeroCedoliniNelDocumento", "dipendente", "datoreLavoro", "datiContrattuali", "periodo", "totali",
+    "retribuzione", "voci", "ratei", "tfr", "presenze", "scatti", "buoniPasto", "progressivi",
+    "contieneTredicesima", "contieneQuattordicesima", "confidenza", "campiNonTrovati", "avvisi"
+  ],
+  "properties": {
+    "numeroCedoliniNelDocumento": {
+      "type": "integer",
+      "description": "Cedolini distinti nel PDF: 1 se tutti i fogli appartengono allo stesso cedolino (\"Continua su foglio\" / \"Segue da foglio\"), N>1 se ci sono piu' cedolini distinti (periodi, dipendenti o aziende diversi), 0 se il documento non e' un cedolino paga."
+    },
+    "dipendente": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codiceFiscale", "nome", "cognome", "dataNascita", "codiceDipendente"],
+      "properties": {
+        "codiceFiscale": {"$ref": "#/$defs/testo", "description": "Codice fiscale del dipendente, 16 caratteri maiuscoli senza spazi."},
+        "nome": {"$ref": "#/$defs/testo"},
+        "cognome": {"$ref": "#/$defs/testo"},
+        "dataNascita": {"$ref": "#/$defs/data"},
+        "codiceDipendente": {"$ref": "#/$defs/testo", "description": "Codice o matricola del dipendente nel software paghe."}
+      }
+    },
+    "datoreLavoro": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codiceFiscale", "partitaIva", "posizioneInps", "posizioneInail", "ragioneSociale", "indirizzo", "codiceAzienda"],
+      "properties": {
+        "codiceFiscale": {"$ref": "#/$defs/testo", "description": "Codice fiscale dell'azienda (11 cifre o 16 caratteri)."},
+        "partitaIva": {"$ref": "#/$defs/testo", "description": "Partita IVA, 11 cifre senza prefisso IT."},
+        "posizioneInps": {"$ref": "#/$defs/testo", "description": "Matricola/posizione INPS dell'azienda, come stampata (anche con suffisso dopo la barra)."},
+        "posizioneInail": {"$ref": "#/$defs/testo", "description": "Posizione/PAT INAIL: mai confonderla con la matricola INPS."},
+        "ragioneSociale": {"$ref": "#/$defs/testo"},
+        "indirizzo": {"$ref": "#/$defs/testo", "description": "Indirizzo della sede dell'azienda (non del dipendente)."},
+        "codiceAzienda": {"$ref": "#/$defs/testo", "description": "Codice azienda nel software paghe."}
+      }
+    },
+    "datiContrattuali": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataAssunzione", "dataCessazione", "qualifica", "livello", "ccnl", "codiceCnel"],
+      "properties": {
+        "dataAssunzione": {"$ref": "#/$defs/data"},
+        "dataCessazione": {"$ref": "#/$defs/data"},
+        "qualifica": {"$ref": "#/$defs/testo", "description": "Qualifica/mansione (es. impiegato, programmatore)."},
+        "livello": {"$ref": "#/$defs/testo", "description": "Livello di inquadramento come stampato (es. \"5\", \"D1\", \"3S\")."},
+        "ccnl": {"$ref": "#/$defs/testo", "description": "Contratto collettivo come stampato (es. dalla casella \"CONTRATTO DI LAVORO\"). Mai dedotto."},
+        "codiceCnel": {"$ref": "#/$defs/testo", "description": "Codice CNEL del contratto se stampato (es. \"C018\")."}
+      }
+    },
+    "periodo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anno", "mese", "tipo", "dataElaborazione", "meseVariabili"],
+      "properties": {
+        "anno": {"type": "integer", "description": "Anno del periodo di retribuzione stampato; 0 se non determinabile."},
+        "mese": {"type": "integer", "description": "Mese 1..12 del periodo di retribuzione stampato (non quello delle variabili); per la tredicesima di solito 12; 0 se non determinabile."},
+        "tipo": {
+          "type": "string",
+          "enum": ["ORDINARIA", "TREDICESIMA", "QUATTORDICESIMA", "FINE_RAPPORTO", "AGGIUNTIVA"]
+        },
+        "dataElaborazione": {"$ref": "#/$defs/data"},
+        "meseVariabili": {
+          "type": "string",
+          "description": "Mese a cui si riferiscono le voci variabili o il calendario presenze se diverso dal periodo (\"Variabili di 10/2021\"), nel formato yyyy-MM; stringa vuota se non stampato."
+        }
+      }
+    },
+    "totali": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lordo", "totaleCompetenze", "totaleTrattenute", "arrotondamento", "netto"],
+      "properties": {
+        "lordo": {"$ref": "#/$defs/importo", "description": "Totale lordo/imponibile lordo stampato come tale; se non c'e' una voce distinta usare il totale competenze."},
+        "totaleCompetenze": {"$ref": "#/$defs/importo"},
+        "totaleTrattenute": {"$ref": "#/$defs/importo"},
+        "arrotondamento": {"$ref": "#/$defs/importo", "description": "Effetto netto degli arrotondamenti sul netto: arrotondamento attuale meno quello del mese precedente; negativo se riduce il netto."},
+        "netto": {"$ref": "#/$defs/importo", "description": "Netto del mese/netto in busta, letto sull'ultimo foglio."}
+      }
+    },
+    "retribuzione": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimo", "contingenza", "superminimo", "superminimoAssorbibile", "importoScatti", "altriElementiFissi",
+        "retribuzioneBase", "totale", "pagaOraria", "pagaGiornaliera", "divisoreOrario", "divisoreGiornaliero"
+      ],
+      "properties": {
+        "minimo": {"$ref": "#/$defs/importo", "description": "Minimo tabellare/paga base mensile."},
+        "contingenza": {"$ref": "#/$defs/importo"},
+        "superminimo": {"$ref": "#/$defs/importo"},
+        "superminimoAssorbibile": {"$ref": "#/$defs/siNo", "description": "SI se stampato come assorbibile (\"SUP.ASS.\", \"superminimo assorbibile\"), NO se stampato come non assorbibile, altrimenti NON_INDICATO."},
+        "importoScatti": {"$ref": "#/$defs/importo", "description": "Importo mensile degli scatti di anzianita'."},
+        "altriElementiFissi": {"$ref": "#/$defs/importo", "description": "Somma degli altri elementi fissi mensili (EDR, terzo elemento, indennita' di funzione, ...)."},
+        "retribuzioneBase": {"$ref": "#/$defs/importo", "description": "Solo quando il cedolino stampa una retribuzione base non scomposta."},
+        "totale": {"$ref": "#/$defs/importo", "description": "Totale mensile degli elementi fissi come stampato."},
+        "pagaOraria": {"$ref": "#/$defs/importo"},
+        "pagaGiornaliera": {"$ref": "#/$defs/importo"},
+        "divisoreOrario": {"$ref": "#/$defs/importo", "description": "Divisore orario se stampato (es. 168, 173)."},
+        "divisoreGiornaliero": {"$ref": "#/$defs/importo", "description": "Divisore giornaliero se stampato (es. 26)."}
+      }
+    },
+    "voci": {
+      "type": "array",
+      "description": "Voci del corpo del cedolino nell'ordine di stampa, su tutti i fogli.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["codice", "descrizione", "categoria", "quantita", "unita", "base", "importoCompetenza", "importoTrattenuta"],
+        "properties": {
+          "codice": {"$ref": "#/$defs/testo"},
+          "descrizione": {"$ref": "#/$defs/testo"},
+          "categoria": {
+            "type": "string",
+            "enum": [
+              "COMPETENZA", "TRATTENUTA_PREVIDENZIALE", "TRATTENUTA_FISCALE", "ALTRA_TRATTENUTA",
+              "NON_RETRIBUTIVA", "PRESENZA", "INFORMATIVA"
+            ]
+          },
+          "quantita": {"$ref": "#/$defs/importo", "description": "Quantita'/riferimento (ore, giorni, km, percentuale)."},
+          "unita": {"type": "string", "description": "Unita' della quantita' in minuscolo: \"ore\", \"giorni\", \"km\", \"%\", \"numero\"; stringa vuota se assente."},
+          "base": {"$ref": "#/$defs/importo", "description": "Base, tariffa o importo unitario."},
+          "importoCompetenza": {"$ref": "#/$defs/importo", "description": "Importo nella colonna competenze, sempre positivo."},
+          "importoTrattenuta": {"$ref": "#/$defs/importo", "description": "Importo nella colonna trattenute, sempre positivo."}
+        }
+      }
+    },
+    "ratei": {
+      "type": "array",
+      "description": "Ferie, permessi, ROL, ex festivita', banca ore: una riga per tipo e unita' stampata.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tipo", "unita", "residuoAnnoPrecedente", "maturato", "goduto", "saldo"],
+        "properties": {
+          "tipo": {"type": "string", "enum": ["FERIE", "PERMESSI", "ROL", "EX_FESTIVITA", "BANCA_ORE"]},
+          "unita": {"type": "string", "enum": ["GIORNI", "ORE"]},
+          "residuoAnnoPrecedente": {"$ref": "#/$defs/importo"},
+          "maturato": {"$ref": "#/$defs/importo"},
+          "goduto": {"$ref": "#/$defs/importo"},
+          "saldo": {"$ref": "#/$defs/importo", "description": "Saldo/residuo a fine mese; puo' essere negativo."}
+        }
+      }
+    },
+    "tfr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fondo31DicembreAnnoPrecedente", "rivalutazione", "impostaSostitutiva", "quotaAnno", "quotaMese", "quotaFondi",
+        "quotaBusta", "anticipi", "retribuzioneUtile", "liquidatoLordo", "ritenuta"
+      ],
+      "properties": {
+        "fondo31DicembreAnnoPrecedente": {"$ref": "#/$defs/importo", "description": "Fondo TFR al 31/12 dell'anno precedente (\"F.do 31/12\", \"F.DO TFR 31/12 AP\", \"TFR al 31/12/..\")."},
+        "rivalutazione": {"$ref": "#/$defs/importo", "description": "Rivalutazione del fondo (lorda se stampata, altrimenti come stampata)."},
+        "impostaSostitutiva": {"$ref": "#/$defs/importo", "description": "Imposta sostitutiva sulla rivalutazione."},
+        "quotaAnno": {"$ref": "#/$defs/importo", "description": "Quota TFR maturata nell'anno (progressivo annuo)."},
+        "quotaMese": {"$ref": "#/$defs/importo", "description": "Quota TFR maturata nel mese."},
+        "quotaFondi": {"$ref": "#/$defs/importo", "description": "Quota versata a fondi pensione o al Fondo Tesoreria INPS (come stampata)."},
+        "quotaBusta": {"$ref": "#/$defs/importo", "description": "TFR liquidato mensilmente in busta (QuIR)."},
+        "anticipi": {"$ref": "#/$defs/importo", "description": "Anticipazioni TFR erogate (nel mese o progressive, come stampate)."},
+        "retribuzioneUtile": {"$ref": "#/$defs/importo", "description": "Retribuzione utile ai fini TFR del mese."},
+        "liquidatoLordo": {"$ref": "#/$defs/importo", "description": "TFR/indennita' di anzianita' liquidata lorda (cedolini di fine rapporto)."},
+        "ritenuta": {"$ref": "#/$defs/importo", "description": "Ritenuta fiscale sul TFR liquidato."}
+      }
+    },
+    "presenze": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["giorniLavorati", "oreLavorate", "giorniRetribuiti"],
+      "properties": {
+        "giorniLavorati": {"$ref": "#/$defs/importo"},
+        "oreLavorate": {"$ref": "#/$defs/importo"},
+        "giorniRetribuiti": {"$ref": "#/$defs/importo", "description": "Giorni retribuiti/giorni INPS del mese."}
+      }
+    },
+    "scatti": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numeroScatti", "dataProssimoScatto"],
+      "properties": {
+        "numeroScatti": {"type": "string", "description": "Numero di scatti maturati come intero (es. \"2\"), solo se stampato; stringa vuota altrimenti."},
+        "dataProssimoScatto": {"$ref": "#/$defs/data", "description": "Data del prossimo scatto se stampata (\"Prossimo scatto\", \"PROSSIMO SCATTO\")."}
+      }
+    },
+    "buoniPasto": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presenti", "numero", "valoreUnitario", "importo"],
+      "properties": {
+        "presenti": {"type": "boolean", "description": "true se compare una voce buoni pasto/ticket restaurant (anche elettronici)."},
+        "numero": {"$ref": "#/$defs/importo"},
+        "valoreUnitario": {"$ref": "#/$defs/importo"},
+        "importo": {"$ref": "#/$defs/importo"}
+      }
+    },
+    "progressivi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imponibilePrevidenziale", "imponibileIrpef", "irpefTrattenuta"],
+      "properties": {
+        "imponibilePrevidenziale": {"$ref": "#/$defs/importo", "description": "Progressivo annuo imponibile INPS/contributivo."},
+        "imponibileIrpef": {"$ref": "#/$defs/importo", "description": "Progressivo annuo imponibile fiscale/IRPEF."},
+        "irpefTrattenuta": {"$ref": "#/$defs/importo", "description": "Progressivo annuo IRPEF trattenuta/pagata."}
+      }
+    },
+    "contieneTredicesima": {
+      "type": "boolean",
+      "description": "true se il cedolino paga la tredicesima o suoi ratei (voce o intestazione esplicita)."
+    },
+    "contieneQuattordicesima": {
+      "type": "boolean",
+      "description": "true se il cedolino paga la quattordicesima o suoi ratei (voce o intestazione esplicita)."
+    },
+    "confidenza": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complessiva", "campi"],
+      "properties": {
+        "complessiva": {"type": "number", "description": "Confidenza complessiva 0..1."},
+        "campi": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["campo", "valore"],
+            "properties": {
+              "campo": {"type": "string", "description": "Percorso del campo chiave, es. \"periodo.tipo\"."},
+              "valore": {"type": "number", "description": "Confidenza 0..1."}
+            }
+          }
+        }
+      }
+    },
+    "campiNonTrovati": {
+      "type": "array",
+      "description": "Percorsi dei campi chiave non stampati sul documento, es. \"datoreLavoro.partitaIva\".",
+      "items": {"type": "string"}
+    },
+    "avvisi": {
+      "type": "array",
+      "description": "Brevi note sulle scelte interpretative (senza dati personali), es. classificazione del tipo.",
+      "items": {"type": "string"}
+    }
+  }
+}

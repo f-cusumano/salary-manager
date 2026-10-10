@@ -1,0 +1,244 @@
+{
+  "numeroCedoliniNelDocumento": 1,
+  "dipendente": {
+    "codiceFiscale": "RSSMRA80A01H501U",
+    "nome": "Mario",
+    "cognome": "Rossi",
+    "dataNascita": "1980-01-01",
+    "codiceDipendente": "000123"
+  },
+  "datoreLavoro": {
+    "codiceFiscale": "01234567897",
+    "partitaIva": "01234567897",
+    "posizioneInps": "1122334455",
+    "posizioneInail": "98765432/10",
+    "ragioneSociale": "Alfa Software S.r.l.",
+    "indirizzo": "Via Roma 1, 00100 Roma (RM)",
+    "codiceAzienda": "ALFA01"
+  },
+  "datiContrattuali": {
+    "dataAssunzione": "2021-09-01",
+    "dataCessazione": "",
+    "qualifica": "Impiegato - Programmatore",
+    "livello": "5",
+    "ccnl": "CCNL Metalmeccanica Industria",
+    "codiceCnel": ""
+  },
+  "periodo": {
+    "anno": 2023,
+    "mese": 6,
+    "tipo": "ORDINARIA",
+    "dataElaborazione": "2023-06-27",
+    "meseVariabili": "2023-05"
+  },
+  "totali": {
+    "lordo": "2300.00",
+    "totaleCompetenze": "2300.00",
+    "totaleTrattenute": "648.60",
+    "arrotondamento": "-0.40",
+    "netto": "1651.00"
+  },
+  "retribuzione": {
+    "minimo": "2123.50000",
+    "contingenza": "",
+    "superminimo": "176.50000",
+    "superminimoAssorbibile": "SI",
+    "importoScatti": "",
+    "altriElementiFissi": "",
+    "retribuzioneBase": "",
+    "totale": "2300.00000",
+    "pagaOraria": "13.29480",
+    "pagaGiornaliera": "88.46154",
+    "divisoreOrario": "",
+    "divisoreGiornaliero": ""
+  },
+  "voci": [
+    {
+      "codice": "7020",
+      "descrizione": "Retribuzione ordinaria",
+      "categoria": "COMPETENZA",
+      "quantita": "26.00",
+      "unita": "giorni",
+      "base": "88.46154",
+      "importoCompetenza": "2300.00",
+      "importoTrattenuta": ""
+    },
+    {
+      "codice": "7000",
+      "descrizione": "Contributo IVS",
+      "categoria": "TRATTENUTA_PREVIDENZIALE",
+      "quantita": "9.19",
+      "unita": "%",
+      "base": "2300.00",
+      "importoCompetenza": "",
+      "importoTrattenuta": "211.37"
+    },
+    {
+      "codice": "2000",
+      "descrizione": "Imponibile IRPEF",
+      "categoria": "INFORMATIVA",
+      "quantita": "",
+      "unita": "",
+      "base": "2088.63",
+      "importoCompetenza": "",
+      "importoTrattenuta": ""
+    },
+    {
+      "codice": "2020",
+      "descrizione": "Ritenute IRPEF",
+      "categoria": "TRATTENUTA_FISCALE",
+      "quantita": "",
+      "unita": "",
+      "base": "",
+      "importoCompetenza": "",
+      "importoTrattenuta": "398.93"
+    },
+    {
+      "codice": "9110",
+      "descrizione": "Addizionale regionale",
+      "categoria": "TRATTENUTA_FISCALE",
+      "quantita": "",
+      "unita": "",
+      "base": "",
+      "importoCompetenza": "",
+      "importoTrattenuta": "28.50"
+    },
+    {
+      "codice": "9130",
+      "descrizione": "Addizionale comunale",
+      "categoria": "TRATTENUTA_FISCALE",
+      "quantita": "",
+      "unita": "",
+      "base": "",
+      "importoCompetenza": "",
+      "importoTrattenuta": "9.80"
+    },
+    {
+      "codice": "",
+      "descrizione": "Retribuzione utile T.F.R.",
+      "categoria": "INFORMATIVA",
+      "quantita": "",
+      "unita": "",
+      "base": "2300.00",
+      "importoCompetenza": "",
+      "importoTrattenuta": ""
+    },
+    {
+      "codice": "",
+      "descrizione": "Quota T.F.R.",
+      "categoria": "INFORMATIVA",
+      "quantita": "",
+      "unita": "",
+      "base": "158.87",
+      "importoCompetenza": "",
+      "importoTrattenuta": ""
+    }
+  ],
+  "ratei": [
+    {
+      "tipo": "FERIE",
+      "unita": "GIORNI",
+      "residuoAnnoPrecedente": "5.00000",
+      "maturato": "13.00002",
+      "goduto": "2.00000",
+      "saldo": "16.00002"
+    },
+    {
+      "tipo": "ROL",
+      "unita": "ORE",
+      "residuoAnnoPrecedente": "20.00000",
+      "maturato": "36.00000",
+      "goduto": "4.00000",
+      "saldo": "52.00000"
+    }
+  ],
+  "tfr": {
+    "fondo31DicembreAnnoPrecedente": "2410.35",
+    "rivalutazione": "",
+    "impostaSostitutiva": "",
+    "quotaAnno": "953.22",
+    "quotaMese": "158.87",
+    "quotaFondi": "",
+    "quotaBusta": "",
+    "anticipi": "",
+    "retribuzioneUtile": "2300.00",
+    "liquidatoLordo": "",
+    "ritenuta": ""
+  },
+  "presenze": {
+    "giorniLavorati": "22.00",
+    "oreLavorate": "176.00",
+    "giorniRetribuiti": "26.00"
+  },
+  "scatti": {
+    "numeroScatti": "0",
+    "dataProssimoScatto": "2023-09-01"
+  },
+  "buoniPasto": {
+    "presenti": false,
+    "numero": "",
+    "valoreUnitario": "",
+    "importo": ""
+  },
+  "progressivi": {
+    "imponibilePrevidenziale": "13800.00",
+    "imponibileIrpef": "12531.78",
+    "irpefTrattenuta": "2393.58"
+  },
+  "contieneTredicesima": false,
+  "contieneQuattordicesima": false,
+  "confidenza": {
+    "complessiva": 0.95,
+    "campi": [
+      {
+        "campo": "dipendente.codiceFiscale",
+        "valore": 0.99
+      },
+      {
+        "campo": "datoreLavoro.ragioneSociale",
+        "valore": 0.98
+      },
+      {
+        "campo": "periodo.anno",
+        "valore": 0.99
+      },
+      {
+        "campo": "periodo.mese",
+        "valore": 0.99
+      },
+      {
+        "campo": "periodo.tipo",
+        "valore": 0.95
+      },
+      {
+        "campo": "totali.netto",
+        "valore": 0.98
+      },
+      {
+        "campo": "totali.totaleCompetenze",
+        "valore": 0.97
+      },
+      {
+        "campo": "retribuzione.totale",
+        "valore": 0.95
+      },
+      {
+        "campo": "tfr.fondo31DicembreAnnoPrecedente",
+        "valore": 0.93
+      },
+      {
+        "campo": "datiContrattuali.dataAssunzione",
+        "valore": 0.97
+      },
+      {
+        "campo": "datiContrattuali.ccnl",
+        "valore": 0.9
+      }
+    ]
+  },
+  "campiNonTrovati": [
+    "datiContrattuali.codiceCnel",
+    "datiContrattuali.dataCessazione"
+  ],
+  "avvisi": []
+}

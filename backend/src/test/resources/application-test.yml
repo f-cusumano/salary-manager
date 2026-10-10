@@ -1,0 +1,10 @@
+# Profilo "test": database H2 in memoria (uno per contesto Spring) e lettore fixture.
+# Attivato automaticamente da surefire (SPRING_PROFILES_ACTIVE=test) e con @ActiveProfiles("test") nei test.
+spring:
+  datasource:
+    url: jdbc:h2:mem:sam-${random.uuid};MODE=PostgreSQL;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1
+
+salary-manager:
+  lettore: fixture
+  fixture-dir: classpath:fixtures/cedolini/
+  samples-dir: ${SAM_SAMPLES_DIR:../samples}

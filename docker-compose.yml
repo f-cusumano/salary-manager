@@ -1,0 +1,79 @@
+# =====================================================================================================
+# Salary Manager con Docker Compose: backend (Spring Boot + H2 su file) e frontend (SPA servita da nginx).
+#
+#   docker compose up --build -d          avvio (applicazione su http://localhost:8081)
+#   docker compose logs -f backend        log del backend
+#   docker compose down                   arresto (i dati restano nel volume "sam-data")
+#
+# Variabili lette dall'ambiente o dal file .env accanto a questo file (modello: .env.example; .env e' ignorato da git,
+# mai committarlo). Compose usa il .env solo per le variabili citate qui sotto: le altre (SAM_PORT, SAM_DB_PATH,
+# SAM_SERVER_ADDRESS, ...) valgono solo per il backend avviato con mvnw, che legge lo stesso file.
+#   SAM_LETTORE                  lettore dei cedolini: locale (default, gratuito e offline, layout supportati) |
+#                                claude (API Anthropic, a pagamento) | fixture (modalita' demo, dati inventati)
+#   ANTHROPIC_API_KEY            chiave API Anthropic (solo con SAM_LETTORE=claude)
+#   SAM_AI_MODEL, SAM_AI_EFFORT  modello ed effort di Claude (default dell'applicazione se non indicati)
+#   SAM_PDF_PASSWORD_CANDIDATE   password da provare sui PDF protetti, separate da virgola
+#   SAM_JAVA_OPTS                opzioni della JVM del backend
+#   SAM_FRONTEND_PORT            porta dell'applicazione sull'host (default 8081)
+#   SAM_BACKEND_PORT             porta delle API e di Swagger UI sull'host (default 8080)
+#   SAM_BIND_ADDRESS             interfaccia dell'host su cui pubblicare le porte (default 127.0.0.1: l'applicazione
+#                                non ha login in fase 1, quindi non e' raggiungibile da altri computer)
+#   SAM_ALLOWED_HOSTS            nomi host ammessi dal backend, separati da virgola (default localhost, 127.0.0.1,
+#                                [::1], ::1): con SAM_BIND_ADDRESS=0.0.0.0 aggiungere il nome o l'indirizzo usato
+#   SAM_TZ                       fuso orario del backend (default Europe/Rome)
+#
+# Modalita' demo (lettore "fixture", dati inventati, volume separato grazie al nome di progetto diverso):
+#   SAM_LETTORE=fixture docker compose -p salary-manager-demo up --build
+# =====================================================================================================
+
+name: salary-manager
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: salary-manager-backend:latest
+    environment:
+      # Variabili senza valore: passate al container solo se definite nell'ambiente o nel file .env
+      ANTHROPIC_API_KEY:
+      SAM_AI_MODEL:
+      SAM_AI_EFFORT:
+      SAM_LETTORE: ${SAM_LETTORE:-locale}
+      # Letta dal segnaposto di salary-manager.pdf.password-candidate in application.yml (lista separata da virgole)
+      SAM_PDF_PASSWORD_CANDIDATE: ${SAM_PDF_PASSWORD_CANDIDATE:-}
+      # Nomi host ammessi nell'header Host (protezione dal DNS rebinding); nginx inoltra l'Host del browser
+      SAM_ALLOWED_HOSTS: ${SAM_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1],::1}
+      # Database H2 nel volume (file /data/salary-manager.mv.db)
+      SAM_DB_PATH: /data/salary-manager
+      # Nel container il backend ascolta su tutte le interfacce, perche' nginx deve raggiungerlo; dall'host si arriva
+      # solo alla porta pubblicata qui sotto, su SAM_BIND_ADDRESS. Valore fisso: SAM_SERVER_ADDRESS del .env e' per mvnw
+      SAM_SERVER_ADDRESS: 0.0.0.0
+      JAVA_OPTS: ${SAM_JAVA_OPTS:--XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError}
+      TZ: ${SAM_TZ:-Europe/Rome}
+    volumes:
+      - sam-data:/data
+    ports:
+      # API REST /api/v1 e Swagger UI (/swagger-ui.html); il frontend non ne ha bisogno, utile per lo sviluppo
+      - "${SAM_BIND_ADDRESS:-127.0.0.1}:${SAM_BACKEND_PORT:-8080}:8080"
+    # Healthcheck definito nell'immagine (GET /api/v1/ccnl)
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+    image: salary-manager-frontend:latest
+    environment:
+      # nginx inoltra /api, /v3/api-docs e Swagger UI al backend
+      SAM_BACKEND_URL: http://backend:8080
+    ports:
+      - "${SAM_BIND_ADDRESS:-127.0.0.1}:${SAM_FRONTEND_PORT:-8081}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+
+volumes:
+  # Database H2 (dati e PDF dei cedolini): sopravvive a "docker compose down", si elimina solo con "down -v"
+  sam-data:

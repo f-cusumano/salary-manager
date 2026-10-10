@@ -1,0 +1,27 @@
+# Contesto di build dell'immagine backend: solo wrapper, pom e sorgenti.
+# Mai nell'immagine: output di build, database locali, cedolini reali, segreti.
+target/
+data/
+samples/
+**/*.mv.db
+**/*.trace.db
+**/*.lock.db
+.mvn/wrapper/maven-wrapper.jar
+Dockerfile
+.dockerignore
+.env
+.env.*
+.env-*
+*.pem
+*.key
+*.log
+logs/
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.DS_Store
+Thumbs.db

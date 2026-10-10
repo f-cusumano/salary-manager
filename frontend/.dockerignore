@@ -1,0 +1,17 @@
+# Contesto di build dell'immagine frontend: sorgenti e lockfile, mai dipendenze installate o build locali.
+node_modules/
+dist/
+dist-mock/
+coverage/
+*.tsbuildinfo
+Dockerfile
+.dockerignore
+.env
+.env-*
+.env.local
+.env.*.local
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,39 @@
+.marchio {
+  min-width: 0;
+}
+
+.nome {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--mantine-color-marchio-9);
+}
+
+.persona {
+  width: 20rem;
+}
+
+@media (max-width: $mantine-breakpoint-sm) {
+  .persona {
+    width: 11rem;
+  }
+}
+
+.personaInput::placeholder {
+  color: var(--mantine-color-gray-5);
+}
+
+.carica {
+  flex-shrink: 0;
+}
+
+.testoCarica {
+  margin-left: 8px;
+}
+
+@media (max-width: $mantine-breakpoint-sm) {
+  .testoCarica {
+    display: none;
+  }
+}

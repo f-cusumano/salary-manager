@@ -1,0 +1,51 @@
+.dropzone {
+  border-width: 2px;
+  border-style: dashed;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.dropzone:hover {
+  border-color: var(--mantine-color-marchio-4);
+}
+
+.elenco {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+
+.nomeFile {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.riga {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  transition: border-color 150ms ease;
+}
+
+.riga[data-stato='ERRORE'] {
+  border-color: var(--mantine-color-red-3);
+}
+
+.riga[data-stato='AGGIUNTIVO_NON_GESTITO'] {
+  border-color: var(--mantine-color-orange-4);
+}
+
+.testoRiga {
+  flex: 1;
+  min-width: 0;
+}

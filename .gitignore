@@ -1,0 +1,45 @@
+# Cedolini reali dell'utente (dati personali): MAI in git
+samples/
+**/samples/
+
+# Database H2 locale e dati applicativi
+data/
+**/data/
+*.mv.db
+*.trace.db
+*.lock.db
+
+# Build
+**/target/
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+.mvn/wrapper/maven-wrapper.jar
+backend/.mvn/wrapper/maven-wrapper.jar
+
+# Segreti e ambiente locale
+.env
+.env.*
+.env-*
+!.env.example
+*.pem
+*.key
+
+# IDE e sistema operativo
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Log
+*.log
+logs/

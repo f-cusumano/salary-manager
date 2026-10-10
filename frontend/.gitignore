@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-mock/
+coverage/
+# risultati della suite end-to-end (Playwright)
+test-results/
+playwright-report/
+blob-report/
+*.tsbuildinfo
+
+# file di ambiente della modalita mock (nessun segreto): va versionato
+!.env.mock

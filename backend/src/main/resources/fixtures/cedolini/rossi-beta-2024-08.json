@@ -1,0 +1,229 @@
+{
+  "numeroCedoliniNelDocumento": 1,
+  "dipendente": {
+    "codiceFiscale": "RSSMRA80A01H501U",
+    "nome": "Mario",
+    "cognome": "Rossi",
+    "dataNascita": "1980-01-01",
+    "codiceDipendente": "B0042"
+  },
+  "datoreLavoro": {
+    "codiceFiscale": "",
+    "partitaIva": "",
+    "posizioneInps": "7012345678/01",
+    "posizioneInail": "55443322/00",
+    "ragioneSociale": "Beta Consulting S.p.A.",
+    "indirizzo": "Corso Italia 10, 20100 Milano (MI)",
+    "codiceAzienda": "000045"
+  },
+  "datiContrattuali": {
+    "dataAssunzione": "2024-06-16",
+    "dataCessazione": "",
+    "qualifica": "Impiegato",
+    "livello": "3",
+    "ccnl": "",
+    "codiceCnel": ""
+  },
+  "periodo": {
+    "anno": 2024,
+    "mese": 8,
+    "tipo": "ORDINARIA",
+    "dataElaborazione": "2024-08-26",
+    "meseVariabili": ""
+  },
+  "totali": {
+    "lordo": "2760.00",
+    "totaleCompetenze": "2760.00",
+    "totaleTrattenute": "717.12",
+    "arrotondamento": "",
+    "netto": "2042.88"
+  },
+  "retribuzione": {
+    "minimo": "",
+    "contingenza": "",
+    "superminimo": "",
+    "superminimoAssorbibile": "NON_INDICATO",
+    "importoScatti": "",
+    "altriElementiFissi": "",
+    "retribuzioneBase": "2600.00000",
+    "totale": "2600.00000",
+    "pagaOraria": "15.47619",
+    "pagaGiornaliera": "100.00000",
+    "divisoreOrario": "168",
+    "divisoreGiornaliero": "26"
+  },
+  "voci": [
+    {
+      "codice": "001",
+      "descrizione": "Retribuzione",
+      "categoria": "COMPETENZA",
+      "quantita": "26.00",
+      "unita": "giorni",
+      "base": "100.00000",
+      "importoCompetenza": "2600.00",
+      "importoTrattenuta": ""
+    },
+    {
+      "codice": "",
+      "descrizione": "Ferie",
+      "categoria": "PRESENZA",
+      "quantita": "3.00",
+      "unita": "giorni",
+      "base": "",
+      "importoCompetenza": "",
+      "importoTrattenuta": ""
+    },
+    {
+      "codice": "",
+      "descrizione": "Contributo INPS",
+      "categoria": "TRATTENUTA_PREVIDENZIALE",
+      "quantita": "9.49",
+      "unita": "%",
+      "base": "2600.00",
+      "importoCompetenza": "",
+      "importoTrattenuta": "246.74"
+    },
+    {
+      "codice": "",
+      "descrizione": "Ritenuta IRPEF",
+      "categoria": "TRATTENUTA_FISCALE",
+      "quantita": "",
+      "unita": "",
+      "base": "2353.26",
+      "importoCompetenza": "",
+      "importoTrattenuta": "470.38"
+    },
+    {
+      "codice": "320",
+      "descrizione": "Buoni pasto elettronici",
+      "categoria": "NON_RETRIBUTIVA",
+      "quantita": "20.00",
+      "unita": "numero",
+      "base": "8.00000",
+      "importoCompetenza": "160.00",
+      "importoTrattenuta": ""
+    }
+  ],
+  "ratei": [
+    {
+      "tipo": "FERIE",
+      "unita": "GIORNI",
+      "residuoAnnoPrecedente": "0.00000",
+      "maturato": "5.41668",
+      "goduto": "3.00000",
+      "saldo": "2.41668"
+    },
+    {
+      "tipo": "ROL",
+      "unita": "ORE",
+      "residuoAnnoPrecedente": "0.00000",
+      "maturato": "15.00000",
+      "goduto": "0.00000",
+      "saldo": "15.00000"
+    },
+    {
+      "tipo": "EX_FESTIVITA",
+      "unita": "ORE",
+      "residuoAnnoPrecedente": "0.00000",
+      "maturato": "6.66668",
+      "goduto": "0.00000",
+      "saldo": "6.66668"
+    }
+  ],
+  "tfr": {
+    "fondo31DicembreAnnoPrecedente": "",
+    "rivalutazione": "",
+    "impostaSostitutiva": "",
+    "quotaAnno": "448.98",
+    "quotaMese": "179.59",
+    "quotaFondi": "",
+    "quotaBusta": "",
+    "anticipi": "",
+    "retribuzioneUtile": "2600.00",
+    "liquidatoLordo": "",
+    "ritenuta": ""
+  },
+  "presenze": {
+    "giorniLavorati": "18.00",
+    "oreLavorate": "",
+    "giorniRetribuiti": "26.00"
+  },
+  "scatti": {
+    "numeroScatti": "",
+    "dataProssimoScatto": ""
+  },
+  "buoniPasto": {
+    "presenti": true,
+    "numero": "20.00",
+    "valoreUnitario": "8.00",
+    "importo": "160.00"
+  },
+  "progressivi": {
+    "imponibilePrevidenziale": "6500.00",
+    "imponibileIrpef": "5883.15",
+    "irpefTrattenuta": "1093.45"
+  },
+  "contieneTredicesima": false,
+  "contieneQuattordicesima": false,
+  "confidenza": {
+    "complessiva": 0.93,
+    "campi": [
+      {
+        "campo": "dipendente.codiceFiscale",
+        "valore": 0.99
+      },
+      {
+        "campo": "datoreLavoro.ragioneSociale",
+        "valore": 0.98
+      },
+      {
+        "campo": "periodo.anno",
+        "valore": 0.99
+      },
+      {
+        "campo": "periodo.mese",
+        "valore": 0.99
+      },
+      {
+        "campo": "periodo.tipo",
+        "valore": 0.95
+      },
+      {
+        "campo": "totali.netto",
+        "valore": 0.98
+      },
+      {
+        "campo": "totali.totaleCompetenze",
+        "valore": 0.97
+      },
+      {
+        "campo": "retribuzione.totale",
+        "valore": 0.95
+      },
+      {
+        "campo": "tfr.fondo31DicembreAnnoPrecedente",
+        "valore": 0.6
+      },
+      {
+        "campo": "datiContrattuali.dataAssunzione",
+        "valore": 0.97
+      },
+      {
+        "campo": "datiContrattuali.ccnl",
+        "valore": 0.85
+      }
+    ]
+  },
+  "campiNonTrovati": [
+    "datoreLavoro.codiceFiscale",
+    "datoreLavoro.partitaIva",
+    "datiContrattuali.ccnl",
+    "datiContrattuali.codiceCnel",
+    "datiContrattuali.dataCessazione",
+    "scatti.numeroScatti",
+    "scatti.dataProssimoScatto",
+    "periodo.meseVariabili",
+    "tfr.fondo31DicembreAnnoPrecedente"
+  ],
+  "avvisi": []
+}

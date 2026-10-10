@@ -1,0 +1,32 @@
+.elenco {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.riga {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--mantine-spacing-md);
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--mantine-color-gray-2);
+}
+
+.riga:last-child {
+  border-bottom: 0;
+}
+
+.riga[data-enfasi] {
+  border-top: 1px solid var(--mantine-color-gray-4);
+  border-bottom: 0;
+  margin-top: 2px;
+  padding-top: 6px;
+}
+
+.valore {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,8 @@
+# Changelog master di Salary Manager.
+# Include tutti i file di changes/ in ordine alfabetico: il prefisso numerico determina l'ordine
+# ed identifica il modulo proprietario (0xx shared, 1xx anagrafica, 2xx ccnl, 3xx cedolini,
+# 4xx calcoli, 5xx segnalazioni). I file sono in "formatted SQL" con DDL compatibili PostgreSQL.
+databaseChangeLog:
+  - includeAll:
+      path: db/changelog/changes/
+      errorIfMissingOrEmpty: true

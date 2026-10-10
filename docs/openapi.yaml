@@ -1,0 +1,1183 @@
+openapi: 3.1.0
+info:
+  title: Salary Manager API
+  version: v1
+  description: |
+    Contratto REST tra il frontend (SPA React) e il backend di Salary Manager.
+
+    Convenzioni:
+    - base path `/api/v1`; proprieta' JSON in camelCase italiano;
+    - mesi come stringa `YYYY-MM`, date come `YYYY-MM-DD` (ISO 8601), istanti come date-time ISO 8601;
+    - importi in euro come numeri decimali arrotondati al centesimo (mai stringhe formattate: la formattazione
+      `1.234,56 €` e' compito del frontend); quantita' (ore, giorni) come numeri decimali;
+    - campi non disponibili = `null` (mai omessi); liste mai `null`;
+    - errori in formato Problem Details (RFC 9457, `application/problem+json`);
+    - fase 1: nessuna autenticazione, un solo workspace.
+servers:
+  - url: http://localhost:8080
+    description: Backend locale
+# Fase 1: nessuna autenticazione (Spring Security permit-all). Il login arrivera' nelle fasi successive.
+security: []
+tags:
+  - name: persone
+    description: Persone e loro rapporti di lavoro
+  - name: rapporti
+    description: Dettaglio rapporto (segnalazioni, riepilogo, mensilita'), note e CCNL
+  - name: cedolini
+    description: Dettaglio, PDF ed eliminazione dei cedolini
+  - name: caricamenti
+    description: Caricamento asincrono dei PDF
+  - name: ccnl
+    description: Tabella CCNL
+
+paths:
+  /api/v1/persone:
+    get:
+      tags: [persone]
+      operationId: elencoPersone
+      summary: Elenco persone per la tendina
+      description: Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti.
+      responses:
+        '200':
+          description: Elenco persone
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PersonaSintesi' }
+
+  /api/v1/persone/{personaId}/rapporti:
+    get:
+      tags: [persone]
+      operationId: rapportiDiPersona
+      summary: Aziende (rapporti di lavoro) di una persona
+      description: |
+        Rapporti in ordine cronologico inverso (il rapporto attuale per primo). Di default la UI apre il rapporto
+        con `attuale = true`.
+      parameters:
+        - $ref: '#/components/parameters/PersonaId'
+      responses:
+        '200':
+          description: Rapporti della persona
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RapportoSintesi' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+
+  /api/v1/rapporti/{rapportoId}:
+    get:
+      tags: [rapporti]
+      operationId: dettaglioRapporto
+      summary: Dettaglio di un rapporto (3 aree)
+      description: |
+        Tutto cio' che serve al dettaglio azienda: segnalazioni, riepilogo, CCNL, note e lista mensilita' gia' unita
+        (cedolini presenti + mensilita' mancanti) e ordinata in ordine cronologico inverso.
+      parameters:
+        - $ref: '#/components/parameters/RapportoId'
+      responses:
+        '200':
+          description: Dettaglio del rapporto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RapportoDettaglio' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+
+  /api/v1/rapporti/{rapportoId}/note:
+    put:
+      tags: [rapporti]
+      operationId: aggiornaNote
+      summary: Aggiorna le note del rapporto
+      parameters:
+        - $ref: '#/components/parameters/RapportoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoteRapporto' }
+      responses:
+        '200':
+          description: Note salvate
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NoteRapporto' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+
+  /api/v1/rapporti/{rapportoId}/ccnl:
+    put:
+      tags: [rapporti]
+      operationId: impostaCcnl
+      summary: Imposta (o cambia) il CCNL del rapporto
+      description: |
+        La scelta vale per tutti i cedolini del rapporto, presenti e futuri, e resta modificabile. Il cambio fa
+        ricalcolare da zero riepilogo e segnalazioni: la risposta e' il dettaglio aggiornato.
+      parameters:
+        - $ref: '#/components/parameters/RapportoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SceltaCcnl' }
+      responses:
+        '200':
+          description: Dettaglio del rapporto ricalcolato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RapportoDettaglio' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+
+  /api/v1/cedolini/{cedolinoId}:
+    get:
+      tags: [cedolini]
+      operationId: dettaglioCedolino
+      summary: Dettaglio di un cedolino per aree tematiche
+      parameters:
+        - $ref: '#/components/parameters/CedolinoId'
+      responses:
+        '200':
+          description: Dettaglio del cedolino
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CedolinoDettaglio' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+    delete:
+      tags: [cedolini]
+      operationId: eliminaCedolino
+      summary: Elimina un cedolino
+      description: |
+        Elimina dati e PDF; i dati derivati del rapporto vengono ricalcolati da zero. Se era l'ultimo cedolino del
+        rapporto, vengono eliminati anche il rapporto e l'eventuale persona/azienda rimaste senza rapporti
+        (la UI deve quindi ricaricare persone e rapporti).
+      parameters:
+        - $ref: '#/components/parameters/CedolinoId'
+      responses:
+        '204':
+          description: Cedolino eliminato
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+
+  /api/v1/cedolini/{cedolinoId}/pdf:
+    get:
+      tags: [cedolini]
+      operationId: scaricaPdfCedolino
+      summary: Scarica il PDF originale
+      description: |
+        Il nome del file e' quello normalizzato (es. `2024.01_3_1.pdf`), nell'header Content-Disposition
+        (`filename` e `filename*` RFC 5987). L'header e' esposto anche in CORS.
+      parameters:
+        - $ref: '#/components/parameters/CedolinoId'
+      responses:
+        '200':
+          description: PDF originale
+          headers:
+            Content-Disposition:
+              description: 'attachment; filename="2024.01_3_1.pdf"; filename*=UTF-8''''2024.01_3_1.pdf'
+              schema: { type: string }
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+
+  /api/v1/caricamenti:
+    post:
+      tags: [caricamenti]
+      operationId: caricaCedolini
+      summary: Carica uno o piu' PDF (elaborazione asincrona)
+      description: |
+        Registra i file (stato IN_CODA) e ritorna subito. Lo stato di ogni file si segue in polling su
+        `GET /api/v1/caricamenti/lotti/{lotto}` finche' `completato` e' true. Solo PDF (verificati per estensione o
+        tipo di contenuto e per intestazione `%PDF-`), massimo 25MB per file e 500MB per caricamento.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    format: binary
+                password:
+                  description: |
+                    Password di apertura dei PDF protetti, valida per tutto il lotto (facoltativa). Il backend prova
+                    questa, poi le password configurate e i codici fiscali delle persone censite. Mai salvata ne'
+                    registrata nei log.
+                  type: string
+                  format: password
+                  writeOnly: true
+                  maxLength: 200
+            encoding:
+              files:
+                contentType: application/pdf
+      responses:
+        '202':
+          description: Caricamenti registrati
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LottoCaricamento' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '413':
+          description: File o caricamento troppo grande
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problema' }
+    get:
+      tags: [caricamenti]
+      operationId: caricamentiRecenti
+      summary: Ultimi caricamenti
+      parameters:
+        - name: limite
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Caricamenti dal piu' recente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Caricamento' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+
+  /api/v1/caricamenti/lotti/{lotto}:
+    get:
+      tags: [caricamenti]
+      operationId: statoLotto
+      summary: Stato dei caricamenti di un lotto (polling)
+      parameters:
+        - name: lotto
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Stato del lotto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LottoCaricamento' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+
+  /api/v1/ccnl:
+    get:
+      tags: [ccnl]
+      operationId: elencoCcnl
+      summary: Elenco CCNL selezionabili
+      description: Senza parametri; usato anche come healthcheck del container backend.
+      responses:
+        '200':
+          description: CCNL ordinati per descrizione
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Ccnl' }
+
+components:
+  parameters:
+    PersonaId:
+      name: personaId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    RapportoId:
+      name: rapportoId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    CedolinoId:
+      name: cedolinoId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+
+  responses:
+    NonTrovato:
+      description: Risorsa inesistente
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+    RichiestaNonValida:
+      description: Richiesta non valida
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+    Conflitto:
+      description: Operazione non consentita o modifica concorrente
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+
+  schemas:
+    # ---------------------------------------------------------------- tipi base
+    Id:
+      type: integer
+      format: int64
+      minimum: 1
+    Mese:
+      description: Mese nel formato YYYY-MM
+      type: string
+      pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+      examples: ['2024-01']
+    Importo:
+      description: Importo in euro, arrotondato al centesimo
+      type: number
+      examples: [1234.56]
+    Quantita:
+      description: Quantita' decimale (ore, giorni, numero)
+      type: number
+    TipoMensilita:
+      type: string
+      enum: [ORDINARIA, TREDICESIMA, QUATTORDICESIMA, FINE_RAPPORTO]
+    UnitaMisura:
+      type: string
+      enum: [GIORNI, ORE]
+    TipoRateo:
+      type: string
+      enum: [FERIE, PERMESSI, ROL, EX_FESTIVITA, BANCA_ORE]
+    FontePeriodo:
+      type: string
+      enum: [DATA_CONTRATTUALE, CEDOLINI, NON_DISPONIBILE]
+    FonteDato:
+      type: string
+      enum: [DATA_CONTRATTUALE, CEDOLINI, CCNL, NON_DISPONIBILE]
+
+    Problema:
+      description: Problem Details (RFC 9457)
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: [string, 'null'] }
+        instance: { type: [string, 'null'] }
+
+    Competenza:
+      description: |
+        Competenza del cedolino: anno + mese 1..14 (13 tredicesima, 14 quattordicesima) oppure, per i cedolini
+        successivi alla cessazione, progressivo TFR senza mese.
+      type: object
+      required: [chiave, tipo, anno, mese, progressivoTfr]
+      properties:
+        chiave:
+          description: Chiave univoca nel rapporto, es. "2024.01", "2024.13", "2020.TFR01"
+          type: string
+        tipo: { $ref: '#/components/schemas/TipoMensilita' }
+        anno: { type: integer }
+        mese:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 14
+        progressivoTfr:
+          type: [integer, 'null']
+          minimum: 1
+
+    # ---------------------------------------------------------------- persone e rapporti
+    PersonaSintesi:
+      type: object
+      required: [id, nome, cognome, codiceFiscale, etichetta]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        nome: { type: string }
+        cognome: { type: string }
+        codiceFiscale: { type: string }
+        etichetta:
+          description: '"Nome Cognome"; in caso di omonimia "Nome Cognome (CODICEFISCALE)"'
+          type: string
+          examples: ['Mario Rossi']
+
+    Periodo:
+      description: |
+        Periodo del rapporto: `da` = assunzione stampata o primo cedolino; `a` = cessazione stampata o ultimo
+        cedolino, null se il rapporto e' attuale. La UI mostra "(da Gennaio 2024 a Febbraio 2026)" o "(da Gennaio 2024)".
+      type: object
+      required: [da, a, fonteInizio, fonteFine]
+      properties:
+        da:
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+        a:
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+        fonteInizio: { $ref: '#/components/schemas/FontePeriodo' }
+        fonteFine: { $ref: '#/components/schemas/FontePeriodo' }
+
+    AziendaSintesi:
+      type: object
+      required: [id, ragioneSociale, partitaIva, codiceFiscale, posizioneInps, indirizzo]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        ragioneSociale: { type: string }
+        partitaIva: { type: [string, 'null'] }
+        codiceFiscale: { type: [string, 'null'] }
+        posizioneInps: { type: [string, 'null'] }
+        indirizzo: { type: [string, 'null'] }
+
+    RapportoSintesi:
+      type: object
+      required: [id, personaId, azienda, etichetta, periodo, attuale, haSegnalazioni, ccnlDaIndicare]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        personaId: { $ref: '#/components/schemas/Id' }
+        azienda: { $ref: '#/components/schemas/AziendaSintesi' }
+        etichetta:
+          description: |
+            Ragione sociale; in caso di omonimia tra le aziende della persona si aggiunge un identificativo:
+            "Ragione sociale (P.IVA 01234567890)", in mancanza "(CF ...)" o "(Pos. INPS ...)"
+          type: string
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        attuale:
+          description: Rapporto in corso (aperto di default nella UI)
+          type: boolean
+        haSegnalazioni:
+          description: Mostra il triangolo arancione accanto all'azienda
+          type: boolean
+        ccnlDaIndicare: { type: boolean }
+
+    Ccnl:
+      type: object
+      required: [codice, descrizione, mensilita, periodicitaScattiMesi, maxScatti, meseQuattordicesima, noteVerifica]
+      properties:
+        codice: { type: string, examples: ['COMMERCIO'] }
+        descrizione: { type: string }
+        mensilita: { type: integer, enum: [13, 14] }
+        periodicitaScattiMesi: { type: [integer, 'null'] }
+        maxScatti: { type: [integer, 'null'] }
+        meseQuattordicesima: { type: [integer, 'null'], minimum: 1, maximum: 12 }
+        noteVerifica:
+          description: Valori non noti con certezza da verificare
+          type: [string, 'null']
+
+    SceltaCcnl:
+      type: object
+      required: [ccnlCodice]
+      properties:
+        ccnlCodice: { type: string }
+
+    NoteRapporto:
+      type: object
+      required: [note]
+      properties:
+        note:
+          type: [string, 'null']
+          maxLength: 4000
+
+    RapportoDettaglio:
+      type: object
+      required:
+        - id
+        - persona
+        - azienda
+        - etichetta
+        - periodo
+        - attuale
+        - dataAssunzione
+        - dataCessazione
+        - qualifica
+        - livello
+        - ccnl
+        - ccnlDaIndicare
+        - ccnlSceltoDaUtente
+        - note
+        - segnalazioni
+        - riepilogo
+        - mensilita
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        persona: { $ref: '#/components/schemas/PersonaSintesi' }
+        azienda: { $ref: '#/components/schemas/AziendaSintesi' }
+        etichetta:
+          description: Come RapportoSintesi.etichetta
+          type: string
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        attuale:
+          description: Se false la UI nasconde ferie/permessi e la quota TFR in azienda
+          type: boolean
+        dataAssunzione: { type: [string, 'null'], format: date }
+        dataCessazione: { type: [string, 'null'], format: date }
+        qualifica: { type: [string, 'null'] }
+        livello: { type: [string, 'null'] }
+        ccnl:
+          description: null se il CCNL e' da indicare
+          oneOf:
+            - $ref: '#/components/schemas/Ccnl'
+            - type: 'null'
+        ccnlDaIndicare:
+          description: Se true la UI chiede di scegliere il CCNL (una sola volta, poi modificabile)
+          type: boolean
+        ccnlSceltoDaUtente: { type: boolean }
+        note: { type: [string, 'null'] }
+        segnalazioni:
+          description: Area segnalazioni (nascosta se vuota)
+          type: array
+          items: { $ref: '#/components/schemas/Segnalazione' }
+        riepilogo:
+          description: null se non ancora calcolato
+          oneOf:
+            - $ref: '#/components/schemas/Riepilogo'
+            - type: 'null'
+        mensilita:
+          description: Cedolini presenti e mensilita' mancanti, in ordine cronologico inverso
+          type: array
+          items: { $ref: '#/components/schemas/RigaMensilita' }
+
+    # ---------------------------------------------------------------- segnalazioni
+    Segnalazione:
+      type: object
+      required: [id, tipo, gravita, titolo, descrizione, cedolinoId, competenza, evidenze]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        tipo:
+          type: string
+          enum:
+            - MENSILITA_MANCANTE
+            - TREDICESIMA_MANCANTE
+            - QUATTORDICESIMA_MANCANTE
+            - FINE_RAPPORTO_MANCANTE
+            - FONDO_TFR_IN_CALO
+            - SCATTI_IN_CALO
+            - PROGRESSIVI_IN_CALO
+            - LIVELLO_IN_CALO
+            - TFR_INCOERENTE
+            - SCATTO_NON_IN_BUSTA
+            - CCNL_NON_DETERMINATO
+        gravita:
+          type: string
+          enum: [INFORMATIVA, AVVISO, ANOMALIA]
+        titolo: { type: string }
+        descrizione: { type: string }
+        cedolinoId:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        competenza:
+          oneOf:
+            - $ref: '#/components/schemas/Competenza'
+            - type: 'null'
+        evidenze:
+          type: array
+          items: { $ref: '#/components/schemas/Evidenza' }
+
+    Evidenza:
+      type: object
+      required: [descrizione, cedolinoId, competenza, valore]
+      properties:
+        descrizione: { type: string }
+        cedolinoId:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        competenza:
+          oneOf:
+            - $ref: '#/components/schemas/Competenza'
+            - type: 'null'
+        valore:
+          description: Valore gia' formattato per la lettura (es. "12.345,67 €")
+          type: [string, 'null']
+
+    # ---------------------------------------------------------------- riepilogo
+    Riepilogo:
+      type: object
+      required: [calcolatoIl, anzianita, scatti, retribuzione, buoniPasto, ratei, tfr]
+      properties:
+        calcolatoIl: { type: string, format: date-time }
+        anzianita: { $ref: '#/components/schemas/Anzianita' }
+        scatti: { $ref: '#/components/schemas/Scatti' }
+        retribuzione: { $ref: '#/components/schemas/Retribuzione' }
+        buoniPasto:
+          description: '"Buoni pasto: SI/NO": SI se presenti in almeno uno degli ultimi 3 cedolini ordinari'
+          type: boolean
+        ratei:
+          $ref: '#/components/schemas/RateiRiepilogo'
+          description: Residui di ferie e permessi, esposti solo se il rapporto e' attuale (altrimenti saldi vuoti)
+        tfr: { $ref: '#/components/schemas/TfrRiepilogo' }
+
+    Anzianita:
+      type: object
+      required: [dal, al, inCorso, anni, mesi, fonteInizio, fonteFine]
+      properties:
+        dal:
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+        al:
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+        inCorso: { type: boolean }
+        anni: { type: integer, minimum: 0 }
+        mesi: { type: integer, minimum: 0, maximum: 11 }
+        fonteInizio: { $ref: '#/components/schemas/FonteDato' }
+        fonteFine: { $ref: '#/components/schemas/FonteDato' }
+
+    Scatti:
+      type: object
+      required: [attuali, massimo, prossimoScatto, fonteProssimo, fonteAttuali, attualiStimati]
+      properties:
+        attuali:
+          description: >-
+            Stampato sull'ultima mensilita' ordinaria oppure stimato (dalle regole del CCNL, o numero stampato su un
+            cedolino precedente)
+          type: [integer, 'null']
+        massimo: { type: [integer, 'null'] }
+        prossimoScatto: { type: [string, 'null'], format: date }
+        fonteProssimo: { $ref: '#/components/schemas/FonteDato' }
+        fonteAttuali:
+          $ref: '#/components/schemas/FonteDato'
+          description: CEDOLINI se stampato, CCNL se stimato dalle regole del CCNL, NON_DISPONIBILE
+        attualiStimati:
+          description: true se `attuali` e' una stima (regole del CCNL, o numero stampato su un cedolino non recente)
+          type: boolean
+
+    Retribuzione:
+      description: RAL = lordo mensile contrattuale dell'ultima mensilita' ordinaria x mensilita' del CCNL
+      type: object
+      required: [ral, lordoMensile, mensilita, minimo, contingenza, superminimo, importoScatti, altriElementiFissi, retribuzioneBase, stimata, nota, cedolinoRiferimentoId]
+      properties:
+        ral:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        lordoMensile:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        mensilita: { type: [integer, 'null'] }
+        minimo:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        contingenza:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        superminimo:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        importoScatti:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        altriElementiFissi:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        retribuzioneBase:
+          description: Valorizzata solo se il cedolino stampa la retribuzione base non scomposta
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        stimata:
+          description: true se calcolata con ipotesi (vedi nota)
+          type: boolean
+        nota: { type: [string, 'null'] }
+        cedolinoRiferimentoId:
+          description: Cedolino ordinario usato come riferimento per la RAL
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+
+    SaldoRateo:
+      type: object
+      required: [tipo, unita, saldo, valoreStimato, nota]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoRateo' }
+        unita: { $ref: '#/components/schemas/UnitaMisura' }
+        saldo: { $ref: '#/components/schemas/Quantita' }
+        valoreStimato:
+          description: Stima del valore economico se liquidato; null se non stimabile
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        nota:
+          description: Base usata per la stima del valore; null se non stimabile
+          type: [string, 'null']
+
+    RateiRiepilogo:
+      description: Residui dall'ultimo cedolino che li riporta (saldi vuoti e riferimento null se il rapporto non e' attuale)
+      type: object
+      required: [cedolinoRiferimentoId, saldi]
+      properties:
+        cedolinoRiferimentoId:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        saldi:
+          type: array
+          items: { $ref: '#/components/schemas/SaldoRateo' }
+
+    TfrRiepilogo:
+      type: object
+      required:
+        - totaleAccumulato
+        - quotaMensile
+        - quotaInAzienda
+        - quotaFondi
+        - quotaBusta
+        - anticipi
+        - stimaNetto
+        - aliquotaStimata
+        - stimato
+        - riferimento
+        - nota
+        - quotaMensileStimata
+        - liquidato
+        - importoLiquidato
+        - nettoLiquidato
+      properties:
+        totaleAccumulato:
+          description: TFR in azienda + quote versate ai fondi risultanti dai cedolini caricati; 0 se liquidato
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        quotaMensile:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        quotaInAzienda:
+          description: La UI la nasconde se 0 o per rapporti non attuali
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        quotaFondi:
+          description: Quota versata a fondi pensione
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        quotaBusta:
+          description: Quota liquidata in busta (QuIR)
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        anticipi:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        stimaNetto:
+          description: Stima del netto, solo sulla quota in azienda; null se liquidato
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        aliquotaStimata:
+          description: Aliquota usata per la stima (0..1)
+          type: [number, 'null']
+        stimato:
+          description: true se il TFR e' stimato (dati ricostruiti o proiezione ad oggi, spiegati nella nota)
+          type: boolean
+        riferimento:
+          description: >-
+            Mese del cedolino da cui e' letto il TFR; per il rapporto attuale il valore puo' essere proiettato ad oggi
+            (vedi nota)
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+        nota: { type: [string, 'null'] }
+        quotaMensileStimata:
+          description: true se la quota mensile non e' stampata ed e' stimata (retribuzione utile / 13,5)
+          type: boolean
+        liquidato:
+          description: true se un cedolino di fine rapporto riporta il TFR liquidato
+          type: boolean
+        importoLiquidato:
+          description: TFR liquidato lordo; null se non liquidato
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        nettoLiquidato:
+          description: TFR liquidato al netto della ritenuta stampata; null se non liquidato o senza ritenuta
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+
+    # ---------------------------------------------------------------- mensilita'
+    RigaMensilita:
+      description: |
+        Riga della lista mensilita'. `stato = PRESENTE`: cedolino caricato, espandibile (dettaglio da
+        `GET /api/v1/cedolini/{cedolinoId}`). `stato = MANCANTE`: mensilita' attesa ma assente, riga con bordo
+        arancione, solo titolo, non espandibile (cedolinoId e importi null).
+        Ordine cronologico inverso: la tredicesima segue dicembre del suo anno, la quattordicesima segue il mese di
+        pagamento del CCNL (giugno se non noto), i cedolini di fine rapporto seguono il loro periodo di retribuzione
+        nell'ordine del progressivo.
+      type: object
+      required:
+        - chiave
+        - stato
+        - titolo
+        - competenza
+        - periodoRetribuzione
+        - cedolinoId
+        - netto
+        - lordo
+        - ratei
+        - scattoInBusta
+        - aumentoFuoriScatti
+        - nomeFile
+      properties:
+        chiave:
+          description: Univoca nella lista (uguale a competenza.chiave)
+          type: string
+        stato:
+          type: string
+          enum: [PRESENTE, MANCANTE]
+        titolo:
+          description: |
+            Pronto per la UI: "Gennaio 2024", "Tredicesima 2024", "Quattordicesima 2024",
+            "Fine rapporto 1 – Aprile 2020"
+          type: string
+        competenza: { $ref: '#/components/schemas/Competenza' }
+        periodoRetribuzione:
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+        cedolinoId:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        netto:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        lordo:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        ratei:
+          description: Residui di ferie/permessi stampati sul cedolino (solo i ratei con saldo stampato)
+          type: array
+          items: { $ref: '#/components/schemas/SaldoRateoCedolino' }
+        scattoInBusta:
+          description: Indicatore di scatto di anzianita' in questa busta
+          type: boolean
+        aumentoFuoriScatti:
+          description: Indicatore di aumento della retribuzione fissa non dovuto a scatti
+          type: boolean
+        nomeFile:
+          description: Nome normalizzato del PDF
+          type: [string, 'null']
+
+    SaldoRateoCedolino:
+      type: object
+      required: [tipo, unita, saldo]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoRateo' }
+        unita: { $ref: '#/components/schemas/UnitaMisura' }
+        saldo: { $ref: '#/components/schemas/Quantita' }
+
+    # ---------------------------------------------------------------- dettaglio cedolino
+    Voce:
+      type: object
+      required: [codice, descrizione, quantita, unita, base, importoCompetenza, importoTrattenuta]
+      properties:
+        codice: { type: [string, 'null'] }
+        descrizione: { type: string }
+        quantita:
+          oneOf:
+            - $ref: '#/components/schemas/Quantita'
+            - type: 'null'
+        unita:
+          description: Unita' della quantita' come stampata (ore, giorni, km, %...)
+          type: [string, 'null']
+        base:
+          description: Base o tariffa unitaria
+          type: [number, 'null']
+        importoCompetenza:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        importoTrattenuta:
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+
+    RateoCedolino:
+      type: object
+      required: [tipo, unita, residuoAnnoPrecedente, maturato, goduto, saldo]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoRateo' }
+        unita: { $ref: '#/components/schemas/UnitaMisura' }
+        residuoAnnoPrecedente: { type: [number, 'null'] }
+        maturato: { type: [number, 'null'] }
+        goduto: { type: [number, 'null'] }
+        saldo: { type: [number, 'null'] }
+
+    TfrCedolino:
+      type: object
+      required:
+        - fondo31DicembreAnnoPrecedente
+        - rivalutazione
+        - impostaSostitutiva
+        - quotaAnno
+        - quotaMese
+        - quotaFondi
+        - quotaBusta
+        - anticipi
+        - retribuzioneUtile
+        - liquidatoLordo
+        - ritenuta
+      properties:
+        fondo31DicembreAnnoPrecedente: { type: [number, 'null'] }
+        rivalutazione: { type: [number, 'null'] }
+        impostaSostitutiva: { type: [number, 'null'] }
+        quotaAnno: { type: [number, 'null'] }
+        quotaMese: { type: [number, 'null'] }
+        quotaFondi: { type: [number, 'null'] }
+        quotaBusta: { type: [number, 'null'] }
+        anticipi: { type: [number, 'null'] }
+        retribuzioneUtile: { type: [number, 'null'] }
+        liquidatoLordo: { type: [number, 'null'] }
+        ritenuta: { type: [number, 'null'] }
+
+    ElementiRetributiviCedolino:
+      type: object
+      required:
+        - minimo
+        - contingenza
+        - superminimo
+        - superminimoAssorbibile
+        - importoScatti
+        - altriElementiFissi
+        - retribuzioneBase
+        - totale
+        - pagaOraria
+        - pagaGiornaliera
+        - divisoreOrario
+        - divisoreGiornaliero
+      properties:
+        minimo: { type: [number, 'null'] }
+        contingenza: { type: [number, 'null'] }
+        superminimo: { type: [number, 'null'] }
+        superminimoAssorbibile: { type: [boolean, 'null'] }
+        importoScatti: { type: [number, 'null'] }
+        altriElementiFissi: { type: [number, 'null'] }
+        retribuzioneBase: { type: [number, 'null'] }
+        totale: { type: [number, 'null'] }
+        pagaOraria: { type: [number, 'null'] }
+        pagaGiornaliera: { type: [number, 'null'] }
+        divisoreOrario: { type: [number, 'null'] }
+        divisoreGiornaliero: { type: [number, 'null'] }
+
+    CedolinoDettaglio:
+      description: Dettaglio della busta per aree tematiche
+      type: object
+      required:
+        - id
+        - rapportoId
+        - titolo
+        - competenza
+        - periodoRetribuzione
+        - meseVariabili
+        - dataElaborazione
+        - nomeFile
+        - acquisitoIl
+        - confidenza
+        - campiNonTrovati
+        - avvisiEstrazione
+        - inquadramento
+        - totali
+        - elementiRetributivi
+        - presenze
+        - competenze
+        - trattenutePrevidenziali
+        - trattenuteFiscali
+        - altreTrattenute
+        - vociNonRetributive
+        - vociInformative
+        - tfr
+        - ratei
+        - scatti
+        - buoniPasto
+        - progressivi
+        - contieneTredicesima
+        - contieneQuattordicesima
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        rapportoId: { $ref: '#/components/schemas/Id' }
+        titolo: { type: string }
+        competenza: { $ref: '#/components/schemas/Competenza' }
+        periodoRetribuzione: { $ref: '#/components/schemas/Mese' }
+        meseVariabili:
+          description: Mese a cui si riferiscono le voci variabili, se diverso dal periodo
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+        dataElaborazione: { type: [string, 'null'], format: date }
+        nomeFile: { type: string }
+        acquisitoIl: { type: string, format: date-time }
+        confidenza:
+          description: Confidenza complessiva dell'estrazione (0..1)
+          type: [number, 'null']
+        campiNonTrovati:
+          type: array
+          items: { type: string }
+        avvisiEstrazione:
+          description: >-
+            Avvisi dell'estrazione (controlli di coerenza non superati, valori non interpretabili, dati bancari
+            rimossi, note del modello); vuoto se nessuno
+          type: array
+          items: { type: string }
+        inquadramento:
+          type: object
+          required: [qualifica, livello, codiceDipendente, ccnlTesto, dataAssunzione, dataCessazione]
+          properties:
+            qualifica: { type: [string, 'null'] }
+            livello: { type: [string, 'null'] }
+            codiceDipendente: { type: [string, 'null'] }
+            ccnlTesto: { type: [string, 'null'] }
+            dataAssunzione: { type: [string, 'null'], format: date }
+            dataCessazione: { type: [string, 'null'], format: date }
+        totali:
+          type: object
+          required: [lordo, totaleCompetenze, totaleTrattenute, arrotondamento, netto]
+          properties:
+            lordo: { type: [number, 'null'] }
+            totaleCompetenze: { type: [number, 'null'] }
+            totaleTrattenute: { type: [number, 'null'] }
+            arrotondamento:
+              description: Puo' essere negativo
+              type: [number, 'null']
+            netto: { type: [number, 'null'] }
+        elementiRetributivi: { $ref: '#/components/schemas/ElementiRetributiviCedolino' }
+        presenze:
+          description: Area presenze (riepilogo + voci di presenza/assenza)
+          type: object
+          required: [giorniLavorati, oreLavorate, giorniRetribuiti, voci]
+          properties:
+            giorniLavorati: { type: [number, 'null'] }
+            oreLavorate: { type: [number, 'null'] }
+            giorniRetribuiti: { type: [number, 'null'] }
+            voci:
+              type: array
+              items: { $ref: '#/components/schemas/Voce' }
+        competenze:
+          type: array
+          items: { $ref: '#/components/schemas/Voce' }
+        trattenutePrevidenziali:
+          type: array
+          items: { $ref: '#/components/schemas/Voce' }
+        trattenuteFiscali:
+          type: array
+          items: { $ref: '#/components/schemas/Voce' }
+        altreTrattenute:
+          type: array
+          items: { $ref: '#/components/schemas/Voce' }
+        vociNonRetributive:
+          description: Rimborsi, diarie, buoni pasto (fuori dalla RAL)
+          type: array
+          items: { $ref: '#/components/schemas/Voce' }
+        vociInformative:
+          type: array
+          items: { $ref: '#/components/schemas/Voce' }
+        tfr:
+          oneOf:
+            - $ref: '#/components/schemas/TfrCedolino'
+            - type: 'null'
+        ratei:
+          type: array
+          items: { $ref: '#/components/schemas/RateoCedolino' }
+        scatti:
+          type: object
+          required: [numeroScatti, prossimoScatto]
+          properties:
+            numeroScatti: { type: [integer, 'null'] }
+            prossimoScatto: { type: [string, 'null'], format: date }
+        buoniPasto:
+          type: object
+          required: [presenti, numero, valoreUnitario, importo]
+          properties:
+            presenti: { type: boolean }
+            numero: { type: [number, 'null'] }
+            valoreUnitario: { type: [number, 'null'] }
+            importo: { type: [number, 'null'] }
+        progressivi:
+          type: object
+          required: [imponibilePrevidenziale, imponibileIrpef, irpefTrattenuta]
+          properties:
+            imponibilePrevidenziale: { type: [number, 'null'] }
+            imponibileIrpef: { type: [number, 'null'] }
+            irpefTrattenuta: { type: [number, 'null'] }
+        contieneTredicesima: { type: boolean }
+        contieneQuattordicesima: { type: boolean }
+
+    # ---------------------------------------------------------------- caricamenti
+    StatoCaricamento:
+      type: string
+      enum: [IN_CODA, IN_LETTURA, ACQUISITO, DUPLICATO, AGGIUNTIVO_NON_GESTITO, ERRORE]
+      description: |
+        IN_CODA, IN_LETTURA: in elaborazione. ACQUISITO: salvato. DUPLICATO: scartato perche' gia' presente.
+        AGGIUNTIVO_NON_GESTITO: stesso mese di un cedolino presente ma contenuto diverso (premi/arretrati), scartato.
+        ERRORE: vedi messaggio.
+
+    Caricamento:
+      type: object
+      required: [id, lotto, nomeFileOriginale, dimensione, stato, messaggio, cedolinoId, cedolinoEsistenteId, personaId, rapportoId, creatoIl, aggiornatoIl]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        lotto: { type: string, format: uuid }
+        nomeFileOriginale: { type: string }
+        dimensione:
+          description: Byte
+          type: integer
+          format: int64
+        stato: { $ref: '#/components/schemas/StatoCaricamento' }
+        messaggio:
+          description: Motivo per ERRORE, DUPLICATO, AGGIUNTIVO_NON_GESTITO
+          type: [string, 'null']
+        cedolinoId:
+          description: Cedolino creato (ACQUISITO)
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        cedolinoEsistenteId:
+          description: Cedolino gia' presente con cui confligge (DUPLICATO, AGGIUNTIVO_NON_GESTITO)
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        personaId:
+          description: |
+            Persona del cedolino acquisito o di quello con cui confligge (ACQUISITO, DUPLICATO,
+            AGGIUNTIVO_NON_GESTITO); null negli altri stati o se quel cedolino e' stato poi eliminato
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        rapportoId:
+          description: |
+            Rapporto del cedolino acquisito o di quello con cui confligge (ACQUISITO, DUPLICATO,
+            AGGIUNTIVO_NON_GESTITO); null negli altri stati o se quel cedolino e' stato poi eliminato
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        creatoIl: { type: string, format: date-time }
+        aggiornatoIl: { type: string, format: date-time }
+
+    LottoCaricamento:
+      type: object
+      required: [lotto, completato, caricamenti]
+      properties:
+        lotto: { type: string, format: uuid }
+        completato:
+          description: true quando tutti i caricamenti sono in uno stato terminale (polling terminato)
+          type: boolean
+        caricamenti:
+          type: array
+          items: { $ref: '#/components/schemas/Caricamento' }
