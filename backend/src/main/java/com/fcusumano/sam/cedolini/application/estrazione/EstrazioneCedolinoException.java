@@ -14,7 +14,10 @@ public class EstrazioneCedolinoException extends RuntimeException {
         LIMITE_TOKEN,
         /** Output non conforme allo schema o non interpretabile. */
         OUTPUT_NON_VALIDO,
-        /** Il documento non e' un cedolino oppure contiene piu' cedolini distinti. */
+        /**
+         * Il documento non e' un cedolino o non e' utilizzabile (vuoto, non PDF, danneggiato, protetto, rifiutato dal
+         * servizio per formato o dimensione).
+         */
         DOCUMENTO_NON_VALIDO,
         /** Errore di rete, timeout, rate limit o errore del servizio. */
         SERVIZIO_NON_DISPONIBILE,
@@ -29,7 +32,9 @@ public class EstrazioneCedolinoException extends RuntimeException {
          * Il lettore locale non riconosce il layout del cedolino, o lo riconosce ma non ne trova i dati essenziali
          * (periodo, codice fiscale, netto): meglio un errore che un dato sbagliato.
          */
-        LAYOUT_NON_RICONOSCIUTO
+        LAYOUT_NON_RICONOSCIUTO,
+        /** Il PDF contiene piu' cedolini distinti: va caricato un file per ogni cedolino. */
+        PIU_CEDOLINI
     }
 
     private final Motivo motivo;

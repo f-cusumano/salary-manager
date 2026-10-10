@@ -117,8 +117,8 @@ class CaricamentoCedoliniService implements CaricamentoCedolini {
         var personaId = persone.computeIfAbsent(c.rapportoId(),
                 id -> anagrafica.trovaRapporto(id).map(RapportoLavoro::personaId).orElse(null));
         return new Caricamento(c.id(), c.lotto(), c.nomeFileOriginale(), c.dimensione(), c.stato(), c.messaggio(),
-                c.cedolinoId(), c.cedolinoEsistenteId(), personaId, personaId == null ? null : c.rapportoId(),
-                c.creatoIl(), c.aggiornatoIl());
+                c.motivo(), c.pdfDisponibile(), c.cedolinoId(), c.cedolinoEsistenteId(), personaId,
+                personaId == null ? null : c.rapportoId(), c.creatoIl(), c.aggiornatoIl());
     }
 
     /** Nome del file senza percorso (alcuni browser lo includono), mai vuoto, entro la lunghezza della colonna. */

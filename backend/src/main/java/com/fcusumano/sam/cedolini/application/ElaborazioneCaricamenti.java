@@ -3,7 +3,7 @@ package com.fcusumano.sam.cedolini.application;
 import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
 import com.fcusumano.sam.anagrafica.PersonaSintesi;
 import com.fcusumano.sam.cedolini.CaricamentoId;
-import com.fcusumano.sam.cedolini.CedolinoId;
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
 import com.fcusumano.sam.cedolini.application.AcquisizioneCedolino.DocumentoCaricato;
 import com.fcusumano.sam.cedolini.application.EsitoAcquisizione.Acquisito;
@@ -49,7 +49,10 @@ import org.springframework.stereotype.Component;
  * lotto sono elaborati uno dopo l'altro: il secondo risulta DUPLICATO senza una seconda estrazione.
  * Un PDF protetto che nessuna password candidata apre torna IN_CODA e viene riprovato una volta a fine lotto: gli altri
  * file possono aver censito nel frattempo la persona il cui codice fiscale e' la password.
- * Gli errori diventano stato ERRORE con un messaggio comprensibile; i log riportano solo id e tipo di errore.
+ * Gli esiti diversi da ACQUISITO si registrano con {@link ChiusuraCaricamento}: gli errori diventano stato ERRORE con
+ * un motivo ({@link MotivoErrore}) e un messaggio comprensibile, e il PDF originale si conserva se il motivo lo prevede
+ * (file completabile a mano o rileggibile). La chiusura avviene dopo aver rilasciato il permesso di lettura, cosi'
+ * l'attesa del lock del workspace non blocca le altre letture. I log riportano solo id e tipo di errore.
  */
 @Component
 class ElaborazioneCaricamenti implements DisposableBean {
@@ -62,6 +65,7 @@ class ElaborazioneCaricamenti implements DisposableBean {
     private final LettorePdf lettorePdf;
     private final LettoreCedolini lettore;
     private final AcquisizioneCedolino acquisizione;
+    private final ChiusuraCaricamento chiusura;
     private final ConsultazioneAnagrafica consultazione;
     private final Semaphore estrazioni;
     private final ExecutorService esecutore =
@@ -69,13 +73,14 @@ class ElaborazioneCaricamenti implements DisposableBean {
     private final Map<String, CompletableFuture<Void>> inCorsoPerHash = new ConcurrentHashMap<>();
 
     ElaborazioneCaricamenti(CaricamentiRepository caricamenti, CedoliniRepository cedolini, LettorePdf lettorePdf,
-                            LettoreCedolini lettore, AcquisizioneCedolino acquisizione,
+                            LettoreCedolini lettore, AcquisizioneCedolino acquisizione, ChiusuraCaricamento chiusura,
                             ConsultazioneAnagrafica consultazione, LettoreProperties lettoreProperties) {
         this.caricamenti = caricamenti;
         this.cedolini = cedolini;
         this.lettorePdf = lettorePdf;
         this.lettore = lettore;
         this.acquisizione = acquisizione;
+        this.chiusura = chiusura;
         this.consultazione = consultazione;
         this.estrazioni = new Semaphore(Math.max(1, lettoreProperties.lettureContemporanee()), true);
     }
@@ -109,7 +114,7 @@ class ElaborazioneCaricamenti implements DisposableBean {
         try {
             esecutore.execute(() -> ContestoWorkspace.esegui(lavoro.workspace(), () -> elabora(lavoro, lotto)));
         } catch (RejectedExecutionException e) {
-            termina(lavoro, StatoCaricamento.ERRORE, MessaggiCaricamento.INTERROTTO, null);
+            chiusura.errore(lavoro, MotivoErrore.INTERROTTO, MessaggiCaricamento.INTERROTTO);
         }
     }
 
@@ -123,8 +128,9 @@ class ElaborazioneCaricamenti implements DisposableBean {
                 turno.complete(null);
             }
         } catch (InterruptedException e) {
+            // chiusura prima di ripristinare l'interruzione: le scritture non partono da un thread gia' interrotto
+            chiusura.errore(lavoro, MotivoErrore.INTERROTTO, MessaggiCaricamento.INTERROTTO);
             Thread.currentThread().interrupt();
-            termina(lavoro, StatoCaricamento.ERRORE, MessaggiCaricamento.INTERROTTO, null);
         } catch (RuntimeException e) {
             erroreImprevisto(lavoro, e);
         } catch (Error e) {
@@ -168,10 +174,12 @@ class ElaborazioneCaricamenti implements DisposableBean {
         var giaCaricato = cedolini.perHash(ws, lavoro.hash());
         if (giaCaricato.isPresent()) {
             log.info("Caricamento {} scartato: file gia' caricato", lavoro.caricamentoId().valore());
-            termina(lavoro, StatoCaricamento.DUPLICATO, MessaggiCaricamento.FILE_GIA_CARICATO, giaCaricato.get());
+            chiusura.scartato(lavoro, StatoCaricamento.DUPLICATO, MessaggiCaricamento.FILE_GIA_CARICATO,
+                    giaCaricato.get());
             return;
         }
-        RisultatoEstrazione estrazione;
+        RisultatoEstrazione estrazione = null;
+        EstrazioneCedolinoException errore = null;
         estrazioni.acquire();
         try {
             caricamenti.aggiorna(ws, lavoro.caricamentoId(), StatoCaricamento.IN_LETTURA, null, null, null);
@@ -186,11 +194,16 @@ class ElaborazioneCaricamenti implements DisposableBean {
                 lotto.rimanda(lavoro);
                 return;
             }
-            log.info("Lettura non riuscita (caricamento {}, motivo {})", lavoro.caricamentoId().valore(), e.motivo());
-            termina(lavoro, StatoCaricamento.ERRORE, e.getMessage(), null);
-            return;
+            errore = e;
         } finally {
             estrazioni.release();
+        }
+        if (errore != null) {
+            var motivo = MotiviErrore.di(errore);
+            log.info("Lettura non riuscita (caricamento {}, motivo {}: {})", lavoro.caricamentoId().valore(),
+                    errore.motivo(), motivo);
+            chiusura.errore(lavoro, motivo, errore.getMessage());
+            return;
         }
         acquisisci(lavoro, estrazione);
     }
@@ -205,14 +218,14 @@ class ElaborazioneCaricamenti implements DisposableBean {
             // messaggi pensati per l'utente (dati mancanti o non validi), senza dati personali
             log.info("Cedolino non acquisibile (caricamento {}): {}", lavoro.caricamentoId().valore(),
                     e.getClass().getSimpleName());
-            termina(lavoro, StatoCaricamento.ERRORE, MessaggiCaricamento.nonAcquisibile(e.getMessage()), null);
+            chiusura.errore(lavoro, MotivoErrore.DATI_INCOMPLETI, MessaggiCaricamento.nonAcquisibile(e.getMessage()));
             return;
         }
         switch (esito) {
             case Acquisito a -> log.debug("Caricamento {} acquisito", lavoro.caricamentoId().valore());
             case Scartato s -> {
                 log.info("Caricamento {} scartato: {}", lavoro.caricamentoId().valore(), s.stato());
-                termina(lavoro, s.stato(), s.messaggio(), s.esistente());
+                chiusura.scartato(lavoro, s.stato(), s.messaggio(), s.esistente());
             }
         }
     }
@@ -226,16 +239,7 @@ class ElaborazioneCaricamenti implements DisposableBean {
         log.warn("Errore imprevisto nell'elaborazione del caricamento {}: {}", lavoro.caricamentoId().valore(),
                 e.getClass().getName());
         log.debug("Dettaglio dell'errore del caricamento {}", lavoro.caricamentoId().valore(), e);
-        termina(lavoro, StatoCaricamento.ERRORE, MessaggiCaricamento.ERRORE_IMPREVISTO, null);
-    }
-
-    private void termina(Lavoro lavoro, StatoCaricamento stato, String messaggio, CedolinoId esistente) {
-        try {
-            caricamenti.aggiorna(lavoro.workspace(), lavoro.caricamentoId(), stato, messaggio, null, esistente);
-        } catch (RuntimeException e) {
-            log.error("Stato del caricamento {} non aggiornabile: {}", lavoro.caricamentoId().valore(),
-                    e.getClass().getName());
-        }
+        chiusura.errore(lavoro, MotivoErrore.ERRORE_IMPREVISTO, MessaggiCaricamento.ERRORE_IMPREVISTO);
     }
 
     private static String chiaveHash(Lavoro lavoro) {

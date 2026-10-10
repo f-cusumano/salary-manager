@@ -206,13 +206,13 @@ class InterpreteRispostaEstrazioneTest {
     }
 
     @Test
-    void piuCedoliniONessunCedolinoRendonoIlDocumentoNonValido() throws IOException {
+    void piuCedoliniONessunCedolinoRendonoIlDocumentoNonUtilizzabile() throws IOException {
         var due = modificata("rossi-beta-2025-01", r -> r.put("numeroCedoliniNelDocumento", 2));
         var nessuno = modificata("rossi-beta-2025-01", r -> r.put("numeroCedoliniNelDocumento", 0));
 
         assertThatThrownBy(() -> interprete.interpreta(due, "m"))
                 .isInstanceOfSatisfying(EstrazioneCedolinoException.class, e -> {
-                    assertThat(e.motivo()).isEqualTo(Motivo.DOCUMENTO_NON_VALIDO);
+                    assertThat(e.motivo()).isEqualTo(Motivo.PIU_CEDOLINI);
                     assertThat(e.getMessage()).contains("2 cedolini");
                 });
         assertThatThrownBy(() -> interprete.interpreta(nessuno, "m"))

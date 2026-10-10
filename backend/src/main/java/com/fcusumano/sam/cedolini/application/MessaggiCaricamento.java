@@ -18,6 +18,10 @@ final class MessaggiCaricamento {
     static final String PERIODO_NON_LEGGIBILE = "Periodo di retribuzione (mese e anno) non leggibile sul cedolino";
     static final String CODICE_FISCALE_NON_LEGGIBILE = "Codice fiscale del dipendente non leggibile sul cedolino";
     static final String DATORE_NON_LEGGIBILE = "Ragione sociale del datore di lavoro non leggibile sul cedolino";
+    static final String NON_IN_ERRORE =
+            "Il file non è più in errore: è già stato inserito, rimosso o ricaricato";
+    static final String IN_ELABORAZIONE = "Il file è in elaborazione: attendi la fine";
+    static final String PDF_NON_CONSERVATO = "PDF del file non conservato: caricalo di nuovo";
 
     private MessaggiCaricamento() {
     }
@@ -38,5 +42,13 @@ final class MessaggiCaricamento {
 
     static String nonAcquisibile(String dettaglio) {
         return "Cedolino non acquisibile: " + dettaglio;
+    }
+
+    static String competenzaGiaPresente(Competenza competenza) {
+        return "Per " + DescrizioneCompetenza.di(competenza) + " è già presente un cedolino";
+    }
+
+    static String competenzaGiaAssociata(Competenza competenza) {
+        return DescrizioneCompetenza.di(competenza) + " è già associato a un altro file in errore";
     }
 }

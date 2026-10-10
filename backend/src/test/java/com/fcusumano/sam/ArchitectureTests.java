@@ -34,7 +34,8 @@ class ArchitectureTests {
             "anagrafica", Set.of("Persona", "Azienda", "RapportoLavoro"),
             "ccnl", Set.of("Ccnl"),
             "cedolini", Set.of("Cedolino", "CedolinoPdf", "CedolinoVoce", "CedolinoElementoRetributivo",
-                    "CedolinoRateo", "CedolinoTfr", "CedolinoDati", "Caricamento"),
+                    "CedolinoRateo", "CedolinoTfr", "CedolinoDati", "Caricamento", "CaricamentoPdf",
+                    "CaricamentoAttribuzione"),
             "calcoli", Set.of("RiepilogoRapporto", "RiepilogoRateo", "IndicatoreMensilita"),
             "segnalazioni", Set.of("Segnalazione"));
 
