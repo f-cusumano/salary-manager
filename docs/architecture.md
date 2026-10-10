@@ -30,10 +30,10 @@ salary-manager/
 
 | Modulo         | Dipendenze consentite                                   | API pubblica (package radice) |
 |----------------|---------------------------------------------------------|-------------------------------|
-| `shared` (OPEN)| -                                                       | `WorkspaceId`, `CurrentWorkspaceProvider`, `ContestoWorkspace`, `Competenza` (sealed: `Mensilita`, `FineRapporto`), `TipoMensilita`, `UnitaMisura`, `Importi`, `Periodi`, `RisorsaNonTrovataException`, `OperazioneNonConsentitaException`, `config.VariabiliAmbiente`, jOOQ generato |
+| `shared` (OPEN)| -                                                       | `WorkspaceId`, `CurrentWorkspaceProvider`, `ContestoWorkspace`, `Competenza` (sealed: `Mensilita`, `FineRapporto`), `TipoMensilita`, `UnitaMisura`, `Importi`, `Periodi`, `RisorsaNonTrovataException`, `OperazioneNonConsentitaException`, `DatiNonValidiException` (errori campo per campo), `config.VariabiliAmbiente`, jOOQ generato |
 | `ccnl`         | shared                                                  | `CatalogoCcnl`, `Ccnl` |
 | `anagrafica`   | ccnl, shared                                            | `CensimentoAnagrafica`, `ConsultazioneAnagrafica`, `GestioneRapporti`, id/record, eventi `CcnlRapportoModificato`, `RapportoLavoroEliminato` |
-| `cedolini`     | anagrafica, ccnl, shared                                | `CaricamentoCedolini`, `ArchivioCedolini`, `CedolinoNormalizzato` e record collegati, eventi `CedolinoAcquisito`, `CedolinoEliminato` |
+| `cedolini`     | anagrafica, ccnl, shared                                | `CaricamentoCedolini`, `ArchivioCedolini`, `CaricamentiInErrore` (file in errore, inserimento a mano), `CedolinoNormalizzato`, `MotivoErrore`, `CedolinoManuale` e record collegati, eventi `CedolinoAcquisito`, `CedolinoEliminato`, `CaricamentiInErroreModificati` |
 | `calcoli`      | cedolini, anagrafica, ccnl, shared                      | `CalcoliRapporto`, `RiepilogoRapporto` |
 | `segnalazioni` | cedolini, anagrafica, ccnl, shared                      | `SegnalazioniRapporto`, `Segnalazione` |
 | `web`          | tutti                                                   | nessuna (nessuno dipende da web) |
@@ -86,7 +86,7 @@ Vincoli verificati da `ArchitectureTests` (ArchUnit):
 | `shared`       | `changes/0xx-*.sql`          | `workspace` |
 | `anagrafica`   | `changes/1xx-*.sql`          | `persona`, `azienda`, `rapporto_lavoro` |
 | `ccnl`         | `changes/2xx-*.sql`          | `ccnl` (+ FK `rapporto_lavoro.ccnl_codice` definita in `220-ccnl-vincoli.sql`) |
-| `cedolini`     | `changes/3xx-*.sql`          | `cedolino`, `cedolino_pdf`, `cedolino_voce`, `cedolino_elemento_retributivo`, `cedolino_rateo`, `cedolino_tfr`, `cedolino_dati`, `caricamento` |
+| `cedolini`     | `changes/3xx-*.sql`          | `cedolino`, `cedolino_pdf`, `cedolino_voce`, `cedolino_elemento_retributivo`, `cedolino_rateo`, `cedolino_tfr`, `cedolino_dati`, `caricamento`, `caricamento_pdf`, `caricamento_attribuzione` |
 | `calcoli`      | `changes/4xx-*.sql`          | `riepilogo_rapporto`, `riepilogo_rateo`, `indicatore_mensilita` |
 | `segnalazioni` | `changes/5xx-*.sql`          | `segnalazione` |
 
@@ -100,13 +100,15 @@ applicati):
 | `240-ccnl-descrizioni.sql`        | (solo dati) descrizioni e note di verifica dei CCNL con le lettere accentate                  |
 | `310-cedolino-tipo-dichiarato.sql`| `cedolino.tipo_dichiarato` (tipo dichiarato dall'estrazione, base della riclassificazione)    |
 | `320-cedolino-avvisi.sql`         | `cedolino.avvisi_estrazione` (avvisi dei controlli e note del modello, separati da a capo)     |
+| `330-caricamenti-in-errore.sql`   | `caricamento.motivo` (solo in ERRORE) e indice `(workspace_id, hash_contenuto, id)`; tabelle `caricamento_pdf` (PDF dei file in errore, chiave workspace + hash) e `caricamento_attribuzione` (mensilita' associata dall'utente, FK verso `rapporto_lavoro` con cascata) |
 | `410-calcoli-stime.sql`           | `riepilogo_rapporto`: fonte e stima degli scatti attuali, quota TFR stimata, TFR liquidato (importo e netto); `riepilogo_rateo.nota`; `indicatore_mensilita.ordine` |
 | `510-segnalazione-ordine.sql`     | `segnalazione.ordine` (ordinamento deterministico) e indice `(rapporto_id, ordine)`            |
 
 Tutte le tabelle di dominio hanno `workspace_id` (FK verso `workspace`; workspace di default `id = 1`). La tabella
 `ccnl` e' un dato di riferimento globale. Le tabelle derivate (`riepilogo_*`, `indicatore_mensilita`, `segnalazione`)
 e le tabelle figlie di `cedolino` hanno FK `ON DELETE CASCADE`: eliminare un cedolino o un rapporto rimuove i dati
-che ne dipendono. Nessun dato bancario in nessuna tabella.
+che ne dipendono. Lo stesso vale per `caricamento_attribuzione` verso `rapporto_lavoro`: l'associazione di un file in
+errore sparisce con il rapporto. Nessun dato bancario in nessuna tabella.
 
 Un modulo non legge ne' scrive le tabelle di un altro: usa le sue API.
 
@@ -127,13 +129,13 @@ POST /api/v1/caricamenti (multipart: N file + password facoltativa del lotto)
                    nessuna password, password del lotto, salary-manager.pdf.password-candidate, codici fiscali
                    delle persone censite (maiuscoli e minuscoli). Nessuna valida: in un lotto di piu' file il
                    caricamento torna IN_CODA e viene riprovato una volta a fine lotto (quando le persone degli
-                   altri file sono censite); altrimenti, o al secondo tentativo, ERRORE
+                   altri file sono censite); altrimenti, o al secondo tentativo, ERRORE PDF_PROTETTO
                    "PDF protetto da password: indica la password e ricarica".
                    Per un PDF cifrato produce una COPIA DECIFRATA (PDFBox, setAllSecurityToBeRemoved).
                 b. LettoreCedolini.estrai(copia per la lettura) ─► CedolinoEstratto validato
                    (lettore scelto con salary-manager.lettore: locale, claude o fixture; PDF senza testo o
                    layout non riconosciuto dal lettore locale, errore o rifiuto di Claude, piu' cedolini nel
-                   documento ─► ERRORE)
+                   documento ─► ERRORE con il motivo, MotivoErrore)
              3. transazione serializzata per workspace (ScrittureSerializzate: lock per workspace preso prima
                 della transazione e rilasciato dopo il commit, cosi' piu' file della stessa persona nuova non
                 creano doppioni anche con salary-manager.letture-contemporanee > 1):
@@ -151,11 +153,19 @@ POST /api/v1/caricamenti (multipart: N file + password facoltativa del lotto)
                    (uno scarto annulla la transazione: nessuna anagrafica resta creata per lui)
                 f. salvataggio cedolino + figlie + PDF ORIGINALE (nome da NomeFileCedolinoStrategy)
                 g. CensimentoAnagrafica.aggiornaEstremiCedolini
-                h. publish CedolinoAcquisito ─► (sincrono, stessa transazione)
+                h. caricamento ACQUISITO (cedolinoId); eliminazione di PDF conservato e associazione del file, che non
+                   e' piu' in errore
+                i. publish CedolinoAcquisito ─► (sincrono, stessa transazione)
                      calcoli.RicalcoloRiepilogoListener      ─► CalcoliRapporto.ricalcola
                      segnalazioni.RicalcoloSegnalazioniListener ─► SegnalazioniRapporto.ricalcola
-                i. caricamento ACQUISITO (cedolinoId)
+                   piu' CaricamentiInErroreModificati se il file era associato a un altro rapporto
                 (un'eccezione in un passo qualsiasi, ricalcoli compresi, annulla tutto ─► ERRORE)
+             4. esiti diversi da ACQUISITO (ChiusuraCaricamento, transazione serializzata dopo aver rilasciato il
+                permesso di lettura):
+                ERRORE + motivo + messaggio; PDF originale conservato in caricamento_pdf (uno per file) se il motivo
+                lo prevede e il file non e' archiviato, altrimenti eliminato
+                DUPLICATO / AGGIUNTIVO_NON_GESTITO: PDF conservato e associazione del file eliminati
+                (se la transazione fallisce, un aggiornamento semplice registra comunque lo stato)
 GET /api/v1/caricamenti/lotti/{lotto}  (polling della UI finche' completato)
 ```
 
@@ -165,8 +175,10 @@ presente: il repository di `cedolini` ricava il rapporto con una join sulla prop
 risolve la persona tramite `anagrafica.ConsultazioneAnagrafica` (una lettura per rapporto distinto), cosi' la UI
 seleziona la persona giusta senza altre chiamate. Se quel cedolino viene poi eliminato i due campi tornano `null`.
 
-Al riavvio, i caricamenti rimasti IN_CODA/IN_LETTURA (elaborazione in memoria interrotta) vengono marcati ERRORE
-prima che il server accetti richieste (`RipristinoCaricamentiInterrotti`).
+Al riavvio, i caricamenti rimasti IN_CODA/IN_LETTURA (elaborazione in memoria interrotta) vengono marcati ERRORE con
+motivo `INTERROTTO` prima che il server accetti richieste (`RipristinoCaricamentiInterrotti`), che poi elimina PDF
+conservati e associazioni dei file non piu' in errore. Un file la cui prima elaborazione e' stata interrotta non ha il
+PDF conservato (va ricaricato); una nuova lettura interrotta lo ritrova, perche' il PDF e' del file.
 
 ### Lettori dei cedolini
 
@@ -179,11 +191,14 @@ variabile `SAM_LETTORE`) ne attiva esattamente una con `@ConditionalOnProperty` 
 | `locale` (default)  | `adapter.locale.LettoreLocaleCedolini`    | `lettore-locale-1/<id del layout>`                 |
 | `claude`            | `adapter.ai.ClaudeLettoreCedolini`        | il modello Claude (`salary-manager.ai.model`)      |
 | `fixture`           | `adapter.fixture.FixtureLettoreCedolini`  | `fixture`                                          |
+| (inserimento a mano)| `application.JsonCedolinoManuale`         | `inserimento-manuale-1`                            |
 
 Tutti producono il JSON dello schema `prompts/cedolino-schema-v1.json` e lo passano alla stessa
 `InterpreteRispostaEstrazione` (normalizzazione, mascheramento degli IBAN sfuggiti, `ValidatoreCedolinoEstratto`):
 validazione, avvisi e confidenza seguono le stesse regole qualunque sia il lettore, e il resto dell'applicazione non
-sa quale lettore e' stato usato. Le letture contemporanee sono limitate da `salary-manager.letture-contemporanee`
+sa quale lettore e' stato usato. L'inserimento a mano di un file in errore e' sempre attivo, qualunque sia il lettore
+configurato: produce lo stesso JSON dai dati del modulo (confidenza `null`, nessun campo non trovato) e lo passa
+all'interprete; il dettaglio del cedolino lo distingue solo con `inseritoAMano`. Le letture contemporanee sono limitate da `salary-manager.letture-contemporanee`
 (qualunque lettore); il lettore Claude limita a parte le richieste all'API (`salary-manager.ai.concurrency`).
 
 **Lettore locale** (`cedolini.adapter.locale`), gratuito, offline e deterministico:
@@ -226,6 +241,11 @@ hash o marcatore `Fixture: <nome>` nel testo); per test, modalita' demo e suite 
 - **Originale e copia**: a DB (`cedolino_pdf`) si conserva sempre il PDF originale caricato, anche se cifrato; l'hash
   per il riconoscimento dei duplicati e' calcolato sull'originale. La copia decifrata esiste solo in memoria per il
   lettore (con il lettore Claude, per la richiesta all'API). Le password non sono salvate ne' registrate nei log.
+- **File in errore**: il PDF originale di un file che non si e' letto (protetto senza password valida, scansione,
+  layout sconosciuto, lettore non disponibile, ...) resta in `caricamento_pdf` finche' il file non e' risolto
+  (inserito a mano, letto con una nuova lettura, scartato o rimosso dall'utente): un PDF protetto si rilegge con la
+  password ("Riprova con password", password solo in memoria) o si inserisce a mano archiviando i byte cifrati. I
+  file danneggiati, con troppe pagine o con piu' cedolini non si conservano mai.
 - **Scansioni**: alcuni cedolini sono solo immagini. Il lettore locale li rifiuta (`PDF_SENZA_TESTO`, con il
   suggerimento del lettore Claude); il lettore Claude riceve il PDF come blocco `document` e legge anche visivamente
   le pagine, senza dipendere dal testo estratto localmente.
@@ -251,6 +271,7 @@ hash o marcatore `Fixture: <nome>` nel testo); per test, modalita' demo e suite 
 | `CedolinoEliminato`        | cedolini      | dopo la cancellazione, nella stessa transazione          | calcoli, segnalazioni |
 | `CcnlRapportoModificato`   | anagrafica    | cambio CCNL scelto dall'utente                           | calcoli, segnalazioni |
 | `RapportoLavoroEliminato`  | anagrafica    | prima di cancellare un rapporto rimasto senza cedolini   | (pulizie applicative eventuali) |
+| `CaricamentiInErroreModificati` | cedolini | associazione di un file in errore creata, spostata o rimossa; file associato archiviato in un altro rapporto, scartato o rimosso | segnalazioni |
 
 Gli eventi sono eventi applicativi Spring consegnati **in modo sincrono** (`@EventListener`) nella transazione che li
 pubblica: il ricalcolo dei dati derivati e' parte della stessa unita' di lavoro (tutto o niente). Non si usa
@@ -265,6 +286,95 @@ idempotenti (cancella e reinserisce i dati derivati del rapporto).
 (mensilita' che tornano tali se la cessazione sparisce, progressivi TFR e nomi file), aggiorna gli estremi, pubblica `CedolinoEliminato` (ricalcolo sincrono di riepilogo e
 segnalazioni). Se il rapporto non ha piu' cedolini: `CensimentoAnagrafica.eliminaRapporto` elimina rapporto e
 persona/azienda orfane; i dati derivati spariscono in cascata.
+
+## Cedolini caricati con errore e inserimento a mano
+
+Un **file** e' identificato dal contenuto: workspace + hash SHA-256 del PDF originale (stesso contenuto = stesso file,
+anche se caricato piu' volte o con nomi diversi). Un file e' **in errore** quando il suo ultimo tentativo concluso e'
+in ERRORE e nessun cedolino archiviato ha quell'hash. Non e' uno stato salvato: lo calcola un unico predicato
+(`JooqCaricamentiRepository`, condizione `fileInErrore`), da cui derivano l'elenco e i controlli di ogni azione.
+
+```
+riga elencata = caricamento c in ERRORE
+  senza un cedolino con lo stesso hash (file archiviato)
+  senza tentativi successivi dello stesso file conclusi (ACQUISITO, DUPLICATO, AGGIUNTIVO_NON_GESTITO, ERRORE)
+  + inElaborazione  = esiste un tentativo IN_CODA / IN_LETTURA dello stesso file (azioni bloccate, 409)
+  + pdfDisponibile  = esiste caricamento_pdf del file
+  + attribuzione    = caricamento_attribuzione del file, con competenzaPresente (un altro file ha gia' il cedolino)
+dal piu' recente, una riga per file, senza limite
+```
+
+Ciclo di vita di un file:
+
+```
+POST /caricamenti ─┐                      ┌─ POST /caricamenti/{id}/rilettura (nuovo lotto, stesso nome e hash,
+                   ▼                      ▼   byte da caricamento_pdf, password solo in memoria)
+                IN_CODA ──► IN_LETTURA ──► ACQUISITO           acquisizione: PDF conservato e associazione eliminati
+                  ▲  │                   ├► DUPLICATO / AGGIUNTIVO_NON_GESTITO   chiusura: PDF e associazione eliminati
+                  └──┘ PDF protetto      └► ERRORE + motivo    chiusura: PDF conservato se motivo.conservaPdf(),
+                       riprovato una volta                     altrimenti eliminato
+riavvio: IN_CODA | IN_LETTURA ──► ERRORE, motivo INTERROTTO (il PDF resta solo se un tentativo precedente lo aveva
+                                  gia' conservato)
+
+file in errore ──[POST .../cedolino]──────────────► caricamento indicato ERRORE ─► ACQUISITO (stessa acquisizione)
+file in errore ──[DELETE /caricamenti/{id}]────────► tentativi in ERRORE del file, PDF e associazione eliminati
+file in errore ──[PUT | DELETE .../attribuzione]───► associazione creata, spostata o rimossa
+```
+
+Invarianti, mantenute nella transazione serializzata per workspace (`ScrittureSerializzate`):
+
+| # | Invariante |
+|---|------------|
+| I1 | Al piu' un PDF conservato e un'associazione per file (chiavi primarie workspace + hash). |
+| I2 | PDF e associazione esistono solo finche' il file e' in errore: si eliminano nella transazione che archivia o risolve il file; all'avvio `RipristinoCaricamentiInterrotti` elimina gli eventuali residui. |
+| I3 | "In errore" e "in elaborazione" sono calcolati, mai salvati. |
+| I4 | Ogni scrittura che decide la sorte di un file passa dal lock del workspace: esiti diversi da ACQUISITO (`ChiusuraCaricamento`), acquisizione (asincrona o a mano), verifica, rimozione, registrazione della nuova lettura, associazione e sua rimozione. |
+| I5 | `caricamento.motivo` e' valorizzato solo in ERRORE (CHECK `ck_caricamento_motivo`). |
+| I6 | Al piu' un file associato per rapporto + anno + mese (UNIQUE `uk_caricamento_attribuzione_competenza`). |
+| I7 | Le azioni su un file con un tentativo in elaborazione sono rifiutate (409). |
+
+Letture e azioni (`CaricamentiInErrore`, implementata da `CaricamentiInErroreService`; REST in
+`web.api.CaricamentiInErroreController`, sotto `/api/v1/caricamenti`). Ogni azione accetta l'id di uno qualunque dei
+tentativi in ERRORE del file; quelle che modificano il file ricontrollano sotto lock che il caricamento esista nel
+workspace (404), che il file sia ancora in errore (409) e che non sia in elaborazione (409):
+
+| Azione | Effetto |
+|--------|---------|
+| `GET /in-errore` | elenco del predicato, con persona, azienda e titolo della mensilita' associata (`web.api.ComposizioneCaricamentiInErrore`) |
+| `GET /{id}/pdf` | PDF conservato con il nome originale (404 se non conservato) |
+| `PUT /{id}/attribuzione` | associa a rapporto + anno + mese 1..14 (409 se la mensilita' ha gia' un cedolino o un altro file); evento `CaricamentiInErroreModificati` per il rapporto nuovo e il precedente |
+| `DELETE /{id}/attribuzione` | rimuove l'associazione; evento |
+| `DELETE /{id}` | elimina i tentativi in ERRORE del file, il PDF e l'associazione; evento se era associato |
+| `POST /{id}/rilettura` | registra un nuovo tentativo IN_CODA in un lotto di un file e lo accoda dopo il commit (202 e polling del lotto) |
+| `POST /{id}/cedolino/verifica` | prova dell'inserimento a mano: acquisizione completa, poi annullata |
+| `POST /{id}/cedolino` | inserimento a mano: 201 con il caricamento ACQUISITO; 409 se duplicato o aggiuntivo (il file resta in errore) |
+
+**Inserimento a mano** (un lettore in piu'):
+
+```
+CedolinoManuale (stessi percorsi di prompts/cedolino-schema-v1.json)
+  └─ ValidazioneCedolinoManuale.verifica ─► errori bloccanti ─► DatiNonValidiException ─► 400 Problema.errori[]
+  └─ ValidazioneCedolinoManuale.normalizza (testi, codici maiuscoli, flag 13a/14a dal tipo, buoni pasto)
+  └─ JsonCedolinoManuale.scrivi ─► JSON dello schema v1
+  └─ InterpreteRispostaEstrazione.interpreta(json, "inserimento-manuale-1") (IBAN mascherati, validatore comune)
+       + avvisi propri (somme delle voci, codice fiscale provvisorio), confidenza null
+  └─ AcquisizioneCedolino.acquisisciManuale (una transazione serializzata):
+       controlli del file + PDF conservato ─► stessa registrazione delle letture (censimento, competenza, duplicati,
+       riclassificazione, PDF originale con il suo hash, ACQUISITO, eventi)
+       verifica: setRollbackOnly sempre (persona e rapporti prima della registrazione confrontati con quelli usati,
+       per nuovaPersona / nuovoRapporto); inserimento: setRollbackOnly se scartato
+```
+
+La verifica non lascia tracce perche' tutti i listener sono sincroni nella stessa transazione e non esiste un event
+publication registry: l'annullamento cancella anche riepiloghi e segnalazioni ricalcolati.
+
+**Mensilita' con un file in errore**: l'associazione scelta dall'utente (mai dedotta) entra in due viste:
+
+- lista mensilita' del rapporto (`web.api.ListaMensilita`): riga `IN_ERRORE` con `caricamentoId` e `motivoErrore`;
+  per la stessa competenza PRESENTE > IN_ERRORE > MANCANTE;
+- segnalazioni: `SegnalazioniService` passa a `ContestoRapporto` le mensilita' associate (`mensilitaInErrore`); le
+  regole "mancante" le ignorano e `RegolaCedolinoInErrore` emette un AVVISO `CEDOLINO_IN_ERRORE` per ciascuna senza
+  cedolino. Il ricalcolo parte da `CedolinoAcquisito`, `CedolinoEliminato` e `CaricamentiInErroreModificati`.
 
 ## Configurazione
 

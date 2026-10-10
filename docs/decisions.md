@@ -348,7 +348,8 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     lotto; si rilanciano solo gli altri `VirtualMachineError`.
 82. **Riavvio**: i caricamenti IN_CODA/IN_LETTURA vanno in ERRORE ("Elaborazione interrotta dal riavvio
     dell'applicazione: ricarica il file") in `SmartInitializingSingleton`, cioe' prima che il server web accetti
-    richieste. Alla chiusura l'executor viene fermato (attesa massima 30 secondi).
+    richieste, con il motivo `INTERROTTO` (decisione 143). Alla chiusura l'executor viene fermato (attesa massima 30
+    secondi).
 83. **Campi non trovati e avvisi dell'estrazione** salvati in `cedolino.campi_non_trovati` e
     `cedolino.avvisi_estrazione` (changelog `320`), separati da a capo e troncati a riga intera entro 4000 caratteri;
     esposti nel dettaglio del cedolino (`campiNonTrovati`, `avvisiEstrazione`).
@@ -677,7 +678,7 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        riconosciuto senza periodo, codice fiscale del dipendente o netto nel testo (`LAYOUT_NON_RICONOSCIUTO`) vanno
        in errore con un messaggio in italiano che suggerisce `SAM_LETTORE=claude`; i campi non trovati restano vuoti
        (mai dedotti). I due motivi sono nuovi valori interni di `EstrazioneCedolinoException.Motivo`, non esposti
-       dalle API (il caricamento riporta solo il messaggio).
+       dalle API (il caricamento riporta solo il messaggio; superato dalla decisione 141, che espone `MotivoErrore`).
      - **Confidenza onesta**: base 0,95, ridotta per ogni sezione attesa e non trovata, ogni controllo interno non
        superato (somma delle voci contro i totali stampati, TFR spettante contro fondo piu' quota) e ogni campo
        chiave assente; i controlli non superati diventano avvisi senza valori.
@@ -694,3 +695,126 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        cedolino letto non e' coerente. `SAM_SAMPLES_DIR` accetta piu' cartelle (separatore di percorso del sistema).
      - **Frontend**: i testi che citavano Claude per la lettura parlano del lettore in generale ("Lettura del cedolino
        in corso").
+
+## Cedolini caricati con errore e inserimento a mano
+
+140. **[utente] Mensilita' mancanti e cedolini caricati con errore sono cose diverse**: una mensilita' *mancante* non
+     ha ne' cedolino ne' file associato; un *cedolino caricato con errore* e' un file (workspace + hash SHA-256: stesso
+     contenuto = stesso file) il cui ultimo tentativo concluso e' in ERRORE e che nessun cedolino archiviato ha.
+     - **Area globale** "Cedolini caricati con errore" (`GET /api/v1/caricamenti/in-errore`): rossa, in cima alla
+       pagina anche senza una persona selezionata, ben distinta dall'arancione di "Mensilità mancante", con il
+       contatore nella barra superiore.
+     - **Associazione a un mese** ("Associa a un mese", solo per scelta dell'utente): la mensilita' diventa una riga
+       `IN_ERRORE` (rossa, con "Inserisci a mano") e la segnalazione `CEDOLINO_IN_ERRORE` (AVVISO) prende il posto di
+       "Mensilità mancante" (ANOMALIA). Il file non viene mai associato automaticamente: i file che falliscono non
+       hanno dati leggibili e indovinare il mese violerebbe la decisione 34.
+     - **Lista mensilita'**: per la stessa competenza PRESENTE prevale su IN_ERRORE e IN_ERRORE su MANCANTE; una riga
+       IN_ERRORE puo' cadere fuori dal periodo atteso (per esempio prima del primo cedolino).
+141. **Motivo dell'errore salvato ed esposto**: colonna `caricamento.motivo` (changelog `330`; un CHECK la ammette
+     solo in ERRORE) con l'enum pubblico `cedolini.MotivoErrore`, esposto in `Caricamento.motivo`,
+     `CaricamentoInErrore.motivo` e `RigaMensilita.motivoErrore`, perche' le azioni offerte dipendono dal motivo
+     (password, nuova lettura, inserimento a mano, "dividi il PDF"). Le eccezioni interne si traducono in
+     `MotiviErrore` con `switch` esaustivi (un nuovo motivo interno non compila senza la sua traduzione); un PDF con
+     piu' cedolini ha ora il motivo interno `PIU_CEDOLINI` invece di `DOCUMENTO_NON_VALIDO`. Supera l'ultimo punto
+     della decisione 139 ("non esposti dalle API"). Gli errori registrati prima non vengono ricostruiti dai testi dei
+     messaggi (confronto fragile): restano con motivo `null`, senza PDF e con il loro messaggio, e vanno ricaricati.
+142. **[utente] PDF originale dei file in errore completabili conservato** in `caricamento_pdf` (changelog `331`),
+     uno per file (chiave workspace + hash), come caricato (anche se protetto): serve per l'anteprima, l'inserimento
+     a mano e la nuova lettura.
+     - **Quando**: solo quando un tentativo finisce in ERRORE con un motivo che lo prevede
+       (`MotivoErrore.conservaPdf()`: tutti tranne `PDF_NON_VALIDO`, `PDF_TROPPE_PAGINE` e `PIU_CEDOLINI`) e il file
+       non e' archiviato. Non alla registrazione: dati personali a riposo solo quando servono e nessuna doppia
+       scrittura per i file che si leggono.
+     - **Fino a quando**: si elimina nella stessa transazione che risolve il file: archiviato come cedolino (lettura
+       o inserimento a mano), scartato (DUPLICATO, AGGIUNTIVO_NON_GESTITO), chiuso con un motivo che non lo prevede,
+       rimosso dall'utente. Al riavvio si eliminano quelli dei file non piu' in errore (rete di sicurezza).
+     - **Limite accettato**: un riavvio durante la *prima* elaborazione lascia il file in errore (`INTERROTTO`)
+       senza PDF ("carica di nuovo il file"); un riavvio durante una nuova lettura non perde nulla, perche' il PDF e'
+       del file e non del tentativo.
+143. **"File in errore" calcolato, non salvato**: nessun nuovo stato del caricamento.
+     - **Predicato unico** (`JooqCaricamentiRepository`, condizione `fileInErrore`): esiste un tentativo ERRORE del
+       file senza tentativi successivi conclusi e nessun cedolino ha quell'hash; la riga elencata e' l'ultimo
+       tentativo concluso. `inElaborazione` (un tentativo IN_CODA o IN_LETTURA dello stesso file) tiene visibile la
+       riga durante una nuova lettura e blocca le azioni (409).
+     - **Scritture serializzate**: tutto cio' che decide la sorte di un file passa dalla transazione serializzata per
+       workspace (decisione 73) e ricontrolla il predicato: gli esiti conclusivi diversi da ACQUISITO
+       (`ChiusuraCaricamento`), l'acquisizione e le azioni dell'utente. Se la transazione di chiusura fallisce, un
+       aggiornamento semplice registra comunque lo stato: un caricamento non resta mai IN_LETTURA. La chiusura di un
+       errore di lettura avviene dopo aver rilasciato il permesso di lettura, che non resta occupato in attesa del
+       lock.
+     - **Ordine nell'acquisizione**: caricamento ACQUISITO, eliminazione di PDF conservato e associazione, poi
+       `CedolinoAcquisito`: i listener sincroni vedono gia' uno stato coerente.
+     - **Modifica la decisione 82**: al riavvio i caricamenti interrotti ricevono anche il motivo `INTERROTTO`; poi
+       si eliminano PDF conservati e associazioni dei file non piu' in errore.
+144. **Associazione a una mensilita'** in `caricamento_attribuzione` (changelog `332`): una per file (chiave
+     workspace + hash, non per tentativo: nessuna eredita' tra tentativi) e una per competenza (UNIQUE rapporto + anno
+     + mese 1..14), FK verso `rapporto_lavoro` con `ON DELETE CASCADE`, come `riepilogo_rapporto` e `segnalazione`:
+     eliminato il rapporto, l'associazione sparisce senza codice applicativo.
+     - Rifiutata (409) se la mensilita' ha gia' un cedolino o un altro file associato; il file si sposta liberamente.
+     - Ogni modifica (associazione creata, spostata o rimossa; file archiviato in un altro rapporto, scartato o
+       rimosso) pubblica `cedolini.CaricamentiInErroreModificati`, ascoltato solo da segnalazioni: i dati dei
+       cedolini, e quindi i calcoli, non cambiano.
+     - **Modifica le decisioni 35, 96, 99 e 100**: le mensilita' con un file associato non sono mancanti (le tre regole
+       "mancante" le ignorano tramite `ContestoRapporto.mensilitaInErrore`) e hanno la loro segnalazione
+       `CEDOLINO_IN_ERRORE` con la competenza; la riga IN_ERRORE della lista mensilita' viene dal modulo cedolini, non
+       dalle segnalazioni.
+     - **Modifica la decisione 124**: la tabella `caricamento` resta senza riferimenti all'anagrafica; il solo legame
+       salvato tra un file in errore e un rapporto e' l'associazione scelta dall'utente, mentre `personaId` e
+       `rapportoId` dei caricamenti restano derivati dal cedolino.
+145. **[utente] L'inserimento a mano e' un lettore in piu'**: il modulo, con gli stessi campi e percorsi dello schema
+     `prompts/cedolino-schema-v1.json` (`CedolinoManuale`), diventa il JSON dello schema (`JsonCedolinoManuale`) e
+     passa da `InterpreteRispostaEstrazione` e `AcquisizioneCedolino` come una lettura: normalizzazione, mascheramento
+     degli IBAN, controlli di coerenza, censimento, competenza, duplicati, riclassificazione, ricalcoli e stato
+     ACQUISITO senza logica duplicata.
+     - Si archivia il PDF originale conservato con il suo hash: un nuovo caricamento dello stesso file e' DUPLICATO.
+     - Modello registrato `inserimento-manuale-1` (`ModelliEstrazione`), confidenza `null` (non c'e' una lettura),
+       nessun campo non trovato (un campo vuoto e' un dato "non stampato"); il dettaglio del cedolino espone
+       `inseritoAMano`, mostrato al posto dell'affidabilita' della lettura. Il JSON salvato resta come traccia di
+       quanto inserito.
+     - Una persona gia' censita non viene modificata: nome e cognome in archivio restano.
+146. **Verifica = acquisizione annullata**: `POST /api/v1/caricamenti/{id}/cedolino/verifica` esegue la stessa
+     acquisizione dell'inserimento nella transazione serializzata e la annulla sempre (`setRollbackOnly`): competenza
+     definitiva, scarto per duplicato o aggiuntivo, persona e rapporto nuovi sono quelli veri, senza una seconda
+     implementazione. E' sicuro perche' tutti i listener sono `@EventListener` sincroni nella stessa transazione e non
+     c'e' event publication registry (decisione 33): l'annullamento non lascia tracce, nemmeno in riepiloghi e
+     segnalazioni. In prova non si scrive la riga di log dell'acquisizione; l'anagrafica puo' registrare a INFO l'id
+     di una persona poi annullata (accettato: e' solo un id). Un inserimento scartato annulla la transazione allo
+     stesso modo: 409 e il file resta in errore con il suo PDF.
+147. **Errori bloccanti e avvisi dell'inserimento a mano** (`ValidazioneCedolinoManuale`):
+     - **Bloccanti** (400 con `Problema.errori[{campo, messaggio}]`, `campo` = percorso nello schema come
+       `totali.netto` o `voci[3].descrizione`): i dati che servono all'archiviazione e al confronto dei duplicati o
+       che l'interprete scarterebbe in silenzio. Tipo, anno (dal 1900 all'anno prossimo) e mese 1..12 del periodo;
+       codice fiscale, nome e cognome del dipendente; ragione sociale, partita IVA e codice fiscale dell'azienda;
+       totale competenze, totale trattenute e netto; limiti delle colonne (`NUMERIC(15,5)`, lunghezze dei testi);
+       descrizione e categoria delle voci; ratei univoci per tipo e unita'. Un errore per campo.
+     - **Codice fiscale del dipendente**: valido, di 11 cifre (provvisorio, con un avviso) oppure uguale a quello di
+       una persona censita; altrimenti errore, perche' il censimento accetta qualunque codice e un refuso creerebbe
+       una persona fantasma.
+     - **Avvisi** non bloccanti salvati con il cedolino: quelli del validatore comune, le somme delle voci contro i
+       totali stampati (stessa regola e tolleranza del lettore locale) e il codice fiscale provvisorio; la sola
+       verifica aggiunge gli avvisi di contesto (persona o rapporto nuovi, nome diverso da quello in archivio, mese
+       diverso da quello associato).
+     - I messaggi non ripetono mai i valori inseriti. Il frontend rispecchia le regole, ma l'autorita' e' il server;
+       gli errori campo per campo viaggiano con `shared.DatiNonValidiException`.
+148. **Nuova lettura e rimozione**:
+     - `POST /api/v1/caricamenti/{id}/rilettura` registra un nuovo caricamento dello stesso file (stesso nome e hash)
+       in un nuovo lotto di un solo file e lo elabora dal PDF conservato, con la password facoltativa solo in memoria
+       (mai salvata, mai nei log, nascosta nel `toString` del DTO): e' la via per i PDF protetti senza ricaricarli. Un
+       lotto di un solo file non ha la riprova a fine lotto (decisione 125).
+     - `DELETE /api/v1/caricamenti/{id}` elimina tutti i tentativi in ERRORE del file, il PDF conservato e
+       l'associazione (privacy prima di tutto, nessuno stato in piu'); i tentativi con altri esiti restano.
+149. **Frontend dei file in errore e dell'inserimento a mano**:
+     - **Stato del modulo** con `@mantine/form` 9.7.1 (versione esatta, la stessa di Mantine): percorsi uguali a
+       quelli dello schema, cosi' un errore del server su `voci[3].descrizione` si posa sul campo `voci.3.descrizione`.
+     - **Importi all'italiana** (`CampoNumero`, su `NumberInput`): separatore decimale "," e delle migliaia ".", con
+       `allowedDecimalSeparators={[',']}` perche' con il default di Mantine "1.234,56" diventerebbe 1,23; anno e
+       numero di scatti interi e senza separatore delle migliaia.
+     - **Anteprima del PDF conservato** da un URL `blob:` (scaricato con fetch e revocato alla chiusura: non soggetto
+       a `X-Frame-Options`), con "Apri in una nuova scheda" per i telefoni, che non mostrano i PDF negli iframe.
+     - **Nessuna bozza salvata nel browser**: chiudere un modulo modificato chiede conferma.
+     - **Copia dei dati da un rapporto o da un cedolino esistente** fatta dal client con `GET /api/v1/rapporti/{id}`
+       e `GET /api/v1/cedolini/{id}` (nessuna API nuova), solo nei campi vuoti e mai per la data di cessazione e gli
+       importi delle voci.
+     - **Salvataggio** abilitato solo dopo una verifica dei valori correnti con esito `ACQUISIBILE`.
+     - **Nessun router**: le azioni sui file (inserisci, associa, rileggi, rimuovi) sono offerte a tutta la pagina da
+       un contesto React dell'`App`.

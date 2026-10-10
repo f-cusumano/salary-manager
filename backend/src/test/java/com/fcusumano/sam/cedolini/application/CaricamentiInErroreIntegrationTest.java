@@ -367,6 +367,7 @@ class CaricamentiInErroreIntegrationTest {
         var contenuto = pdfConTesto("Maggio senza testo");
         var caricato = caricaInErrore("maggio.pdf", contenuto);
         inErrore.associa(caricato.id(), aprile.rapportoId(), 2023, 5);
+        assertThat(segnalazioniDi(aprile.rapportoId(), 2023, 5)).containsExactly("CEDOLINO_IN_ERRORE");
         eventi.azzera();
 
         var esito = inErrore.inserisci(caricato.id(), essenziale());
@@ -401,6 +402,8 @@ class CaricamentiInErroreIntegrationTest {
         assertThat(archivio.sintesiDiRapporto(aprile.rapportoId())).hasSize(2);
         assertThat(dsl.fetchCount(dsl.selectFrom("riepilogo_rapporto").where("rapporto_id = ?",
                 aprile.rapportoId().valore()))).isEqualTo(1);
+        assertThat(segnalazioniDi(aprile.rapportoId(), 2023, 5)).as("segnalazioni ricalcolate nell'acquisizione")
+                .isEmpty();
 
         var ricaricato = carica(new FileCaricato("maggio.pdf", contenuto));
         assertThat(ricaricato.stato()).isEqualTo(StatoCaricamento.DUPLICATO);
@@ -851,10 +854,16 @@ class CaricamentiInErroreIntegrationTest {
     private Map<String, Integer> conteggi() {
         var conteggi = new LinkedHashMap<String, Integer>();
         for (var tabella : List.of("persona", "azienda", "rapporto_lavoro", "cedolino", "cedolino_pdf",
-                "riepilogo_rapporto", "caricamento", "caricamento_pdf", "caricamento_attribuzione")) {
+                "riepilogo_rapporto", "segnalazione", "caricamento", "caricamento_pdf", "caricamento_attribuzione")) {
             conteggi.put(tabella, dsl.fetchCount(dsl.selectFrom(tabella)));
         }
         return conteggi;
+    }
+
+    /** Tipi delle segnalazioni salvate per una mensilita' del rapporto. */
+    private List<String> segnalazioniDi(RapportoLavoroId rapporto, int anno, int mese) {
+        return dsl.fetch("SELECT tipo FROM segnalazione WHERE rapporto_id = ? AND competenza_anno = ? "
+                + "AND competenza_mese = ? ORDER BY tipo", rapporto.valore(), anno, mese).getValues(0, String.class);
     }
 
     private WorkspaceId nuovoWorkspace() {
