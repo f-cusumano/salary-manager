@@ -4,14 +4,18 @@ import com.fcusumano.sam.anagrafica.RapportoLavoro;
 import com.fcusumano.sam.ccnl.Ccnl;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.CedolinoNormalizzato;
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.TipoMensilita;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.TreeMap;
 
 /**
  * Input delle regole: tutto cio' che serve per valutare un rapporto, con alcune letture di comodo sui cedolini.
@@ -21,8 +25,12 @@ import java.util.Optional;
  * @param cedolini cedolini del rapporto; vengono sempre riordinati in ordine cronologico crescente di competenza
  *                 ({@link Competenza#ORDINE_CRONOLOGICO})
  * @param oggi     data di riferimento (da Clock, per test deterministici)
+ * @param mensilitaInErrore mensilita' a cui l'utente ha associato un file caricato con errore, con il motivo
+ *                          dell'errore (null se non registrato); in ordine cronologico. Una mensilita' puo' avere
+ *                          anche il cedolino, archiviato nel frattempo da un altro file
  */
-public record ContestoRapporto(RapportoLavoro rapporto, Ccnl ccnl, List<CedolinoNormalizzato> cedolini, LocalDate oggi) {
+public record ContestoRapporto(RapportoLavoro rapporto, Ccnl ccnl, List<CedolinoNormalizzato> cedolini, LocalDate oggi,
+                               Map<Competenza.Mensilita, MotivoErrore> mensilitaInErrore) {
 
     private static final Comparator<CedolinoNormalizzato> CRONOLOGICO =
             Comparator.comparing(CedolinoNormalizzato::competenza, Competenza.ORDINE_CRONOLOGICO);
@@ -31,6 +39,17 @@ public record ContestoRapporto(RapportoLavoro rapporto, Ccnl ccnl, List<Cedolino
         Objects.requireNonNull(rapporto, "rapporto");
         Objects.requireNonNull(oggi, "oggi");
         cedolini = cedolini == null ? List.of() : cedolini.stream().sorted(CRONOLOGICO).toList();
+        // TreeMap: ordine cronologico e motivi null ammessi (Map.copyOf non li accetta)
+        var ordinate = new TreeMap<Competenza.Mensilita, MotivoErrore>(Competenza.ORDINE_CRONOLOGICO);
+        if (mensilitaInErrore != null) {
+            ordinate.putAll(mensilitaInErrore);
+        }
+        mensilitaInErrore = Collections.unmodifiableMap(ordinate);
+    }
+
+    /** Contesto senza mensilita' con un file in errore associato. */
+    public ContestoRapporto(RapportoLavoro rapporto, Ccnl ccnl, List<CedolinoNormalizzato> cedolini, LocalDate oggi) {
+        this(rapporto, ccnl, cedolini, oggi, Map.of());
     }
 
     /**
@@ -72,6 +91,14 @@ public record ContestoRapporto(RapportoLavoro rapporto, Ccnl ccnl, List<Cedolino
     public boolean esisteCompetenza(int anno, int mese) {
         var cercata = new Competenza.Mensilita(anno, mese);
         return cedolini.stream().anyMatch(c -> cercata.equals(c.competenza()));
+    }
+
+    /**
+     * True se l'utente ha associato un file caricato con errore alla competenza anno + mese (es. 13 = tredicesima):
+     * il cedolino e' stato caricato, quindi la mensilita' non e' mancante (la segnala CEDOLINO_IN_ERRORE).
+     */
+    public boolean inErrore(int anno, int mese) {
+        return mensilitaInErrore.containsKey(new Competenza.Mensilita(anno, mese));
     }
 
     /** Primo cedolino (di qualunque tipo) con periodo di retribuzione successivo al mese indicato. */

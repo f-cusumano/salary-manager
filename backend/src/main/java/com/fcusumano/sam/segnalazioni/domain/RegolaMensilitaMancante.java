@@ -26,6 +26,8 @@ import java.util.stream.Stream;
  * <ul>
  *   <li>mese coperto da un cedolino di fine rapporto con lo stesso periodo di retribuzione;</li>
  *   <li>mese compreso tra una cessazione e una successiva riassunzione stampate sui cedolini (rapporto interrotto);</li>
+ *   <li>mese a cui l'utente ha associato un file caricato con errore: il cedolino e' stato caricato (lo segnala
+ *       CEDOLINO_IN_ERRORE);</li>
  *   <li>prima del primo cedolino ordinario non si segnala nulla: i cedolini precedenti possono non essere stati
  *       caricati.</li>
  * </ul>
@@ -61,6 +63,10 @@ public final class RegolaMensilitaMancante implements RegolaSegnalazione {
         contesto.cedolini().stream()
                 .filter(c -> c.tipo() == TipoMensilita.ORDINARIA || c.tipo() == TipoMensilita.FINE_RAPPORTO)
                 .map(ContestoRapporto::periodo)
+                .forEach(coperti::add);
+        contesto.mensilitaInErrore().keySet().stream()
+                .filter(m -> m.tipo() == TipoMensilita.ORDINARIA)
+                .map(Competenza.Mensilita::comeYearMonth)
                 .forEach(coperti::add);
         var interruzioni = interruzioni(contesto);
 

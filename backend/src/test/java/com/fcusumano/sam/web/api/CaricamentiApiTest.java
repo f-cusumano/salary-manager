@@ -258,7 +258,13 @@ class CaricamentiApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.caricamenti[2].personaId").value(nullValue()))
                 .andExpect(jsonPath("$.caricamenti[2].rapportoId").value(nullValue()))
                 .andExpect(jsonPath("$.caricamenti[2].messaggio")
-                        .value("PDF protetto da password: indica la password e ricarica"));
+                        .value("PDF protetto da password: indica la password e ricarica"))
+                .andExpect(jsonPath("$.caricamenti[2].motivo").value("PDF_PROTETTO"))
+                .andExpect(jsonPath("$.caricamenti[2].pdfDisponibile").value(true))
+                .andExpect(jsonPath("$.caricamenti[0].motivo").value(nullValue()))
+                .andExpect(jsonPath("$.caricamenti[0].pdfDisponibile").value(false))
+                .andExpect(jsonPath("$.caricamenti[1].motivo").value(nullValue()))
+                .andExpect(jsonPath("$.caricamenti[1].pdfDisponibile").value(false));
         mvc.perform(get("/api/v1/caricamenti/lotti/" + LOTTO))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.completato").value(true))

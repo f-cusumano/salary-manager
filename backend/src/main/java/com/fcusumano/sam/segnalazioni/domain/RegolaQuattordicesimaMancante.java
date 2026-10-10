@@ -26,6 +26,8 @@ import java.util.stream.IntStream;
  *       un cedolino non caricato, gia' segnalato come mensilita' mancante;</li>
  *   <li>il rapporto non e' cessato prima di M/Y (in quel caso i ratei vanno nelle competenze finali);</li>
  *   <li>non esiste il cedolino 14 di Y e nessun cedolino di Y riporta quattordicesima o suoi ratei;</li>
+ *   <li>l'utente non ha associato alla quattordicesima di Y un file caricato con errore (lo segnala
+ *       CEDOLINO_IN_ERRORE);</li>
  *   <li>nessun cedolino del periodo da M/Y-1 a M/Y stampa un CCNL diverso da quello stampato sul cedolino piu' recente
  *       che lo riporta: con un cambio di contratto documentato (per esempio da un CCNL a 13 mensilita') il CCNL
  *       attuale non vale per quell'anno e la quattordicesima potrebbe non essere dovuta.</li>
@@ -76,7 +78,7 @@ public final class RegolaQuattordicesimaMancante implements RegolaSegnalazione {
         if (cessazione != null && cessazione.isBefore(meseM.atDay(1)) && !contesto.ordinariDopo(YearMonth.from(cessazione))) {
             return Optional.empty();
         }
-        if (contesto.esisteCompetenza(anno, 14) || contesto.dellAnno(anno).stream()
+        if (contesto.esisteCompetenza(anno, 14) || contesto.inErrore(anno, 14) || contesto.dellAnno(anno).stream()
                 .anyMatch(CedolinoNormalizzato::contieneQuattordicesima)) {
             return Optional.empty();
         }

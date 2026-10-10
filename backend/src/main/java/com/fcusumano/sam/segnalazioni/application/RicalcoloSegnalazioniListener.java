@@ -1,6 +1,7 @@
 package com.fcusumano.sam.segnalazioni.application;
 
 import com.fcusumano.sam.anagrafica.CcnlRapportoModificato;
+import com.fcusumano.sam.cedolini.CaricamentiInErroreModificati;
 import com.fcusumano.sam.cedolini.CedolinoAcquisito;
 import com.fcusumano.sam.cedolini.CedolinoEliminato;
 import com.fcusumano.sam.segnalazioni.SegnalazioniRapporto;
@@ -32,5 +33,11 @@ class RicalcoloSegnalazioniListener {
     @EventListener
     void on(CcnlRapportoModificato evento) {
         segnalazioni.ricalcola(evento.rapportoId());
+    }
+
+    /** Mensilita' con un file in errore associato cambiate: nessun dato dei cedolini cambia, solo le segnalazioni. */
+    @EventListener
+    void on(CaricamentiInErroreModificati evento) {
+        evento.rapporti().forEach(segnalazioni::ricalcola);
     }
 }

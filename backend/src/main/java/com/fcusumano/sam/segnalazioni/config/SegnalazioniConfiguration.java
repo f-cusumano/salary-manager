@@ -1,6 +1,7 @@
 package com.fcusumano.sam.segnalazioni.config;
 
 import com.fcusumano.sam.segnalazioni.domain.RegolaCcnlNonDeterminato;
+import com.fcusumano.sam.segnalazioni.domain.RegolaCedolinoInErrore;
 import com.fcusumano.sam.segnalazioni.domain.RegolaFineRapportoMancante;
 import com.fcusumano.sam.segnalazioni.domain.RegolaFondoTfrInCalo;
 import com.fcusumano.sam.segnalazioni.domain.RegolaLivelloInCalo;
@@ -34,6 +35,11 @@ class SegnalazioniConfiguration {
     @Bean
     RegolaQuattordicesimaMancante regolaQuattordicesimaMancante() {
         return new RegolaQuattordicesimaMancante();
+    }
+
+    @Bean
+    RegolaCedolinoInErrore regolaCedolinoInErrore() {
+        return new RegolaCedolinoInErrore();
     }
 
     @Bean

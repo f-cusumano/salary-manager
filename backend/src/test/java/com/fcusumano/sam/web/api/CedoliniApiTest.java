@@ -67,6 +67,7 @@ class CedoliniApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.nomeFile").value("2024.01_3_1.pdf"))
                 .andExpect(jsonPath("$.acquisitoIl").value("2025-03-10T09:30:00Z"))
                 .andExpect(jsonPath("$.confidenza").value(0.95))
+                .andExpect(jsonPath("$.inseritoAMano").value(false))
                 .andExpect(jsonPath("$.campiNonTrovati[0]").value("codiceDipendente"))
                 .andExpect(jsonPath("$.avvisiEstrazione[0]").value("Partita IVA dell'azienda formalmente non valida"))
                 .andExpect(jsonPath("$.inquadramento.ccnlTesto").value("CCNL Commercio"))

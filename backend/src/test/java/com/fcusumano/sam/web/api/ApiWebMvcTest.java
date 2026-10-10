@@ -5,6 +5,7 @@ import com.fcusumano.sam.anagrafica.GestioneRapporti;
 import com.fcusumano.sam.calcoli.CalcoliRapporto;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
 import com.fcusumano.sam.cedolini.ArchivioCedolini;
+import com.fcusumano.sam.cedolini.CaricamentiInErrore;
 import com.fcusumano.sam.cedolini.CaricamentoCedolini;
 import com.fcusumano.sam.segnalazioni.SegnalazioniRapporto;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,4 +48,7 @@ abstract class ApiWebMvcTest {
 
     @MockitoBean
     CaricamentoCedolini caricamento;
+
+    @MockitoBean
+    CaricamentiInErrore caricamentiInErrore;
 }
