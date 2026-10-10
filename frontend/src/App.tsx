@@ -127,7 +127,7 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
       apriInserimento: (caricamentoId) => setInserimento({ caricamentoId }),
       apriAssociazione: setAssociazione,
       apriRilettura: (caricamentoId) => setRilettura({ caricamentoId }),
-      rimuovi: (caricamentoId) => {
+      rimuovi: (caricamentoId, opzioni) => {
         const nome = elencoInErrore?.find((e) => e.id === caricamentoId)?.nomeFileOriginale;
         modals.openConfirmModal({
           title: t.rimuoviTitolo,
@@ -145,8 +145,10 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
           confirmProps: { color: 'red', leftSection: <IconTrash size={16} aria-hidden /> },
           onConfirm: () =>
             rimuoviFile(caricamentoId, {
-              onSuccess: () =>
-                notifications.show({ color: 'teal', message: nome ? `${t.rimosso}: ${nome}` : t.rimosso }),
+              onSuccess: () => {
+                notifications.show({ color: 'teal', message: nome ? `${t.rimosso}: ${nome}` : t.rimosso });
+                opzioni?.onRimosso?.();
+              },
               onError: (errore) =>
                 notifications.show({
                   color: 'red',

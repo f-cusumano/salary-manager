@@ -18,8 +18,8 @@ export interface AzioniCaricamenti {
   apriInserimento: (caricamentoId: number) => void;
   apriAssociazione: (opzioni: OpzioniAssociazione) => void;
   apriRilettura: (caricamentoId: number) => void;
-  /** Rimuove il file in errore dopo la conferma dell'utente. */
-  rimuovi: (caricamentoId: number) => void;
+  /** Rimuove il file in errore dopo la conferma dell'utente (onRimosso: per esempio chiudere la finestra aperta). */
+  rimuovi: (caricamentoId: number, opzioni?: { onRimosso?: () => void }) => void;
   rimuoviAssociazione: (caricamentoId: number) => void;
   /** Apre la modale di caricamento (file senza PDF conservato: va caricato di nuovo). */
   caricaDiNuovo: () => void;

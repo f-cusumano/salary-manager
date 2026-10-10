@@ -241,36 +241,43 @@ describe('elenco dei cedolini caricati con errore', () => {
     expect(within(altra).getByRole('button', { name: 'Rileggi' })).toBeDisabled();
   });
 
-  it('apre l’inserimento a mano dall’elenco, dalla mensilità in errore e dalla modale di caricamento', async () => {
-    const { user } = renderConMock(<App intervalloPollingMs={POLLING_TEST_MS} />, { datiIniziali: 'errori' });
-    const chiudi = async (nomeFile: string) => {
-      const dialogo = await screen.findByRole('dialog', { name: `Inserisci a mano · ${nomeFile}` });
-      await user.click(within(dialogo).getByRole('button', { name: 'Chiudi la finestra' }));
-      await waitFor(() => expect(dialogo).not.toBeInTheDocument());
-    };
+  // la finestra dell'inserimento a mano monta ogni volta il modulo completo e l'anteprima del PDF: tre aperture
+  it(
+    'apre l’inserimento a mano dall’elenco, dalla mensilità in errore e dalla modale di caricamento',
+    { timeout: 20_000 },
+    async () => {
+      const { user } = renderConMock(<App intervalloPollingMs={POLLING_TEST_MS} />, {
+        datiIniziali: 'errori',
+      });
+      const chiudi = async (nomeFile: string) => {
+        const dialogo = await screen.findByRole('dialog', { name: `Inserisci a mano · ${nomeFile}` });
+        await user.click(within(dialogo).getByRole('button', { name: 'Chiudi la finestra' }));
+        await waitFor(() => expect(dialogo).not.toBeInTheDocument());
+      };
 
-    const area = await areaInErrore();
-    await user.click(
-      within(rigaInErrore(area, 'busta-scansione.pdf')).getByRole('button', { name: 'Inserisci a mano' }),
-    );
-    const dialogo = await screen.findByRole('dialog', { name: 'Inserisci a mano · busta-scansione.pdf' });
-    expect(within(dialogo).getByText('Scansione senza testo')).toBeInTheDocument();
-    await chiudi('busta-scansione.pdf');
+      const area = await areaInErrore();
+      await user.click(
+        within(rigaInErrore(area, 'busta-scansione.pdf')).getByRole('button', { name: 'Inserisci a mano' }),
+      );
+      const dialogo = await screen.findByRole('dialog', { name: 'Inserisci a mano · busta-scansione.pdf' });
+      expect(within(dialogo).getByText('Scansione senza testo')).toBeInTheDocument();
+      await chiudi('busta-scansione.pdf');
 
-    const mensilita = await mensilitaDiAlfa(user);
-    const agosto = await within(mensilita).findByRole('listitem', {
-      name: 'Agosto 2025: Caricato con errore',
-    });
-    await user.click(within(agosto).getByRole('button', { name: 'Inserisci a mano' }));
-    await chiudi('ristampa.pdf');
+      const mensilita = await mensilitaDiAlfa(user);
+      const agosto = await within(mensilita).findByRole('listitem', {
+        name: 'Agosto 2025: Caricato con errore',
+      });
+      await user.click(within(agosto).getByRole('button', { name: 'Inserisci a mano' }));
+      await chiudi('ristampa.pdf');
 
-    const modale = await caricaFile(user, 'scansione-giugno.pdf');
-    await user.click(within(modale).getByRole('button', { name: 'Inserisci a mano' }));
-    expect(
-      await screen.findByRole('dialog', { name: 'Inserisci a mano · scansione-giugno.pdf' }),
-    ).toBeVisible();
-    expect(screen.queryByRole('dialog', { name: 'Carica cedolini' })).not.toBeInTheDocument();
-  });
+      const modale = await caricaFile(user, 'scansione-giugno.pdf');
+      await user.click(within(modale).getByRole('button', { name: 'Inserisci a mano' }));
+      expect(
+        await screen.findByRole('dialog', { name: 'Inserisci a mano · scansione-giugno.pdf' }),
+      ).toBeVisible();
+      expect(screen.queryByRole('dialog', { name: 'Carica cedolini' })).not.toBeInTheDocument();
+    },
+  );
 });
 
 describe('associazione di un file in errore a una mensilità', () => {
