@@ -880,6 +880,9 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      - **Ordine delle aziende**: con una persona scelta prima le sue aziende (stesso ordine dei suoi rapporti), poi
        le altre per ragione sociale; nessuna scelta automatica dell'azienda quando la persona ha un solo rapporto (il
        file puo' essere di un nuovo datore di lavoro).
+     - **Ricerca e ritorno all'elenco**: le tendine cercano anche il codice fiscale della persona e la partita IVA o
+       il codice fiscale dell'azienda (senza distinzione di maiuscole e accenti); dopo "Crea nuovo" i dati anagrafici
+       sono modificabili e "Scegli dall'elenco" riporta alla tendina.
      - **Modifica le decisioni** 145 (ultimo punto: con la persona scelta nome e cognome sono quelli in archivio, con
        "Crea nuovo" un codice fiscale censito e' un errore), 147 (il codice fiscale non e' piu' accettato perche'
        censito: vedi la decisione 152) e 149 (la "Copia dei dati" da un rapporto o da un cedolino diventa la

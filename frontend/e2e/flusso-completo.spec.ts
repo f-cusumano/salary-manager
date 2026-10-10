@@ -5,8 +5,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 /**
  * Flusso completo contro il backend reale in modalità demo (lettore a fixture, database vuoto): caricamento
  * multiplo con tutti gli esiti, selezione automatica della persona, aziende e dettaglio, buste, download, CCNL,
- * note, eliminazione con ricalcolo, cedolini caricati con errore (associazione al mese, inserimento a mano,
- * rimozione). Solo dati inventati (fixture di backend/src/main/resources/fixtures e un PDF vuoto costruito qui).
+ * note, eliminazione con ricalcolo, cedolini caricati con errore (associazione al mese, inserimento a mano con
+ * persona e azienda scelte dagli elenchi o nuove, rimozione). Solo dati inventati (fixture di
+ * backend/src/main/resources/fixtures e un PDF vuoto costruito qui).
  */
 
 const CARTELLA_PDF = join(import.meta.dirname, '../../backend/src/main/resources/fixtures/pdf');
@@ -129,6 +130,58 @@ function fileInErrore(page: Page, nomeFile: string): Locator {
 /** Campo del modulo di inserimento a mano (`data-path` = percorso dello schema CedolinoManuale). */
 function campo(dialogo: Locator, percorso: string): Locator {
   return dialogo.locator(`[data-path="${percorso}"]`);
+}
+
+/**
+ * Corpo di `POST /api/v1/caricamenti/{id}/cedolino(/verifica)` con persona e azienda nuove ("Crea nuovo") e importi
+ * INVENTATI: per controllare le regole del backend senza passare dai controlli del browser.
+ */
+function cedolinoManualeNuoveAnagrafiche(
+  dipendente: { codiceFiscale: string; nome: string; cognome: string },
+  datoreLavoro: { ragioneSociale: string; partitaIva: string | null },
+) {
+  const vuoti = (...campi: string[]) => Object.fromEntries(campi.map((c) => [c, null]));
+  return {
+    personaId: null,
+    aziendaId: null,
+    dipendente: { ...dipendente, dataNascita: null, codiceDipendente: null },
+    datoreLavoro: {
+      ...vuoti('codiceFiscale', 'posizioneInps', 'posizioneInail', 'indirizzo', 'codiceAzienda'),
+      ...datoreLavoro,
+    },
+    datiContrattuali: vuoti('dataAssunzione', 'dataCessazione', 'qualifica', 'livello', 'ccnl', 'codiceCnel'),
+    periodo: { anno: 2023, mese: 4, tipo: 'ORDINARIA', dataElaborazione: null, meseVariabili: null },
+    totali: { lordo: null, totaleCompetenze: 2100, totaleTrattenute: 450, arrotondamento: null, netto: 1650 },
+    retribuzione: vuoti(
+      'minimo',
+      'contingenza',
+      'superminimo',
+      'superminimoAssorbibile',
+      'importoScatti',
+      'altriElementiFissi',
+      'retribuzioneBase',
+      'totale',
+      'pagaOraria',
+      'pagaGiornaliera',
+      'divisoreOrario',
+      'divisoreGiornaliero',
+    ),
+    voci: [],
+    ratei: [],
+    tfr: null,
+    presenze: vuoti('giorniLavorati', 'oreLavorate', 'giorniRetribuiti'),
+    scatti: vuoti('numeroScatti', 'dataProssimoScatto'),
+    buoniPasto: { presenti: false, ...vuoti('numero', 'valoreUnitario', 'importo') },
+    progressivi: vuoti('imponibilePrevidenziale', 'imponibileIrpef', 'irpefTrattenuta'),
+    contieneTredicesima: false,
+    contieneQuattordicesima: false,
+  };
+}
+
+/** Sceglie una voce di una tendina del modulo (le opzioni sono fuori dalla finestra, in un portale). */
+async function scegli(dialogo: Locator, percorso: string, opzione: string) {
+  await campo(dialogo, percorso).click();
+  await dialogo.page().getByRole('option', { name: opzione, exact: true }).click();
 }
 
 async function senzaScorrimentoOrizzontale(page: Page) {
@@ -607,6 +660,198 @@ test.describe('Salary Manager in modalità demo', () => {
       .click();
     await expect(areaInErrore(page)).toHaveCount(0);
     await expect(page.getByRole('listitem', { name: 'Aprile 2023: Mensilità mancante' })).toBeVisible();
+  });
+
+  test('inserimento a mano senza mese associato: persona e azienda scelte dagli elenchi, omonimi distinti', async () => {
+    // 1. due PDF che il lettore non riconosce
+    await page.getByRole('button', { name: 'Carica cedolini' }).click();
+    const modale = page.getByRole('dialog', { name: 'Carica cedolini' });
+    await modale.locator('input[type="file"]').setInputFiles([
+      {
+        name: 'busta-verdi.pdf',
+        mimeType: 'application/pdf',
+        buffer: pdfMinimo('busta di un nuovo dipendente'),
+      },
+      {
+        name: 'busta-aprile-2023.pdf',
+        mimeType: 'application/pdf',
+        buffer: pdfMinimo('busta di aprile 2023'),
+      },
+    ]);
+    await modale.getByRole('button', { name: 'Avvia caricamento (2)' }).click();
+    await attendiFineLotto(modale);
+    await modale.getByRole('button', { name: 'Chiudi', exact: true }).click();
+    await expect(areaInErrore(page).getByRole('listitem')).toHaveCount(2);
+
+    // 2. persona e azienda nuove: «Crea nuova» con la partita IVA di un'azienda in archivio e' rifiutata, con un'altra
+    // partita IVA nasce un'omonima di Alfa Software
+    await fileInErrore(page, 'busta-verdi.pdf').getByRole('button', { name: 'Inserisci a mano' }).click();
+    const nuove = page.getByRole('dialog', { name: 'Inserisci a mano · busta-verdi.pdf' });
+    await expect(nuove.getByRole('form', { name: 'Dati del cedolino' })).toBeVisible();
+    await scegli(nuove, 'periodo.tipo', 'Mensilità ordinaria');
+    await scegli(nuove, 'periodo.mese', 'Gennaio');
+    await campo(nuove, 'periodo.anno').fill('2025');
+    await nuove.getByRole('button', { name: 'Crea nuovo dipendente' }).click();
+    await expect(campo(nuove, 'dipendente.codiceFiscale')).toBeFocused();
+    await campo(nuove, 'dipendente.codiceFiscale').fill('VRDLGU90A01H501S');
+    await campo(nuove, 'dipendente.cognome').fill('Verdi');
+    await campo(nuove, 'dipendente.nome').fill('Luigi');
+    await nuove.getByRole('button', { name: 'Crea nuova azienda' }).click();
+    await campo(nuove, 'datoreLavoro.ragioneSociale').fill('Alfa Software S.r.l.');
+    await campo(nuove, 'datoreLavoro.partitaIva').fill('01234567897');
+    await campo(nuove, 'totali.totaleCompetenze').fill('1.000,00');
+    await campo(nuove, 'totali.totaleTrattenute').fill('200,00');
+    await campo(nuove, 'totali.netto').fill('800,00');
+    await nuove.getByRole('button', { name: 'Verifica', exact: true }).click();
+    await expect(campo(nuove, 'datoreLavoro.partitaIva')).toHaveAttribute('aria-invalid', 'true');
+    await expect(
+      nuove
+        .getByText("Questa partita IVA è già in archivio: seleziona l'azienda dall'elenco", { exact: true })
+        .first(),
+    ).toBeVisible();
+    await campo(nuove, 'datoreLavoro.partitaIva').fill('98765432103');
+    await nuove.getByRole('button', { name: 'Verifica', exact: true }).click();
+    const esitoNuove = nuove.getByRole('region', { name: 'Esito della verifica' });
+    await expect(esitoNuove).toContainText('Sarà registrato come: Gennaio 2025');
+    await expect(
+      esitoNuove.getByText('Verrà creata una nuova persona: controlla il codice fiscale'),
+    ).toBeVisible();
+    await expect(
+      esitoNuove.getByText(
+        'Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice fiscale',
+      ),
+    ).toBeVisible();
+    await expect(esitoNuove.getByText('Nuovo rapporto di lavoro', { exact: true })).toBeVisible();
+    await nuove.getByRole('button', { name: 'Salva cedolino' }).click();
+    await expect(page.getByText('Cedolino inserito: Gennaio 2025')).toBeVisible();
+    await expect(nuove).toHaveCount(0);
+    // la persona selezionata resta Mario Rossi
+    await expect(page.getByRole('combobox', { name: 'Persona' })).toHaveValue(
+      'Mario Rossi (RSSMRA80A01H501U)',
+    );
+
+    // 3. il server rifiuta comunque una persona e un'azienda "nuove" che sono gia' in archivio
+    const inErrore = (await (await page.request.get('/api/v1/caricamenti/in-errore')).json()) as {
+      id: number;
+      nomeFileOriginale: string;
+    }[];
+    const aprile = inErrore.find((f) => f.nomeFileOriginale === 'busta-aprile-2023.pdf');
+    expect(aprile).toBeDefined();
+    const rifiuto = await page.request.post(`/api/v1/caricamenti/${aprile?.id}/cedolino/verifica`, {
+      data: cedolinoManualeNuoveAnagrafiche(
+        { codiceFiscale: 'rssmra80a01h501u', nome: 'Mario', cognome: 'Rossi' },
+        { ragioneSociale: 'Delta Servizi S.r.l.', partitaIva: 'IT01234567897' },
+      ),
+    });
+    expect(rifiuto.status()).toBe(400);
+    expect(((await rifiuto.json()) as { errori: unknown[] }).errori).toEqual([
+      {
+        campo: 'dipendente.codiceFiscale',
+        messaggio: "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco",
+      },
+      {
+        campo: 'datoreLavoro.partitaIva',
+        messaggio: "Questa partita IVA è già in archivio: seleziona l'azienda dall'elenco",
+      },
+    ]);
+
+    // 4. senza mese associato nulla e' scelto: le tendine vanno scelte prima di verificare
+    await fileInErrore(page, 'busta-aprile-2023.pdf')
+      .getByRole('button', { name: 'Inserisci a mano' })
+      .click();
+    const dialogo = page.getByRole('dialog', { name: 'Inserisci a mano · busta-aprile-2023.pdf' });
+    await expect(dialogo.getByRole('form', { name: 'Dati del cedolino' })).toBeVisible();
+    const persona = dialogo.getByRole('combobox', { name: 'Persona in archivio' });
+    const aziendaScelta = dialogo.getByRole('combobox', { name: 'Azienda in archivio' });
+    await expect(persona).toHaveAttribute('placeholder', 'Seleziona persona/dipendente');
+    await expect(persona).toHaveValue('');
+    await expect(aziendaScelta).toHaveAttribute('placeholder', 'Seleziona azienda');
+    await expect(aziendaScelta).toHaveValue('');
+    await expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveCount(0);
+    await expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveCount(0);
+    await dialogo.getByRole('button', { name: 'Verifica', exact: true }).click();
+    await expect(persona).toHaveAttribute('aria-invalid', 'true');
+    await expect(
+      dialogo.getByText("Scegli la persona dall'elenco o «Crea nuovo»", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      dialogo.getByText("Scegli l'azienda dall'elenco o «Crea nuova»", { exact: true }).first(),
+    ).toBeVisible();
+    await scegli(dialogo, 'periodo.tipo', 'Mensilità ordinaria');
+    await scegli(dialogo, 'periodo.mese', 'Aprile');
+    await campo(dialogo, 'periodo.anno').fill('2023');
+
+    // 5. persona dall'elenco: gli omonimi hanno il codice fiscale, i dati anagrafici sono quelli in archivio
+    await persona.click();
+    await expect(page.getByRole('option')).toHaveText([
+      'Mario Rossi (RSSMRA80A01H501U)',
+      'Mario Rossi (RSSMRA85C12F205M)',
+      'Luigi Verdi',
+    ]);
+    await page.getByRole('option', { name: 'Mario Rossi (RSSMRA80A01H501U)' }).click();
+    await expect(persona).toHaveValue('Mario Rossi (RSSMRA80A01H501U)');
+    for (const [percorso, valore] of [
+      ['dipendente.codiceFiscale', 'RSSMRA80A01H501U'],
+      ['dipendente.cognome', 'Rossi'],
+      ['dipendente.nome', 'Mario'],
+      ['dipendente.dataNascita', '1980-01-01'],
+    ] as const) {
+      await expect(campo(dialogo, percorso)).toHaveValue(valore);
+      await expect(campo(dialogo, percorso)).toHaveAttribute('readonly', '');
+    }
+
+    // 6. azienda dall'elenco: prima quelle della persona, le omonime con la partita IVA; la ricerca trova la P.IVA
+    await aziendaScelta.click();
+    const elenco = page.getByRole('listbox');
+    await expect(elenco.getByText('Aziende di Mario Rossi (RSSMRA80A01H501U)')).toBeVisible();
+    await expect(elenco.getByText('Altre aziende')).toBeVisible();
+    await expect(elenco.getByRole('option')).toHaveText([
+      'Beta Consulting S.p.A.',
+      'Alfa Software S.r.l. (P.IVA 01234567897)',
+      'Alfa Software S.r.l. (P.IVA 98765432103)',
+    ]);
+    await aziendaScelta.fill('98765');
+    await expect(elenco.getByRole('option')).toHaveText(['Alfa Software S.r.l. (P.IVA 98765432103)']);
+    await aziendaScelta.fill('01234567897');
+    await elenco.getByRole('option', { name: 'Alfa Software S.r.l. (P.IVA 01234567897)' }).click();
+    await expect(aziendaScelta).toHaveValue('Alfa Software S.r.l. (P.IVA 01234567897)');
+
+    // 7. precompilati dall'azienda, dal rapporto e dal cedolino piu' vicino
+    for (const [percorso, valore] of [
+      ['datoreLavoro.ragioneSociale', 'Alfa Software S.r.l.'],
+      ['datoreLavoro.partitaIva', '01234567897'],
+      ['datoreLavoro.posizioneInps', '1122334455'],
+    ] as const) {
+      await expect(campo(dialogo, percorso)).toHaveValue(valore);
+      await expect(campo(dialogo, percorso)).toHaveAttribute('readonly', '');
+    }
+    await expect(campo(dialogo, 'datoreLavoro.codiceAzienda')).toHaveValue('ALFA01');
+    await expect(campo(dialogo, 'datoreLavoro.indirizzo')).toHaveValue('Via Roma 1, 00100 Roma (RM)');
+    await expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('2021-09-01');
+    await expect(campo(dialogo, 'dipendente.codiceDipendente')).toHaveValue('000123');
+    await expect(campo(dialogo, 'voci.0.descrizione')).toHaveValue('Retribuzione ordinaria');
+    await screenshot(page, '16-inserimento-scelte-dagli-elenchi');
+
+    // 8. importi inventati, verifica e salvataggio nel rapporto scelto: la mensilita' mancante torna presente
+    await campo(dialogo, 'totali.totaleCompetenze').fill('2.100,00');
+    await campo(dialogo, 'totali.totaleTrattenute').fill('450,00');
+    await campo(dialogo, 'totali.netto').fill('1.650,00');
+    await campo(dialogo, 'voci.0.importoCompetenza').fill('2.100,00');
+    await dialogo.getByRole('button', { name: 'Verifica', exact: true }).click();
+    const esito = dialogo.getByRole('region', { name: 'Esito della verifica' });
+    await expect(esito).toContainText('Sarà registrato come: Aprile 2023');
+    await expect(esito.getByText('Dipendente: già presente')).toBeVisible();
+    await expect(esito.getByText('Azienda: già presente')).toBeVisible();
+    await expect(esito.getByText('Rapporto di lavoro: già presente')).toBeVisible();
+    await dialogo.getByRole('button', { name: 'Salva cedolino' }).click();
+    await expect(page.getByText('Cedolino inserito: Aprile 2023')).toBeVisible();
+    await expect(dialogo).toHaveCount(0);
+    await expect(areaInErrore(page)).toHaveCount(0);
+    await apriAzienda(page, 'Alfa Software');
+    await expect(page.getByRole('listitem', { name: 'Aprile 2023: Mensilità mancante' })).toHaveCount(0);
+    await expect(page.getByRole('article', { name: 'Mensilità mancante: Aprile 2023' })).toHaveCount(0);
+    await barra(page, 'Aprile 2023').click();
+    await expect(busta(page, 'Aprile 2023')).toContainText('Inserito a mano');
   });
 
   test('su mobile la pagina non scorre in orizzontale', async ({ browser }) => {

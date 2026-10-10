@@ -655,13 +655,23 @@ describe('backend simulato: persona e azienda dall’elenco', () => {
       'Beta Consulting S.p.A.',
       'Gamma Servizi S.r.l.',
     ]);
+    // e una persona aggiunta per ultima: l'elenco e' per cognome e nome, come nel backend
+    backend.db.persone.push({
+      id: 51,
+      nome: 'Anna',
+      cognome: 'Abate',
+      codiceFiscale: 'BTANNA90A41H501X',
+      dataNascita: null,
+      etichetta: 'Anna Abate',
+    });
     const persone = esito(await api.GET('/api/v1/persone'));
     expect(persone.map((p) => p.etichetta)).toEqual([
+      'Anna Abate',
       'Laura Bianchi',
       'Mario Rossi (RSSMRA80A01H501U)',
       'Mario Rossi (RSSMRA85C12F205M)',
     ]);
-    expect(persone[0]).toMatchObject({ codiceFiscale: 'BNCLRA85M41F205X', dataNascita: '1985-08-01' });
+    expect(persone[1]).toMatchObject({ codiceFiscale: 'BNCLRA85M41F205X', dataNascita: '1985-08-01' });
   });
 
   it('usa i dati in archivio della persona e dell’azienda scelte, qualunque cosa sia stata inviata', async () => {
@@ -728,24 +738,91 @@ describe('backend simulato: persona e azienda dall’elenco', () => {
         messaggio: "Questo codice fiscale è già in archivio: seleziona l'azienda dall'elenco",
       },
     ]);
-    expect(await campoInErrore(azienda({ posizioneInps: '1234567890/01' }))).toEqual([
+    // anche con il prefisso IT, come lo toglie il backend
+    expect(await campoInErrore(azienda({ codiceFiscale: 'IT09876543217' }))).toEqual([
       {
-        campo: 'datoreLavoro.posizioneInps',
-        messaggio: "Questa posizione INPS è già in archivio: seleziona l'azienda dall'elenco",
+        campo: 'datoreLavoro.codiceFiscale',
+        messaggio: "Questo codice fiscale è già in archivio: seleziona l'azienda dall'elenco",
       },
     ]);
-    expect(await campoInErrore(azienda({ ragioneSociale: 'ALFA SOFTWARE SRL' }))).toEqual([
-      {
-        campo: 'datoreLavoro.ragioneSociale',
-        messaggio: "Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco",
-      },
-    ]);
+    // la matricola e' il primo gruppo di 10 cifre, anche stampata con la posizione INAIL
+    for (const posizioneInps of ['1234567890/01', '00123 1234567890']) {
+      expect(await campoInErrore(azienda({ posizioneInps }))).toEqual([
+        {
+          campo: 'datoreLavoro.posizioneInps',
+          messaggio: "Questa posizione INPS è già in archivio: seleziona l'azienda dall'elenco",
+        },
+      ]);
+    }
+    // ragione sociale normalizzata come nel censimento: sigle puntate e forme societarie per esteso
+    for (const ragioneSociale of [
+      'ALFA SOFTWARE SRL',
+      'Alfa Software S. R. L. a socio unico',
+      'Alfa Software Società a responsabilità limitata',
+    ]) {
+      expect(await campoInErrore(azienda({ ragioneSociale }))).toEqual([
+        {
+          campo: 'datoreLavoro.ragioneSociale',
+          messaggio: "Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco",
+        },
+      ]);
+    }
     // il confronto con l'archivio solo con i dati del datore altrimenti corretti
     expect(await campoInErrore(azienda({ partitaIva: '01234567897', codiceFiscale: 'X' }))).toEqual([
       { campo: 'datoreLavoro.codiceFiscale', messaggio: "Codice fiscale dell'azienda non valido" },
     ]);
     expect(backend.db.cedolini.size).toBe(cedolini);
     expect((await fileDi(api, 'busta-scansione.pdf')).id).toBe(scansione.id);
+  });
+
+  it('come il censimento, identificativi in conflitto fanno un’azienda nuova anche con matricola o nome uguali', async () => {
+    const { api } = avvia();
+    const scansione = await fileDi(api, 'busta-scansione.pdf');
+    const nuova = (datore: Partial<CedolinoManuale['datoreLavoro']>) =>
+      cedolinoManuale((d) => {
+        d.aziendaId = null;
+        d.datoreLavoro = { ...d.datoreLavoro, partitaIva: null, codiceFiscale: null, ...datore };
+      });
+
+    // matricola INPS di Alfa Software, ma un'altra partita IVA
+    const stessaMatricola = nuova({
+      ragioneSociale: 'Delta Servizi S.r.l.',
+      partitaIva: '55555555550',
+      posizioneInps: '1234567890',
+    });
+    // stesso nome di Alfa Software, ma un'altra matricola INPS
+    const stessoNome = nuova({ ragioneSociale: 'ALFA SOFTWARE SRL', posizioneInps: '5555555555' });
+    for (const dati of [stessaMatricola, stessoNome]) {
+      expect(await verifica(api, scansione.id, dati)).toMatchObject({
+        esito: 'ACQUISIBILE',
+        nuovaAzienda: true,
+        nuovoRapporto: true,
+      });
+    }
+    // un codice fiscale alfanumerico non contrasta con la sola partita IVA di Gamma Servizi: stessa azienda
+    const rifiuto = await errore(
+      verifica(
+        api,
+        scansione.id,
+        nuova({ ragioneSociale: 'GAMMA SERVIZI SRL', codiceFiscale: 'GMMSRV80A01H501U' }),
+      ),
+    );
+    expect(erroriDiCampo(rifiuto)).toEqual([
+      {
+        campo: 'datoreLavoro.ragioneSociale',
+        messaggio: "Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco",
+      },
+    ]);
+
+    // l'azienda creata e' in elenco con la matricola come la salva il backend
+    await inserisci(
+      api,
+      scansione.id,
+      nuova({ ragioneSociale: 'Delta Servizi S.r.l.', posizioneInps: '7777777777/22' }),
+    );
+    expect(esito(await api.GET('/api/v1/aziende'))).toContainEqual(
+      expect.objectContaining({ ragioneSociale: 'Delta Servizi S.r.l.', posizioneInps: '7777777777' }),
+    );
   });
 
   it('una scelta non più in archivio dà i soli errori della scelta', async () => {

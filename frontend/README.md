@@ -37,12 +37,14 @@ danneggiato) ed `errore` (più cedolini nello stesso PDF). Ogni altro file viene
 nome e stessa dimensione) caricato più volte compare una volta sola tra i cedolini caricati con errore.
 L'inserimento a mano simulato restituisce gli stessi errori del backend (percorsi, testi e ordine dei campi, uno per
 campo) e gli stessi avvisi di coerenza, salvo l'avviso sui dati bancari rimossi dai testi. Come il backend:
-`GET /api/v1/aziende` elenca le aziende dei rapporti per ragione sociale con l'etichetta anti-omonimia (P.IVA, poi
-codice fiscale, poi posizione INPS; per le persone omonime il codice fiscale); con `personaId` / `aziendaId` il
-cedolino usa i dati anagrafici in archivio e va al rapporto della coppia scelta (o a uno nuovo), un id sconosciuto è
-un 400 sulla scelta; senza scelta ("Crea nuovo") un codice fiscale, una partita IVA, una posizione INPS o una ragione
-sociale già in archivio sono un 400 "… già in archivio" sul campo (versione semplificata del riconoscimento del
-censimento).
+`GET /api/v1/persone` elenca le persone per cognome e nome, `GET /api/v1/aziende` le aziende dei rapporti per
+ragione sociale, con l'etichetta anti-omonimia (per le persone il codice fiscale; per le aziende P.IVA, poi codice
+fiscale, poi posizione INPS); con `personaId` / `aziendaId` il cedolino usa i dati anagrafici in archivio e va al
+rapporto della coppia scelta (o a uno nuovo), un id sconosciuto è un 400 sulla scelta; senza scelta ("Crea nuovo") un
+codice fiscale di una persona in archivio, o dati che il censimento abbinerebbe a un'azienda in archivio (partita IVA
+o codice fiscale, matricola INPS, ragione sociale normalizzata, con le stesse regole su identificativi in conflitto,
+sigle e forme societarie), sono un 400 "… già in archivio" sul campo. Diversamente dal backend, scegliere un'azienda
+non ne aggiorna indirizzo e codice azienda, e l'elenco non riporta il codice azienda.
 
 I mock esistono solo con `--mode mock` (`.env.mock` imposta `VITE_USE_MOCKS=true`): nella build di produzione il
 modulo `src/mocks` non viene incluso nel bundle. `npm run build:mock` + `npm run preview:mock` servono la build

@@ -12,7 +12,7 @@ import type {
   Voce,
 } from '../api/types';
 import { codiceFiscaleValido, partitaIvaValida } from '../hooks/useCedolinoManuale';
-import { aziendeInArchivio, ragioneSocialeNormalizzata } from './anagrafiche';
+import { aziendaRiconosciuta, aziendeInArchivio, normalizzaPosizioneInps } from './anagrafiche';
 import {
   aggiungiRapporto,
   chiaveFile,
@@ -188,13 +188,18 @@ function codice(valore: string | null): string | null {
   return testo(valore)?.replace(/\s/g, '').toUpperCase() ?? null;
 }
 
+/** Codice dell'azienda senza il prefisso IT davanti a 11 cifre, come il backend. */
+function senzaPrefissoIt(valore: string | null): string | null {
+  return valore !== null && /^IT\d{11}$/.test(valore) ? valore.slice(2) : valore;
+}
+
 /**
- * Testi senza spazi superflui (vuoti = null), codici fiscali e partita IVA maiuscoli senza spazi (senza prefisso IT),
- * flag di tredicesima e quattordicesima imposti dal tipo, importi dei buoni pasto solo se presenti.
+ * Testi senza spazi superflui (vuoti = null), codici fiscali e partita IVA maiuscoli senza spazi (quelli dell'azienda
+ * senza prefisso IT davanti a 11 cifre), flag di tredicesima e quattordicesima imposti dal tipo, importi dei buoni
+ * pasto solo se presenti.
  */
 function normalizza(dati: CedolinoManuale): CedolinoManuale {
   const { dipendente, datoreLavoro, datiContrattuali, periodo, buoniPasto } = dati;
-  const partitaIva = codice(datoreLavoro.partitaIva);
   return {
     ...dati,
     dipendente: {
@@ -205,8 +210,8 @@ function normalizza(dati: CedolinoManuale): CedolinoManuale {
       codiceDipendente: testo(dipendente.codiceDipendente),
     },
     datoreLavoro: {
-      codiceFiscale: codice(datoreLavoro.codiceFiscale),
-      partitaIva: partitaIva?.startsWith('IT') ? partitaIva.slice(2) : partitaIva,
+      codiceFiscale: senzaPrefissoIt(codice(datoreLavoro.codiceFiscale)),
+      partitaIva: senzaPrefissoIt(codice(datoreLavoro.partitaIva)),
       posizioneInps: testo(datoreLavoro.posizioneInps),
       posizioneInail: testo(datoreLavoro.posizioneInail),
       ragioneSociale: testo(datoreLavoro.ragioneSociale),
@@ -297,40 +302,6 @@ function conDatiInArchivio(dati: CedolinoManuale, { persona, azienda }: Scelte):
         }
       : dati.datoreLavoro,
   };
-}
-
-/**
- * Campo che farebbe riconoscere ai dati di un'azienda nuova un'azienda gia' in archivio (semplificazione del
- * censimento del backend): partita IVA o codice fiscale tra i suoi identificativi, la stessa matricola INPS, la stessa
- * ragione sociale senza identificativi in conflitto. null se nessuna.
- */
-function aziendaRiconosciuta(
-  aziende: readonly AziendaSintesi[],
-  datore: CedolinoManuale['datoreLavoro'],
-): keyof typeof MESSAGGI_ANAGRAFICHE | null {
-  const { partitaIva, codiceFiscale } = datore;
-  const fiscale = aziende.find((a) =>
-    [a.partitaIva, a.codiceFiscale].some((id) => id !== null && (id === partitaIva || id === codiceFiscale)),
-  );
-  if (fiscale) {
-    return partitaIva !== null && [fiscale.partitaIva, fiscale.codiceFiscale].includes(partitaIva)
-      ? 'datoreLavoro.partitaIva'
-      : 'datoreLavoro.codiceFiscale';
-  }
-  const matricola = datore.posizioneInps?.replace(/\D/g, '').slice(0, 10) ?? '';
-  if (matricola.length === 10 && aziende.some((a) => a.posizioneInps === matricola)) {
-    return 'datoreLavoro.posizioneInps';
-  }
-  const inConflitto = (archivio: string | null, inserito: string | null) =>
-    archivio !== null && inserito !== null && archivio !== inserito;
-  const nome = ragioneSocialeNormalizzata(datore.ragioneSociale);
-  const omonima = aziende.some(
-    (a) =>
-      ragioneSocialeNormalizzata(a.ragioneSociale) === nome &&
-      !inConflitto(a.partitaIva, partitaIva) &&
-      !inConflitto(a.codiceFiscale, codiceFiscale),
-  );
-  return omonima ? 'datoreLavoro.ragioneSociale' : null;
 }
 
 // ------------------------------------------------------------------ errori bloccanti
@@ -547,9 +518,12 @@ function erroriBloccanti(db: MockDb, dati: CedolinoManuale, scelte: Scelte): Err
   }
   // un'azienda nuova che il censimento riconoscerebbe va scelta dall'elenco (solo con i dati del datore corretti)
   if (!scelte.azienda && ![...trovati.keys()].some((campo) => campo.startsWith('datoreLavoro.'))) {
-    const campo = aziendaRiconosciuta(aziendeInArchivio(db), datoreLavoro);
-    if (campo !== null) {
-      errore(campo, MESSAGGI_ANAGRAFICHE[campo]);
+    const dato = aziendaRiconosciuta(aziendeInArchivio(db), {
+      ...datoreLavoro,
+      ragioneSociale: datoreLavoro.ragioneSociale ?? '',
+    });
+    if (dato !== null) {
+      errore(`datoreLavoro.${dato}`, MESSAGGI_ANAGRAFICHE[`datoreLavoro.${dato}`]);
     }
   }
   return [...trovati]
@@ -908,7 +882,7 @@ export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unkno
     ragioneSociale: datoreLavoro.ragioneSociale ?? '',
     partitaIva: datoreLavoro.partitaIva,
     codiceFiscale: datoreLavoro.codiceFiscale,
-    posizioneInps: datoreLavoro.posizioneInps,
+    posizioneInps: normalizzaPosizioneInps(datoreLavoro.posizioneInps),
     indirizzo: datoreLavoro.indirizzo,
   };
   const rapporto = valutazione.rapporto ?? nuovoRapporto(db, dati, persona, azienda, periodo);
