@@ -55,7 +55,8 @@ export interface paths {
     /**
      * Dettaglio di un rapporto (3 aree)
      * @description Tutto cio' che serve al dettaglio azienda: segnalazioni, riepilogo, CCNL, note e lista mensilita' gia' unita
-     *     (cedolini presenti + mensilita' mancanti) e ordinata in ordine cronologico inverso.
+     *     (cedolini presenti + mensilita' mancanti + mensilita' con un file caricato in errore, IN_ERRORE) e ordinata in
+     *     ordine cronologico inverso.
      */
     get: operations['dettaglioRapporto'];
     put?: never;
@@ -308,7 +309,10 @@ export interface paths {
     /**
      * Prova l'inserimento a mano senza salvare (competenza, conflitti, nuove anagrafiche, avvisi)
      * @description Esegue l'acquisizione vera e propria e la annulla: nessun dato viene salvato. 400 con `errori` (percorsi
-     *     dello schema CedolinoManuale) se mancano dati obbligatori o ci sono valori non validi.
+     *     dello schema CedolinoManuale) se mancano dati obbligatori o ci sono valori non validi (importi e quantita'
+     *     con al massimo 8 cifre intere e 5 decimali); un errore generale (`campo` null) se un valore calcolato
+     *     dall'acquisizione supera i limiti dell'archivio. 404 se il caricamento non esiste; 409 se il file non e' piu'
+     *     in errore, il PDF non e' conservato o e' in corso un nuovo tentativo.
      */
     post: operations['verificaCedolinoManuale'];
     delete?: never;
@@ -403,7 +407,9 @@ export interface components {
      * @description Motivo di un caricamento in ERRORE. Inseribili a mano e rileggibili (PDF conservato): PDF_PROTETTO,
      *     PDF_SENZA_TESTO, LAYOUT_NON_RICONOSCIUTO, LETTURA_NON_RIUSCITA, DATI_INCOMPLETI, PDF_TROPPO_GRANDE,
      *     SERVIZIO_NON_DISPONIBILE, INTERROTTO, ERRORE_IMPREVISTO. Mai conservato: PDF_NON_VALIDO (file danneggiato o
-     *     non PDF), PDF_TROPPE_PAGINE, PIU_CEDOLINI (piu' cedolini nello stesso PDF).
+     *     non PDF), PDF_TROPPE_PAGINE, PIU_CEDOLINI (piu' cedolini nello stesso PDF). INTERROTTO dal riavvio conserva
+     *     il PDF solo se un tentativo precedente lo aveva gia' conservato (es. una nuova lettura interrotta): fa fede
+     *     `pdfDisponibile`.
      * @enum {string}
      */
     MotivoErrore:
@@ -542,7 +548,10 @@ export interface components {
       segnalazioni: components['schemas']['Segnalazione'][];
       /** @description null se non ancora calcolato */
       riepilogo: components['schemas']['Riepilogo'] | null;
-      /** @description Cedolini presenti e mensilita' mancanti, in ordine cronologico inverso */
+      /**
+       * @description Cedolini presenti, mensilita' mancanti e mensilita' con un file caricato in errore (IN_ERRORE), in ordine
+       *     cronologico inverso
+       */
       mensilita: components['schemas']['RigaMensilita'][];
     };
     Segnalazione: {

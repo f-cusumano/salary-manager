@@ -168,9 +168,11 @@ Chi interpreta i PDF si sceglie con `SAM_LETTORE` (proprietà `salary-manager.le
 | `fixture`            | modalità demo: a ogni PDF associa un JSON di dati inventati | gratuito, offline | solo i PDF di prova (vedi [Modalità demo](#modalità-demo-dati-inventati)) |
 
 Tutti e tre producono lo stesso JSON, che passa dalla **stessa normalizzazione e validazione** (somme, netto, ratei,
-date, codici fiscali): il resto dell'applicazione non sa quale lettore è stato usato. Il lettore usato resta registrato
-con il cedolino (`cedolino.modello_estrazione`: `lettore-locale-1/<layout>`, il modello Claude o `fixture`). Un valore
-diverso dai tre blocca l'avvio. Cambiare lettore non rilegge i cedolini già caricati: per rileggerne uno si elimina e
+date, codici fiscali): il resto dell'applicazione non sa quale lettore è stato usato. Lo stesso JSON lo produce anche
+l'[inserimento a mano](#cedolini-caricati-con-errore) di un cedolino caricato con errore. Chi ha prodotto i dati resta
+registrato con il cedolino (`cedolino.modello_estrazione`: `lettore-locale-1/<layout>`, il modello Claude, `fixture`
+oppure `inserimento-manuale-1` per i cedolini inseriti a mano). Un valore di `SAM_LETTORE` diverso dai tre blocca
+l'avvio. Cambiare lettore non rilegge i cedolini già caricati: per rileggerne uno si elimina e
 si ricarica.
 
 ### Lettore locale (predefinito)
@@ -442,7 +444,7 @@ Alcuni cedolini sono protetti da una password di apertura. Nella modale di caric
 Se in un lotto di più file un PDF protetto non si apre, viene **riprovato una volta a fine lotto**: così si apre anche
 quando il codice fiscale che fa da password appartiene a una persona censita da un altro file dello stesso lotto
 (i file sono elaborati in parallelo e l'ordine non conta). Se nessuna password funziona, il file va in errore con il
-messaggio *"PDF protetto da password: indica la password e ricarica"* e compare tra i
+messaggio *"PDF protetto da password: riprova indicando la password"* e compare tra i
 [cedolini caricati con errore](#cedolini-caricati-con-errore): con **"Riprova con password"** si indica la password e
 il file viene riletto dal PDF conservato, senza ricaricarlo (la password vale solo per quella lettura e non viene
 salvata). In alternativa si può inserire a mano: l'anteprima del PDF nel modulo chiede la password al visualizzatore
@@ -469,7 +471,9 @@ nell'archivio. È una cosa diversa da una **mensilità mancante**, per cui nessu
   rossa, *"Caricato con errore"*, e la segnalazione *"Cedolino caricato con errore"* prende il posto di *"Mensilità
   mancante"*. Una mensilità che ha già un cedolino o un altro file associato non si può scegliere.
 - **Inserisci a mano**: un modulo con tutti i campi che il lettore avrebbe estratto, accanto all'anteprima del PDF.
-  "Copia dati da..." riempie i campi vuoti da un rapporto esistente (persona, azienda, voci senza importi, ...).
+  "Copia dati da..." riempie i campi vuoti da un rapporto esistente (persona, azienda, voci senza importi, ...): le
+  voci e i ratei copiati sono modelli e vengono salvati solo se li completi (una nota permette di togliere quelli
+  rimasti vuoti). Importi e quantità hanno al massimo 8 cifre intere e 5 decimali.
   **Verifica** prova l'archiviazione senza salvare (mensilità, persona o rapporto nuovi, conflitti, controlli di
   coerenza); **Salva cedolino** lo archivia con il PDF originale come se fosse stato letto: riepilogo e segnalazioni
   si ricalcolano, e nel dettaglio compare "Inserito a mano" al posto dell'affidabilità della lettura. Sono
@@ -478,7 +482,10 @@ nell'archivio. È una cosa diversa da una **mensilità mancante**, per cui nessu
 - **Errori delle versioni precedenti**: i file andati in errore prima di questa funzione non hanno il PDF conservato
   né il motivo; compaiono nell'elenco con il loro messaggio e vanno **ricaricati una volta** (oppure rimossi).
 - Un file la cui prima lettura è stata interrotta da un riavvio dell'applicazione non ha il PDF conservato: va
-  ricaricato.
+  ricaricato. Se invece è stata interrotta una nuova lettura, il PDF c'è ancora e il file si rilegge o si inserisce a
+  mano.
+- La segnalazione *"Cedolino caricato con errore"* indica le azioni davvero possibili: inserimento a mano o nuova
+  lettura se il PDF è conservato, altrimenti un nuovo caricamento.
 
 ## Cedolini reali: misure e test live
 

@@ -259,7 +259,8 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     senza password, poi la password del lotto, le password di `salary-manager.pdf.password-candidate` (solo da
     variabile d'ambiente `SAM_PDF_PASSWORD_CANDIDATE`) e infine i codici fiscali delle persone censite in maiuscolo e
     minuscolo (letti solo se servono). Nessuna valida => `PdfNonLeggibileException` (`DOCUMENTO_NON_VALIDO`,
-    causa `PROTETTO_DA_PASSWORD`) con messaggio "PDF protetto da password: indica la password e ricarica". A Claude va
+    causa `PROTETTO_DA_PASSWORD`) con messaggio "PDF protetto da password: riprova indicando la password" (era
+    "indica la password e ricarica": con il PDF conservato si riprova senza ricaricare, decisione 148). A Claude va
     la copia decifrata (`setAllSecurityToBeRemoved`); a DB e per l'hash si usa l'originale. Le password non sono mai
     salvate ne' loggate. PDFBox e' ammesso solo negli adapter `pdf` e `fixture` (regola ArchUnit).
 68. **Limiti dei PDF**: intestazione `%PDF-` nei primi 1024 byte, almeno una pagina, al massimo
@@ -348,8 +349,9 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     lotto; si rilanciano solo gli altri `VirtualMachineError`.
 82. **Riavvio**: i caricamenti IN_CODA/IN_LETTURA vanno in ERRORE ("Elaborazione interrotta dal riavvio
     dell'applicazione: ricarica il file") in `SmartInitializingSingleton`, cioe' prima che il server web accetti
-    richieste, con il motivo `INTERROTTO` (decisione 143). Alla chiusura l'executor viene fermato (attesa massima 30
-    secondi).
+    richieste, con il motivo `INTERROTTO` (decisione 143; i file gia' archiviati diventano DUPLICATO e quelli con il
+    PDF conservato hanno un messaggio che propone nuova lettura e inserimento a mano). Alla chiusura l'executor viene
+    fermato (attesa massima 30 secondi).
 83. **Campi non trovati e avvisi dell'estrazione** salvati in `cedolino.campi_non_trovati` e
     `cedolino.avvisi_estrazione` (changelog `320`), separati da a capo e troncati a riga intera entro 4000 caratteri;
     esposti nel dettaglio del cedolino (`campiNonTrovati`, `avvisiEstrazione`).
@@ -729,8 +731,10 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        o inserimento a mano), scartato (DUPLICATO, AGGIUNTIVO_NON_GESTITO), chiuso con un motivo che non lo prevede,
        rimosso dall'utente. Al riavvio si eliminano quelli dei file non piu' in errore (rete di sicurezza).
      - **Limite accettato**: un riavvio durante la *prima* elaborazione lascia il file in errore (`INTERROTTO`)
-       senza PDF ("carica di nuovo il file"); un riavvio durante una nuova lettura non perde nulla, perche' il PDF e'
-       del file e non del tentativo.
+       senza PDF ("...: ricarica il file"); un riavvio durante una nuova lettura non perde nulla, perche' il PDF e'
+       del file e non del tentativo, e il messaggio lo dice ("...: riprova la lettura o inserisci i dati a mano").
+       Un'elaborazione interrotta senza riavvio ha i byte in memoria e conserva il PDF, con lo stesso messaggio.
+       Quello che conta per le azioni e per i testi e' la presenza del PDF (`pdfDisponibile`), non il solo motivo.
 143. **"File in errore" calcolato, non salvato**: nessun nuovo stato del caricamento.
      - **Predicato unico** (`JooqCaricamentiRepository`, condizione `fileInErrore`): esiste un tentativo ERRORE del
        file senza tentativi successivi conclusi e nessun cedolino ha quell'hash; la riga elencata e' l'ultimo
@@ -742,18 +746,35 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        aggiornamento semplice registra comunque lo stato: un caricamento non resta mai IN_LETTURA. La chiusura di un
        errore di lettura avviene dopo aver rilasciato il permesso di lettura, che non resta occupato in attesa del
        lock.
+     - **Chiusura di un ERRORE**: dopo averlo registrato ricontrolla il predicato sul file, non solo l'assenza del
+       cedolino: se un tentativo successivo dello stesso file si e' gia' concluso (per esempio scartato come
+       DUPLICATO) il file non e' piu' in errore e PDF e associazione si eliminano invece di conservarli.
+     - **Tentativi gemelli**: archiviando un file (lettura o inserimento a mano) i suoi tentativi in ERRORE
+       successivi (per id: lo stesso PDF due volte nello stesso lotto) diventano DUPLICATO del cedolino archiviato;
+       altrimenti, eliminato il cedolino, il file tornerebbe "in errore" senza PDF.
      - **Ordine nell'acquisizione**: caricamento ACQUISITO, eliminazione di PDF conservato e associazione, poi
        `CedolinoAcquisito`: i listener sincroni vedono gia' uno stato coerente.
-     - **Modifica la decisione 82**: al riavvio i caricamenti interrotti ricevono anche il motivo `INTERROTTO`; poi
-       si eliminano PDF conservati e associazioni dei file non piu' in errore.
+     - **Modifica la decisione 82**: al riavvio i caricamenti non conclusi di un file gia' archiviato diventano
+       DUPLICATO (la loro elaborazione li avrebbe scartati); gli altri ricevono il motivo `INTERROTTO` e un messaggio
+       che dipende dalla presenza del PDF conservato; poi si eliminano PDF conservati e associazioni dei file non piu'
+       in errore e si ricalcolano le segnalazioni dei rapporti associati ai file coinvolti.
 144. **Associazione a una mensilita'** in `caricamento_attribuzione` (changelog `332`): una per file (chiave
      workspace + hash, non per tentativo: nessuna eredita' tra tentativi) e una per competenza (UNIQUE rapporto + anno
      + mese 1..14), FK verso `rapporto_lavoro` con `ON DELETE CASCADE`, come `riepilogo_rapporto` e `segnalazione`:
      eliminato il rapporto, l'associazione sparisce senza codice applicativo.
      - Rifiutata (409) se la mensilita' ha gia' un cedolino o un altro file associato; il file si sposta liberamente.
      - Ogni modifica (associazione creata, spostata o rimossa; file archiviato in un altro rapporto, scartato o
-       rimosso) pubblica `cedolini.CaricamentiInErroreModificati`, ascoltato solo da segnalazioni: i dati dei
-       cedolini, e quindi i calcoli, non cambiano.
+       rimosso; nuovo tentativo del file associato concluso in ERRORE, che puo' cambiare motivo e PDF disponibile;
+       riavvio che interrompe un tentativo del file associato) pubblica `cedolini.CaricamentiInErroreModificati`,
+       ascoltato solo da segnalazioni: i dati dei cedolini, e quindi i calcoli, non cambiano. La segnalazione
+       riporta motivo e azioni possibili e non deve mai restare indietro.
+     - **Testo della segnalazione** `CEDOLINO_IN_ERRORE`: con il PDF conservato propone l'inserimento a mano
+       dall'elenco o una nuova lettura; senza (motivi che non lo conservano, errori delle versioni precedenti, prima
+       elaborazione interrotta dal riavvio) propone solo un nuovo caricamento: "caricane una copia valida" per un
+       file danneggiato, "dividi il PDF in un file per cedolino" per troppe pagine o piu' cedolini, altrimenti "il PDF
+       non e' stato conservato, caricalo di nuovo". Il contesto delle regole riceve per ogni mensilita' motivo e
+       presenza del PDF (`ContestoRapporto.FileInErrore`). Precisa il testo fisso della specifica, che non
+       considerava i file senza PDF.
      - **Modifica le decisioni 35, 96, 99 e 100**: le mensilita' con un file associato non sono mancanti (le tre regole
        "mancante" le ignorano tramite `ContestoRapporto.mensilitaInErrore`) e hanno la loro segnalazione
        `CEDOLINO_IN_ERRORE` con la competenza; la riga IN_ERRORE della lista mensilita' viene dal modulo cedolini, non
@@ -785,8 +806,18 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        `totali.netto` o `voci[3].descrizione`): i dati che servono all'archiviazione e al confronto dei duplicati o
        che l'interprete scarterebbe in silenzio. Tipo, anno (dal 1900 all'anno prossimo) e mese 1..12 del periodo;
        codice fiscale, nome e cognome del dipendente; ragione sociale, partita IVA e codice fiscale dell'azienda;
-       totale competenze, totale trattenute e netto; limiti delle colonne (`NUMERIC(15,5)`, lunghezze dei testi);
-       descrizione e categoria delle voci; ratei univoci per tipo e unita'. Un errore per campo.
+       totale competenze, totale trattenute e netto; limiti di importi e quantita' (meno di 10^8 in valore assoluto,
+       cioe' al massimo 8 cifre intere, e 5 decimali) e lunghezze dei testi; descrizione e categoria delle voci;
+       ratei univoci per tipo e unita'. Un errore per campo.
+     - **Limite degli importi piu' stretto delle colonne**: `NUMERIC(15,5)` ammette 10 cifre intere, ma
+       l'acquisizione calcola e salva nella stessa transazione dati derivati (RAL = lordo per mensilita', TFR,
+       valore dei ratei = saldo per paga oraria) che con valori di 9-10 cifre uscirebbero dalle colonne; un valore
+       cosi' grande e' quasi sempre un codice incollato nel campo sbagliato. Se un dato calcolato non sta comunque
+       nella colonna (errore SQL di classe 22) verifica e inserimento rispondono 400 con un errore generale ("Alcuni
+       importi o quantità sono troppo grandi: controlla i valori inseriti"), mai 500, e il file resta in errore.
+     - **Testi liberi**: spazi Unicode (anche lo spazio non separabile delle pagine web) resi come spazi semplici e
+       caratteri invisibili tolti prima del mascheramento degli IBAN, che riconosce anche gruppi separati da
+       trattini o punti.
      - **Codice fiscale del dipendente**: valido, di 11 cifre (provvisorio, con un avviso) oppure uguale a quello di
        una persona censita; altrimenti errore, perche' il censimento accetta qualunque codice e un refuso creerebbe
        una persona fantasma.
@@ -815,6 +846,19 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      - **Copia dei dati da un rapporto o da un cedolino esistente** fatta dal client con `GET /api/v1/rapporti/{id}`
        e `GET /api/v1/cedolini/{id}` (nessuna API nuova), solo nei campi vuoti e mai per la data di cessazione, i
        totali e le quantita' e gli importi delle voci (valori del singolo mese).
+     - **Voci e ratei copiati** da un cedolino sono modelli: finche' restano come copiati e senza quantita' ne'
+       importi (per i ratei senza valori del mese) non vengono inviati, validati ne' contati, e una nota offre di
+       toglierli; modificati diventano righe dell'utente.
+     - **Numeri**: le quantita' delle voci e i valori dei ratei accettano 5 decimali come lo schema; maturato e
+       goduto dei ratei possono essere negativi (rettifiche); gli importi delle voci si incollano senza segno (il
+       segno lo da' la categoria), mentre negli altri campi non negativi un valore negativo incollato e' rifiutato con
+       un messaggio. Stesso limite del server (8 cifre intere, 5 decimali); una data che il browser considera
+       incompleta (`validity.badInput`) o con l'anno di piu' di 4 cifre e' un errore, non un campo vuoto.
+     - **Errori sempre attuali**: gli errori di riga e quelli tra campi (cessazione prima dell'assunzione) spariscono
+       quando una modifica a un altro campo li risolve; l'esito della verifica e' annunciato ai lettori di schermo.
+     - **Elenco dei file sempre attuale**: un 404 o 409 sulle azioni di un file in errore (verifica, inserimento,
+       associazione, nuova lettura, rimozione) invalida l'elenco, che mostra subito lo stato vero; "Inserisci a mano"
+       aperto durante un caricamento in corso rilegge l'elenco prima di dire che il file non c'e' piu'.
      - **Salvataggio** abilitato solo dopo una verifica dei valori correnti con esito `ACQUISIBILE`.
      - **Nessun router**: le azioni sui file (inserisci, associa, rileggi, rimuovi) sono offerte a tutta la pagina da
        un contesto React dell'`App`.

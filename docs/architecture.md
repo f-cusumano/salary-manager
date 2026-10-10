@@ -130,7 +130,7 @@ POST /api/v1/caricamenti (multipart: N file + password facoltativa del lotto)
                    delle persone censite (maiuscoli e minuscoli). Nessuna valida: in un lotto di piu' file il
                    caricamento torna IN_CODA e viene riprovato una volta a fine lotto (quando le persone degli
                    altri file sono censite); altrimenti, o al secondo tentativo, ERRORE PDF_PROTETTO
-                   "PDF protetto da password: indica la password e ricarica".
+                   "PDF protetto da password: riprova indicando la password".
                    Per un PDF cifrato produce una COPIA DECIFRATA (PDFBox, setAllSecurityToBeRemoved).
                 b. LettoreCedolini.estrai(copia per la lettura) ─► CedolinoEstratto validato
                    (lettore scelto con salary-manager.lettore: locale, claude o fixture; PDF senza testo o
@@ -153,8 +153,8 @@ POST /api/v1/caricamenti (multipart: N file + password facoltativa del lotto)
                    (uno scarto annulla la transazione: nessuna anagrafica resta creata per lui)
                 f. salvataggio cedolino + figlie + PDF ORIGINALE (nome da NomeFileCedolinoStrategy)
                 g. CensimentoAnagrafica.aggiornaEstremiCedolini
-                h. caricamento ACQUISITO (cedolinoId); eliminazione di PDF conservato e associazione del file, che non
-                   e' piu' in errore
+                h. caricamento ACQUISITO (cedolinoId); tentativi in ERRORE successivi dello stesso file ─► DUPLICATO;
+                   eliminazione di PDF conservato e associazione del file, che non e' piu' in errore
                 i. publish CedolinoAcquisito ─► (sincrono, stessa transazione)
                      calcoli.RicalcoloRiepilogoListener      ─► CalcoliRapporto.ricalcola
                      segnalazioni.RicalcoloSegnalazioniListener ─► SegnalazioniRapporto.ricalcola
@@ -162,8 +162,10 @@ POST /api/v1/caricamenti (multipart: N file + password facoltativa del lotto)
                 (un'eccezione in un passo qualsiasi, ricalcoli compresi, annulla tutto ─► ERRORE)
              4. esiti diversi da ACQUISITO (ChiusuraCaricamento, transazione serializzata dopo aver rilasciato il
                 permesso di lettura):
-                ERRORE + motivo + messaggio; PDF originale conservato in caricamento_pdf (uno per file) se il motivo
-                lo prevede e il file non e' archiviato, altrimenti eliminato
+                ERRORE + motivo + messaggio; se il file e' ancora in errore (predicato ricontrollato) PDF originale
+                conservato in caricamento_pdf (uno per file) se il motivo lo prevede, altrimenti eliminato, e
+                CaricamentiInErroreModificati per il rapporto associato (motivo e azioni della segnalazione);
+                se non lo e' piu' (archiviato o risolto da un tentativo successivo) PDF e associazione eliminati
                 DUPLICATO / AGGIUNTIVO_NON_GESTITO: PDF conservato e associazione del file eliminati
                 (se la transazione fallisce, un aggiornamento semplice registra comunque lo stato)
 GET /api/v1/caricamenti/lotti/{lotto}  (polling della UI finche' completato)
@@ -175,10 +177,12 @@ presente: il repository di `cedolini` ricava il rapporto con una join sulla prop
 risolve la persona tramite `anagrafica.ConsultazioneAnagrafica` (una lettura per rapporto distinto), cosi' la UI
 seleziona la persona giusta senza altre chiamate. Se quel cedolino viene poi eliminato i due campi tornano `null`.
 
-Al riavvio, i caricamenti rimasti IN_CODA/IN_LETTURA (elaborazione in memoria interrotta) vengono marcati ERRORE con
-motivo `INTERROTTO` prima che il server accetti richieste (`RipristinoCaricamentiInterrotti`), che poi elimina PDF
-conservati e associazioni dei file non piu' in errore. Un file la cui prima elaborazione e' stata interrotta non ha il
-PDF conservato (va ricaricato); una nuova lettura interrotta lo ritrova, perche' il PDF e' del file.
+Al riavvio, prima che il server accetti richieste (`RipristinoCaricamentiInterrotti`), i caricamenti rimasti
+IN_CODA/IN_LETTURA (elaborazione in memoria interrotta) di un file gia' archiviato diventano DUPLICATO; gli altri
+vengono marcati ERRORE con motivo `INTERROTTO`. Poi si eliminano PDF conservati e associazioni dei file non piu' in
+errore e si ricalcolano le segnalazioni dei rapporti associati ai file coinvolti. Un file la cui prima elaborazione e'
+stata interrotta non ha il PDF conservato ("...: ricarica il file"); una nuova lettura interrotta lo ritrova, perche'
+il PDF e' del file ("...: riprova la lettura o inserisci i dati a mano").
 
 ### Lettori dei cedolini
 
@@ -271,7 +275,7 @@ hash o marcatore `Fixture: <nome>` nel testo); per test, modalita' demo e suite 
 | `CedolinoEliminato`        | cedolini      | dopo la cancellazione, nella stessa transazione          | calcoli, segnalazioni |
 | `CcnlRapportoModificato`   | anagrafica    | cambio CCNL scelto dall'utente                           | calcoli, segnalazioni |
 | `RapportoLavoroEliminato`  | anagrafica    | prima di cancellare un rapporto rimasto senza cedolini   | (pulizie applicative eventuali) |
-| `CaricamentiInErroreModificati` | cedolini | associazione di un file in errore creata, spostata o rimossa; file associato archiviato in un altro rapporto, scartato o rimosso | segnalazioni |
+| `CaricamentiInErroreModificati` | cedolini | associazione di un file in errore creata, spostata o rimossa; file associato archiviato in un altro rapporto, scartato o rimosso; nuovo tentativo del file associato concluso in ERRORE; riavvio che ne interrompe un tentativo | segnalazioni |
 
 Gli eventi sono eventi applicativi Spring consegnati **in modo sincrono** (`@EventListener`) nella transazione che li
 pubblica: il ricalcolo dei dati derivati e' parte della stessa unita' di lavoro (tutto o niente). Non si usa
@@ -313,8 +317,9 @@ POST /caricamenti ─┐                      ┌─ POST /caricamenti/{id}/rile
                   ▲  │                   ├► DUPLICATO / AGGIUNTIVO_NON_GESTITO   chiusura: PDF e associazione eliminati
                   └──┘ PDF protetto      └► ERRORE + motivo    chiusura: PDF conservato se motivo.conservaPdf(),
                        riprovato una volta                     altrimenti eliminato
-riavvio: IN_CODA | IN_LETTURA ──► ERRORE, motivo INTERROTTO (il PDF resta solo se un tentativo precedente lo aveva
-                                  gia' conservato)
+riavvio: IN_CODA | IN_LETTURA ──► DUPLICATO se il file e' gia' archiviato, altrimenti ERRORE, motivo INTERROTTO
+                                  (il PDF resta solo se un tentativo precedente lo aveva gia' conservato)
+archiviazione del file ──► i suoi tentativi in ERRORE successivi diventano DUPLICATO del cedolino archiviato
 
 file in errore ──[POST .../cedolino]──────────────► caricamento indicato ERRORE ─► ACQUISITO (stessa acquisizione)
 file in errore ──[DELETE /caricamenti/{id}]────────► tentativi in ERRORE del file, PDF e associazione eliminati

@@ -173,6 +173,16 @@ La tabella `ccnl` e' un dato di riferimento globale, popolato da changelog del m
   che passa sempre da `InterpreteRispostaEstrazione` (normalizzazione e validazione comuni); il record Java
   corrispondente e' `CedolinoEstratto`. Un cambiamento allo schema va riflesso nel record, nel validatore, nel prompt
   di Claude (`estrazione-cedolino-v1.md`), in `CedolinoLetto.json` del lettore locale e nelle fixture.
+- L'inserimento a mano e' il quarto produttore dello stesso JSON (`modello_estrazione` = `inserimento-manuale-1`) e
+  il suo modulo deve rispecchiare tutti i campi del lettore: un cambiamento allo schema va riflesso anche nel percorso
+  manuale. Backend: `cedolini.CedolinoManuale`, `ValidazioneCedolinoManuale` (normalizzazione e limiti),
+  `JsonCedolinoManuale` (scrive il JSON v1), `web.api.dto.CedolinoManualeDto` con `Mappatura` e lo schema
+  `CedolinoManuale` in `docs/openapi.yaml` (poi `npm run gen:api`). Frontend: `ValoriCedolinoManuale`, `valoriVuoti`,
+  `richiestaDa`, `daCedolinoRiferimento` e le validazioni in `hooks/useCedolinoManuale.ts`, le sezioni del modulo
+  (`components/SezioniCedolinoManuale.tsx`, `TabellaVociModificabile.tsx`, `TabellaRateiModificabile.tsx`), le
+  etichette `testi.campoCedolino` in `i18n/it.ts` e il backend simulato `mocks/inserimentoManuale.ts`.
+  `JsonCedolinoManualeTest` valida il JSON prodotto contro lo schema (tutte le proprieta' sono obbligatorie): un campo
+  nuovo non scritto dal percorso manuale lo fa fallire, ma il modulo e il DTO vanno aggiornati a mano.
 - Il lettore Claude non deve dipendere dal testo estratto localmente dal PDF (le scansioni non ne hanno): riceve il
   PDF come documento. Il lettore locale invece legge solo il testo: un PDF senza testo e' un errore, non un caso da
   indovinare.
