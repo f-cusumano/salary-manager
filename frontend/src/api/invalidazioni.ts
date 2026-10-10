@@ -9,6 +9,7 @@ import { ApiError } from './errors';
 export async function invalidaDopoAcquisizione(queryClient: QueryClient): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: chiavi.persone }),
+    queryClient.invalidateQueries({ queryKey: chiavi.aziende }),
     queryClient.invalidateQueries({ queryKey: chiavi.rapportiTutti }),
     queryClient.invalidateQueries({ queryKey: chiavi.rapportoTutti }),
     // un nuovo cedolino puo' riclassificare quelli gia' presenti (progressivo TFR e nome del file)

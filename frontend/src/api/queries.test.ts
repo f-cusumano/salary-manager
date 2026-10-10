@@ -13,9 +13,11 @@ import {
 import { ApiError } from './errors';
 import {
   useAssociaCaricamento,
+  useAziende,
   useCaricamentiInErrore,
   useEliminaCedolino,
   useInserisciCedolinoManuale,
+  useLetture,
   useRimuoviAssociazione,
   useRimuoviCaricamento,
   useVerificaCedolinoManuale,
@@ -42,6 +44,7 @@ function invalidata({ queryClient }: Contesto, chiave: readonly unknown[]): bool
 function popolaCache({ queryClient }: Contesto) {
   const chiaviPopolate = [
     chiavi.persone,
+    chiavi.aziende,
     chiavi.rapporti(1),
     chiavi.rapporto(1),
     chiavi.cedolino(101),
@@ -62,6 +65,7 @@ describe('invalidazioni', () => {
     await invalidaDopoAcquisizione(contesto.queryClient);
 
     expect(invalidata(contesto, chiavi.persone)).toBe(true);
+    expect(invalidata(contesto, chiavi.aziende)).toBe(true);
     expect(invalidata(contesto, chiavi.rapporti(1))).toBe(true);
     expect(invalidata(contesto, chiavi.rapporto(1))).toBe(true);
     expect(invalidata(contesto, chiavi.cedolino(101))).toBe(true);
@@ -80,7 +84,44 @@ describe('invalidazioni', () => {
     expect(invalidata(contesto, chiavi.rapporti(1))).toBe(true);
     expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(true);
     expect(invalidata(contesto, chiavi.persone)).toBe(false);
+    expect(invalidata(contesto, chiavi.aziende)).toBe(false);
     expect(invalidata(contesto, chiavi.cedolino(101))).toBe(false);
+  });
+});
+
+describe('anagrafiche e letture per la precompilazione', () => {
+  it('l’elenco delle aziende si legge solo se richiesto', async () => {
+    const contesto = contestoHook();
+    const { result, rerender } = renderHook(({ abilitato }) => useAziende(abilitato), {
+      wrapper: contesto.wrapper,
+      initialProps: { abilitato: false },
+    });
+    expect(result.current.fetchStatus).toBe('idle');
+
+    rerender({ abilitato: true });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.map((a) => a.etichetta)).toEqual([
+      'Alfa Software S.r.l.',
+      'Beta Consulting S.p.A.',
+      'Gamma Servizi S.r.l.',
+    ]);
+  });
+
+  it('le letture su richiesta usano la cache delle viste (stesse chiavi)', async () => {
+    const contesto = contestoHook();
+    const { result } = renderHook(() => useLetture(), { wrapper: contesto.wrapper });
+
+    const rapporti = await result.current.rapporti(1);
+    const rapporto = await result.current.rapporto(rapporti[0]?.id ?? 0);
+    const cedolinoId = rapporto.mensilita.find((r) => r.cedolinoId !== null)?.cedolinoId ?? 0;
+    const cedolino = await result.current.cedolino(cedolinoId);
+
+    expect(contesto.queryClient.getQueryData(chiavi.rapporti(1))).toBe(rapporti);
+    expect(contesto.queryClient.getQueryData(chiavi.rapporto(rapporto.id))).toBe(rapporto);
+    expect(contesto.queryClient.getQueryData(chiavi.cedolino(cedolinoId))).toBe(cedolino);
+    // gia' in cache e non scaduto: nessuna nuova richiesta
+    expect(await result.current.rapporti(1)).toBe(rapporti);
   });
 });
 
@@ -211,6 +252,7 @@ describe('query e modifiche dei cedolini caricati con errore', () => {
 
     expect(caricamento).toMatchObject({ stato: 'ACQUISITO', personaId: 1, rapportoId: 1 });
     expect(invalidata(contesto, chiavi.persone)).toBe(true);
+    expect(invalidata(contesto, chiavi.aziende)).toBe(true);
     expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(true);
     expect(invalidata(contesto, chiavi.lotto(ristampa.lotto))).toBe(true);
     expect(contesto.queryClient.getQueryState(chiavi.pdfCaricamento(ristampa.id))).toBeUndefined();
@@ -267,5 +309,7 @@ describe('query e modifiche dei cedolini caricati con errore', () => {
     // un file associato al mese eliminato torna da completare; se sparisce il rapporto perde l'associazione
     expect(invalidata(contesto, chiavi.caricamentiInErrore)).toBe(true);
     expect(invalidata(contesto, chiavi.rapporto(1))).toBe(true);
+    // sparito il rapporto, puo' sparire anche l'azienda dall'elenco
+    expect(invalidata(contesto, chiavi.aziende)).toBe(true);
   });
 });

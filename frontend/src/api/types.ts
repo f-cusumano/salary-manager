@@ -7,6 +7,7 @@ export type PersonaSintesi = Schemi['PersonaSintesi'];
 export type RapportoSintesi = Schemi['RapportoSintesi'];
 export type RapportoDettaglio = Schemi['RapportoDettaglio'];
 export type AziendaSintesi = Schemi['AziendaSintesi'];
+export type AziendaSelezionabile = Schemi['AziendaSelezionabile'];
 export type Periodo = Schemi['Periodo'];
 export type Ccnl = Schemi['Ccnl'];
 export type Segnalazione = Schemi['Segnalazione'];

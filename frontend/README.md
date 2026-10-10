@@ -36,7 +36,13 @@ riconosciuto) e `protetto` se non si indica una password; in Errore senza PDF co
 danneggiato) ed `errore` (più cedolini nello stesso PDF). Ogni altro file viene acquisito. Lo stesso file (stesso
 nome e stessa dimensione) caricato più volte compare una volta sola tra i cedolini caricati con errore.
 L'inserimento a mano simulato restituisce gli stessi errori del backend (percorsi, testi e ordine dei campi, uno per
-campo) e gli stessi avvisi di coerenza, salvo l'avviso sui dati bancari rimossi dai testi.
+campo) e gli stessi avvisi di coerenza, salvo l'avviso sui dati bancari rimossi dai testi. Come il backend:
+`GET /api/v1/aziende` elenca le aziende dei rapporti per ragione sociale con l'etichetta anti-omonimia (P.IVA, poi
+codice fiscale, poi posizione INPS; per le persone omonime il codice fiscale); con `personaId` / `aziendaId` il
+cedolino usa i dati anagrafici in archivio e va al rapporto della coppia scelta (o a uno nuovo), un id sconosciuto è
+un 400 sulla scelta; senza scelta ("Crea nuovo") un codice fiscale, una partita IVA, una posizione INPS o una ragione
+sociale già in archivio sono un 400 "… già in archivio" sul campo (versione semplificata del riconoscimento del
+censimento).
 
 I mock esistono solo con `--mode mock` (`.env.mock` imposta `VITE_USE_MOCKS=true`): nella build di produzione il
 modulo `src/mocks` non viene incluso nel bundle. `npm run build:mock` + `npm run preview:mock` servono la build
@@ -152,20 +158,35 @@ errore" prende il posto di "Mensilità mancante". L'associazione non viene mai i
 992 px; "Apri in una nuova scheda" per i telefoni che non mostrano i PDF negli iframe). Il modulo (`@mantine/form`) ha
 tutti i campi del lettore, divisi in sezioni, senza dati bancari:
 
-- è precompilato dal mese associato (periodo), dal rapporto (anagrafiche e assunzione) e dal cedolino più vicino dello
-  stesso rapporto (inquadramento, elementi retributivi, voci senza quantità e importi, ratei); "Copia dati da…" fa lo
-  stesso a richiesta. Si compilano solo i campi vuoti, segnati con un punto blu; la data di cessazione, i totali e
-  quantità e importi delle voci non vengono mai copiati. Voci e ratei copiati sono modelli: finché restano senza
-  quantità né importi (i ratei senza valori del mese) non vengono inviati, validati né contati, e una nota permette
-  di toglierli; appena modificati diventano righe come le altre;
+- dipendente e datore di lavoro si scelgono dall'archivio, per evitare doppioni da refusi: **"Persona in archivio"**
+  ("Seleziona persona/dipendente": nome e cognome, con il codice fiscale per gli omonimi) e **"Azienda in archivio"**
+  (ragione sociale, con P.IVA, codice fiscale o posizione INPS per le omonime; prima le aziende della persona scelta).
+  La ricerca trova anche per codice fiscale o partita IVA, senza distinguere maiuscole e accenti. I dati anagrafici
+  della scelta (codice fiscale, nome, cognome, data di nascita se in archivio; ragione sociale, P.IVA, codice
+  fiscale, posizione INPS) sono in sola lettura e il server usa comunque quelli in archivio; matricola, posizione
+  INAIL, codice azienda e indirizzo restano modificabili. Accanto alla tendina **"Crea nuovo"** / **"Crea nuova"**
+  mostra i campi da scrivere come stampati (il focus va al primo) e "Scegli dall'elenco" riporta alla tendina; con
+  l'archivio vuoto si parte direttamente da lì. Il modulo blocca un codice fiscale o una P.IVA/codice fiscale
+  dell'azienda già in archivio (confronto incrociato); posizione INPS e ragione sociale le controlla il backend alla
+  verifica. Senza scelta né "Crea nuovo" la verifica chiede di scegliere (un solo errore sulla tendina);
+- è precompilato dal mese associato (periodo, con persona e azienda del suo rapporto già scelte) e, scelte persona e
+  azienda, dall'indirizzo e dal codice azienda in archivio, dal loro rapporto (assunzione) e dal cedolino più vicino
+  dello stesso rapporto (inquadramento, elementi retributivi, voci senza quantità e importi, ratei); il rapporto si
+  legge alla scelta (con "Riprova" se la lettura fallisce). Si compilano solo i campi vuoti, segnati con un punto
+  blu; cambiando una scelta i campi compilati in automatico si svuotano e si compilano di nuovo, quelli modificati
+  restano, il periodo non cambia. La data di cessazione, i totali e quantità e importi delle voci non vengono mai
+  copiati. Voci e ratei copiati sono modelli: finché restano senza quantità né importi (i ratei senza valori del
+  mese) non vengono inviati, validati né contati, e una nota permette di toglierli; appena modificati diventano righe
+  come le altre;
 - i numeri si scrivono all'italiana ("1.234,56"; il punto non diventa mai la virgola decimale) e si possono incollare
   da un PDF ("1.234,56", "1234.56", "123,45-"): negli importi delle voci il segno incollato si ignora (lo dà la
   categoria), maturato e goduto dei ratei possono essere negativi, negli altri campi un valore negativo incollato è
   rifiutato con un messaggio. Al massimo 8 cifre intere e 5 decimali (quantità delle voci e valori dei ratei hanno 5
   decimali); una data incompleta o con l'anno di più di 4 cifre è un errore, non un campo vuoto;
 - **Verifica** (anche con Ctrl+Invio / ⌘+Invio) controlla i campi obbligatori e i formati, poi chiede al backend
-  come verrebbe registrato il cedolino (titolo, persona o rapporto nuovi, avvisi, duplicato) senza salvare nulla;
-  gli errori del backend si posano sui campi e l'esito è annunciato ai lettori di schermo. Gli errori di riga e tra
+  come verrebbe registrato il cedolino (titolo, persona, azienda o rapporto nuovi, avvisi, duplicato) senza salvare
+  nulla; gli errori del backend si posano sui campi (anche sulle tendine; un errore sulla scelta o sui dati
+  anagrafici, come "… già in archivio", rilegge gli elenchi) e l'esito è annunciato ai lettori di schermo. Gli errori di riga e tra
   campi spariscono appena un'altra modifica li risolve. I controlli di coerenza (netto, somme delle voci, saldi dei
   ratei) sono avvisi arancioni che non bloccano;
 - **Salva cedolino** è abilitato solo se l'ultima verifica riguarda esattamente i dati attuali ed è acquisibile;

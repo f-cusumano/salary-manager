@@ -9,11 +9,14 @@ import { areaInErrore, rigaInErrore, type Utente } from './test/app';
 import { renderConMock } from './test/render';
 
 // Dataset "errori" (dati INVENTATI): busta-scansione.pdf (scansione, non associata) e ristampa.pdf (associata ad
-// Agosto 2025 di Mario Rossi presso Alfa Software). Il modulo e' grande: i campi si cercano per `data-path`, lo stesso
-// attributo usato dal modulo per spostare il focus sugli errori.
+// Agosto 2025 di Mario Rossi presso Alfa Software); in archivio Mario Rossi (Alfa Software, poi Beta Consulting) e
+// Laura Bianchi (Gamma Servizi). Il modulo e' grande: i campi si cercano per `data-path`, lo stesso attributo usato dal
+// modulo per spostare il focus sugli errori.
 
 /** Codice fiscale inventato ma formalmente valido (carattere di controllo compreso). */
 const CF_NUOVO = 'VRDGPP90C15L219G';
+const PERSONA = 'Persona in archivio';
+const AZIENDA = 'Azienda in archivio';
 
 async function apriInserimento(user: Utente, nomeFile: string): Promise<HTMLElement> {
   const area = await areaInErrore();
@@ -40,11 +43,75 @@ async function scrivi(user: Utente, dialogo: HTMLElement, percorso: string, test
   await user.type(campo(dialogo, percorso), testo);
 }
 
+function tendina(dialogo: HTMLElement, nome: string): HTMLInputElement {
+  return within(dialogo).getByRole<HTMLInputElement>('combobox', { name: nome });
+}
+
+/** Sceglie una persona o un'azienda in archivio, a elenco caricato. */
+async function scegliAnagrafica(
+  user: Utente,
+  dialogo: HTMLElement,
+  nome: string,
+  opzione: string | RegExp,
+): Promise<void> {
+  await waitFor(() => expect(tendina(dialogo, nome)).toBeEnabled());
+  await user.click(tendina(dialogo, nome));
+  await user.click(await within(dialogo).findByRole('option', { name: opzione }));
+}
+
+/** Nomi delle opzioni della tendina aperta, nell'ordine. */
+async function opzioni(user: Utente, dialogo: HTMLElement, nome: string): Promise<string[]> {
+  await waitFor(() => expect(tendina(dialogo, nome)).toBeEnabled());
+  await user.click(tendina(dialogo, nome));
+  const elenco = await within(dialogo).findByRole('listbox');
+  return within(elenco)
+    .getAllByRole('option')
+    .map((o) => o.textContent);
+}
+
+function etichettaDi(dialogo: HTMLElement, percorso: string): HTMLElement {
+  const etichetta = dialogo.querySelector<HTMLElement>(`label[for="${campo(dialogo, percorso).id}"]`);
+  if (!etichetta) {
+    throw new Error(`etichetta di ${percorso} non trovata`);
+  }
+  return etichetta;
+}
+
+/** Provenienza di un campo compilato in automatico: il suggerimento del punto blu accanto all'etichetta. */
+async function notaCopiato(user: Utente, dialogo: HTMLElement, percorso: string): Promise<string | null> {
+  const punto = etichettaDi(dialogo, percorso).querySelector<HTMLElement>('[aria-hidden]');
+  if (!punto) {
+    return null;
+  }
+  await user.hover(punto);
+  const nota = (await screen.findByRole('tooltip')).textContent;
+  await user.unhover(punto);
+  await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+  return nota;
+}
+
+function inSolaLettura(dialogo: HTMLElement, ...percorsi: string[]): void {
+  for (const percorso of percorsi) {
+    expect(campo(dialogo, percorso)).toHaveAttribute('readonly');
+  }
+}
+
+function assente(dialogo: HTMLElement, percorso: string): void {
+  expect(dialogo.querySelector(`[data-path="${percorso}"]`)).toBeNull();
+}
+
+/** «Crea nuovo» per la persona e «Crea nuova» per l'azienda. */
+async function creaNuove(user: Utente, dialogo: HTMLElement): Promise<void> {
+  await user.click(pulsante(dialogo, 'Crea nuovo dipendente'));
+  await user.click(pulsante(dialogo, 'Crea nuova azienda'));
+}
+
 /** Campi obbligatori di un cedolino di Maggio 2025 di una persona nuova (Giuseppe Verdi, Delta Servizi). */
 async function compilaObbligatori(user: Utente, dialogo: HTMLElement): Promise<void> {
   await scegli(user, dialogo, 'periodo.tipo', 'Mensilità ordinaria');
   await scegli(user, dialogo, 'periodo.mese', 'Maggio');
   await scrivi(user, dialogo, 'periodo.anno', '2025');
+  await creaNuove(user, dialogo);
   await scrivi(user, dialogo, 'dipendente.codiceFiscale', CF_NUOVO.toLowerCase());
   await scrivi(user, dialogo, 'dipendente.cognome', 'Verdi');
   await scrivi(user, dialogo, 'dipendente.nome', 'Giuseppe');
@@ -101,7 +168,7 @@ function intercetta(percorso: RegExp, risposta: () => Promise<Response>) {
 }
 
 describe('inserimento a mano', { timeout: 40_000 }, () => {
-  it('precompila il modulo dal mese associato, dal rapporto e dal cedolino precedente', async () => {
+  it('dal mese associato sceglie persona e azienda (dati in sola lettura) e precompila dal rapporto', async () => {
     const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
     const dialogo = await apriInserimento(user, 'ristampa.pdf');
 
@@ -114,10 +181,38 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     expect(campo(dialogo, 'periodo.mese')).toHaveValue('Agosto');
     expect(campo(dialogo, 'periodo.anno')).toHaveValue('2025');
     expect(within(dialogo).getByText('Sarà registrato come:').parentElement).toHaveTextContent('Agosto 2025');
+    expect(tendina(dialogo, PERSONA)).toHaveValue('Mario Rossi');
+    expect(tendina(dialogo, AZIENDA)).toHaveValue('Alfa Software S.r.l.');
     expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('RSSMRA80A01H501U');
     expect(campo(dialogo, 'dipendente.cognome')).toHaveValue('Rossi');
+    expect(campo(dialogo, 'dipendente.dataNascita')).toHaveValue('1980-01-01');
     expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveValue('Alfa Software S.r.l.');
+    expect(campo(dialogo, 'datoreLavoro.partitaIva')).toHaveValue('01234567897');
+    inSolaLettura(
+      dialogo,
+      'dipendente.codiceFiscale',
+      'dipendente.cognome',
+      'dipendente.nome',
+      'dipendente.dataNascita',
+      'datoreLavoro.ragioneSociale',
+      'datoreLavoro.partitaIva',
+      'datoreLavoro.codiceFiscale',
+      'datoreLavoro.posizioneInps',
+    );
+    expect(campo(dialogo, 'dipendente.codiceDipendente')).not.toHaveAttribute('readonly');
+    expect(
+      within(dialogo).getByText('Dati in archivio: per cambiarli scegli un’altra persona'),
+    ).toBeVisible();
+    // indirizzo dell'azienda in archivio: si puo' cambiare
+    expect(campo(dialogo, 'datoreLavoro.indirizzo')).toHaveValue('Via Roma 1, 00100 Roma');
+    expect(campo(dialogo, 'datoreLavoro.indirizzo')).not.toHaveAttribute('readonly');
+    expect(await notaCopiato(user, dialogo, 'datoreLavoro.indirizzo')).toBe('Dall’azienda scelta: verifica');
     expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('2022-03-01');
+    expect(await notaCopiato(user, dialogo, 'datiContrattuali.dataAssunzione')).toBe(
+      'Copiato da Alfa Software S.r.l.: verifica',
+    );
+    // i dati in archivio non sono "copiati": nessun punto blu
+    expect(etichettaDi(dialogo, 'dipendente.codiceFiscale').querySelector('[aria-hidden]')).toBeNull();
     expect(campo(dialogo, 'datiContrattuali.dataCessazione')).toHaveValue('');
     // dal cedolino di Luglio 2025: le voci senza importi
     expect(campo(dialogo, 'voci.0.descrizione')).not.toHaveValue('');
@@ -128,29 +223,265 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     expect(campo(dialogo, 'totali.netto')).toHaveValue('');
   });
 
-  it('«Copia dati da…» compila solo i campi vuoti dal rapporto scelto e dal suo cedolino più vicino', async () => {
+  it('senza mese associato: scelta la persona le sue aziende vengono prima, scelta l’azienda il modulo si precompila', async () => {
     const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
     const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
+    expect(tendina(dialogo, PERSONA)).toHaveValue('');
+    expect(tendina(dialogo, PERSONA)).toHaveAttribute('placeholder', 'Seleziona persona/dipendente');
+    assente(dialogo, 'dipendente.codiceFiscale');
+    assente(dialogo, 'datoreLavoro.ragioneSociale');
     await scegli(user, dialogo, 'periodo.mese', 'Aprile');
     await scrivi(user, dialogo, 'periodo.anno', '2026');
-    await scrivi(user, dialogo, 'dipendente.nome', 'Mariano');
 
-    await user.click(pulsante(dialogo, 'Copia dati da…'));
-    await user.click(within(dialogo).getByRole('combobox', { name: 'Persona' }));
-    await user.click(await within(dialogo).findByRole('option', { name: 'Mario Rossi' }));
-    await user.click(await within(dialogo).findByRole('combobox', { name: 'Azienda' }));
-    await user.click(await within(dialogo).findByRole('option', { name: /^Alfa Software S\.r\.l\./ }));
-    await waitFor(() => expect(pulsante(dialogo, 'Copia i dati')).toBeEnabled());
-    await user.click(pulsante(dialogo, 'Copia i dati'));
+    await scegliAnagrafica(user, dialogo, PERSONA, 'Laura Bianchi');
+    expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('BNCLRA85M41F205X');
+    inSolaLettura(dialogo, 'dipendente.codiceFiscale', 'dipendente.cognome', 'dipendente.nome');
 
-    expect(within(dialogo).getByRole('status')).toHaveTextContent(/^Campi compilati: \d+$/);
-    expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('RSSMRA80A01H501U');
-    expect(campo(dialogo, 'dipendente.cognome')).toHaveValue('Rossi');
-    expect(campo(dialogo, 'dipendente.nome')).toHaveValue('Mariano');
-    expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveValue('Alfa Software S.r.l.');
+    expect(await opzioni(user, dialogo, AZIENDA)).toEqual([
+      'Gamma Servizi S.r.l.',
+      'Alfa Software S.r.l.',
+      'Beta Consulting S.p.A.',
+    ]);
+    const elenco = within(dialogo).getByRole('listbox');
+    expect(within(elenco).getByText('Aziende di Laura Bianchi')).toBeInTheDocument();
+    expect(within(elenco).getByText('Altre aziende')).toBeInTheDocument();
+    await user.click(within(elenco).getByRole('option', { name: 'Gamma Servizi S.r.l.' }));
+
+    await waitFor(() => expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('2025-11-03'));
+    expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveValue('Gamma Servizi S.r.l.');
+    // un identificativo che l'archivio non ha resta vuoto, non si scrive a mano
+    expect(campo(dialogo, 'datoreLavoro.codiceFiscale')).toHaveValue('');
+    expect(campo(dialogo, 'datoreLavoro.codiceFiscale')).toHaveAttribute(
+      'placeholder',
+      'Non presente in archivio',
+    );
+    expect(campo(dialogo, 'datiContrattuali.qualifica')).toHaveValue('Impiegata');
     expect(campo(dialogo, 'voci.0.descrizione')).not.toHaveValue('');
     expect(within(dialogo).getByText('Copiato da Aprile 2026: verifica')).toBeInTheDocument();
     expect(campo(dialogo, 'periodo.mese')).toHaveValue('Aprile');
+  });
+
+  it('cambiando azienda o persona i dati compilati in automatico si sostituiscono, quelli modificati restano', async () => {
+    const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
+    const dialogo = await apriInserimento(user, 'ristampa.pdf');
+    expect(campo(dialogo, 'datiContrattuali.livello')).toHaveValue('2');
+    await user.clear(campo(dialogo, 'datiContrattuali.qualifica'));
+    await scrivi(user, dialogo, 'datiContrattuali.qualifica', 'Quadro');
+
+    await scegliAnagrafica(user, dialogo, AZIENDA, 'Beta Consulting S.p.A.');
+
+    await waitFor(() => expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('2018-09-03'));
+    expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveValue('Beta Consulting S.p.A.');
+    expect(campo(dialogo, 'datoreLavoro.indirizzo')).toHaveValue('Corso Italia 10, 20100 Milano');
+    expect(campo(dialogo, 'datiContrattuali.livello')).toHaveValue('C3');
+    expect(campo(dialogo, 'datiContrattuali.qualifica')).toHaveValue('Quadro');
+    expect(await notaCopiato(user, dialogo, 'datiContrattuali.dataAssunzione')).toBe(
+      'Copiato da Beta Consulting S.p.A.: verifica',
+    );
+    expect(within(dialogo).getByText(/^Copiato da .+ 2022: verifica$/)).toBeInTheDocument();
+    // il periodo del mese associato resta
+    expect(campo(dialogo, 'periodo.mese')).toHaveValue('Agosto');
+    expect(tendina(dialogo, PERSONA)).toHaveValue('Mario Rossi');
+
+    // Laura Bianchi non ha rapporti con Beta Consulting: i dati del rapporto precedente si tolgono
+    await scegliAnagrafica(user, dialogo, PERSONA, 'Laura Bianchi');
+    expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('BNCLRA85M41F205X');
+    expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('');
+    expect(campo(dialogo, 'datiContrattuali.livello')).toHaveValue('');
+    expect(campo(dialogo, 'datiContrattuali.qualifica')).toHaveValue('Quadro');
+    expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveValue('Beta Consulting S.p.A.');
+    expect(campo(dialogo, 'datoreLavoro.indirizzo')).toHaveValue('Corso Italia 10, 20100 Milano');
+
+    await compilaTotali(user, dialogo);
+    await user.click(pulsante(dialogo, 'Verifica'));
+    const esito = await within(dialogo).findByRole('region', { name: 'Esito della verifica' });
+    expect(within(esito).getByText('Nuovo rapporto di lavoro')).toBeInTheDocument();
+    expect(
+      within(esito).getByText('Persona o azienda diverse da quelle del mese associato al file (Agosto 2025)'),
+    ).toBeInTheDocument();
+  });
+
+  it('«Crea nuovo» con un codice fiscale già in archivio è un errore; «Scegli dall’elenco» torna alla tendina', async () => {
+    const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
+    const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
+
+    await user.click(pulsante(dialogo, 'Crea nuovo dipendente'));
+
+    expect(
+      within(dialogo).getByText('Nuova persona: inserisci i dati come stampati sul cedolino.'),
+    ).toBeVisible();
+    expect(within(dialogo).queryByRole('combobox', { name: PERSONA })).not.toBeInTheDocument();
+    await waitFor(() => expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveFocus());
+    expect(campo(dialogo, 'dipendente.codiceFiscale')).not.toHaveAttribute('readonly');
+    await scrivi(user, dialogo, 'dipendente.codiceFiscale', 'rssmra80a01h501u');
+    await scrivi(user, dialogo, 'dipendente.cognome', 'Rossi');
+    await scrivi(user, dialogo, 'dipendente.nome', 'Mario');
+
+    await user.click(pulsante(dialogo, 'Verifica'));
+
+    const messaggio = "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco";
+    expect(await within(dialogo).findAllByText(messaggio)).not.toHaveLength(0);
+    expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveAttribute('aria-invalid', 'true');
+
+    await user.click(pulsante(dialogo, 'Scegli dall’elenco delle persone'));
+
+    await waitFor(() => expect(tendina(dialogo, PERSONA)).toHaveFocus());
+    assente(dialogo, 'dipendente.codiceFiscale');
+    expect(within(dialogo).queryByText(messaggio)).not.toBeInTheDocument();
+    await scegliAnagrafica(user, dialogo, PERSONA, 'Mario Rossi');
+    expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('RSSMRA80A01H501U');
+    inSolaLettura(dialogo, 'dipendente.codiceFiscale');
+  });
+
+  it('«Crea nuova» con la ragione sociale di un’azienda in archivio: l’errore del server è sul campo', async () => {
+    const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
+    const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
+    await scegli(user, dialogo, 'periodo.tipo', 'Mensilità ordinaria');
+    await scegli(user, dialogo, 'periodo.mese', 'Maggio');
+    await scrivi(user, dialogo, 'periodo.anno', '2025');
+    await scegliAnagrafica(user, dialogo, PERSONA, 'Mario Rossi');
+    await user.click(pulsante(dialogo, 'Crea nuova azienda'));
+    await waitFor(() => expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveFocus());
+    await scrivi(user, dialogo, 'datoreLavoro.ragioneSociale', 'ALFA SOFTWARE SRL');
+    await compilaTotali(user, dialogo);
+
+    await user.click(pulsante(dialogo, 'Verifica'));
+
+    expect(await within(dialogo).findByText('1 campo da correggere')).toBeInTheDocument();
+    await waitFor(() => expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveFocus());
+    expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveAttribute('aria-invalid', 'true');
+    expect(
+      within(dialogo).getAllByText(
+        "Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco",
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('gli omonimi si distinguono: la persona con il codice fiscale, l’azienda con la partita IVA', async () => {
+    const { user, backend, queryClient } = renderConMock(<App />, { datiIniziali: 'errori' });
+    await areaInErrore();
+    // un altro Mario Rossi e un'altra Alfa Software S.r.l. (di Laura Bianchi), inventati
+    backend.db.persone.push({
+      id: 50,
+      nome: 'Mario',
+      cognome: 'Rossi',
+      codiceFiscale: 'RSSMRA85C12F205M',
+      dataNascita: null,
+      etichetta: 'Mario Rossi',
+    });
+    const laura = backend.db.rapporti.get(3)!;
+    backend.db.rapporti.set(90, {
+      ...laura,
+      id: 90,
+      azienda: {
+        ...laura.azienda,
+        id: 90,
+        ragioneSociale: 'Alfa Software S.r.l.',
+        partitaIva: '22334455668',
+      },
+      mensilita: [],
+    });
+    await act(() => queryClient.invalidateQueries({ queryKey: chiavi.persone }));
+    const dialogo = await apriInserimento(user, 'ristampa.pdf');
+
+    expect(tendina(dialogo, PERSONA)).toHaveValue('Mario Rossi (RSSMRA80A01H501U)');
+    expect(tendina(dialogo, AZIENDA)).toHaveValue('Alfa Software S.r.l. (P.IVA 01234567897)');
+    expect(await opzioni(user, dialogo, AZIENDA)).toEqual([
+      'Alfa Software S.r.l. (P.IVA 01234567897)',
+      'Beta Consulting S.p.A.',
+      'Alfa Software S.r.l. (P.IVA 22334455668)',
+      'Gamma Servizi S.r.l.',
+    ]);
+    // la ricerca trova anche per codice fiscale
+    await user.clear(tendina(dialogo, PERSONA));
+    await user.type(tendina(dialogo, PERSONA), 'rssmra85');
+    const elenco = await within(dialogo).findByRole('listbox');
+    await waitFor(() =>
+      expect(
+        within(elenco)
+          .getAllByRole('option')
+          .map((o) => o.textContent),
+      ).toEqual(['Mario Rossi (RSSMRA85C12F205M)']),
+    );
+    await user.click(within(elenco).getByRole('option', { name: 'Mario Rossi (RSSMRA85C12F205M)' }));
+    expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('RSSMRA85C12F205M');
+    // senza data di nascita in archivio si puo' indicare quella stampata
+    expect(campo(dialogo, 'dipendente.dataNascita')).not.toHaveAttribute('readonly');
+  });
+
+  it('se la lettura dell’elenco delle aziende o del rapporto non riesce si può riprovare', async () => {
+    let guasto = true;
+    const { user } = renderConMock(<App />, {
+      datiIniziali: 'errori',
+      avvolgiFetch: (fetchApi) => (request) =>
+        guasto &&
+        request.method === 'GET' &&
+        /^\/api\/v1\/(aziende|persone\/\d+\/rapporti)$/.test(new URL(request.url).pathname)
+          ? problema(500, { title: 'Errore interno', detail: 'Servizio non disponibile' })
+          : fetchApi(request),
+    });
+    const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
+    const erroreElenco = (
+      await within(dialogo).findByText('Impossibile leggere l’elenco delle aziende')
+    ).closest('[role="alert"]');
+    expect(erroreElenco).toHaveTextContent('Servizio non disponibile');
+    // «Crea nuova» resta disponibile anche senza elenco
+    expect(pulsante(dialogo, 'Crea nuova azienda')).toBeEnabled();
+
+    guasto = false;
+    await user.click(within(erroreElenco as HTMLElement).getByRole('button', { name: 'Riprova' }));
+    await waitFor(() =>
+      expect(
+        within(dialogo).queryByText('Impossibile leggere l’elenco delle aziende'),
+      ).not.toBeInTheDocument(),
+    );
+
+    guasto = true;
+    await scegliAnagrafica(user, dialogo, PERSONA, 'Mario Rossi');
+    await scegliAnagrafica(user, dialogo, AZIENDA, 'Alfa Software S.r.l.');
+    const erroreRapporto = (
+      await within(dialogo).findByText(/^Impossibile leggere i dati del rapporto/)
+    ).closest('[role="alert"]');
+    expect(erroreRapporto).toHaveTextContent('Servizio non disponibile');
+    // i dati in archivio ci sono comunque
+    expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveValue('Alfa Software S.r.l.');
+    expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('');
+
+    guasto = false;
+    await user.click(within(erroreRapporto as HTMLElement).getByRole('button', { name: 'Riprova' }));
+
+    await waitFor(() => expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('2022-03-01'));
+    expect(within(dialogo).queryByText(/^Impossibile leggere i dati del rapporto/)).not.toBeInTheDocument();
+  });
+
+  it('un errore del server sulla persona scelta si mostra sulla tendina', async () => {
+    const { user } = renderConMock(<App />, {
+      datiIniziali: 'errori',
+      avvolgiFetch: intercetta(/\/cedolino\/verifica$/, () =>
+        problema(400, {
+          title: 'Dati non validi',
+          errori: [
+            {
+              campo: 'personaId',
+              messaggio: "La persona scelta non è più in archivio: scegline un'altra o creane una nuova",
+            },
+          ],
+        }),
+      ),
+    });
+    const dialogo = await apriInserimento(user, 'ristampa.pdf');
+    await compilaTotali(user, dialogo);
+
+    await user.click(pulsante(dialogo, 'Verifica'));
+
+    expect(await within(dialogo).findByText('1 campo da correggere')).toBeInTheDocument();
+    await waitFor(() => expect(tendina(dialogo, PERSONA)).toHaveFocus());
+    expect(tendina(dialogo, PERSONA)).toHaveAttribute('aria-invalid', 'true');
+    expect(
+      within(dialogo).getAllByText(
+        "La persona scelta non è più in archivio: scegline un'altra o creane una nuova",
+      ).length,
+    ).toBeGreaterThan(0);
   });
 
   it('segnala i campi obbligatori con il riepilogo e porta il focus sul primo errore', async () => {
@@ -160,26 +491,30 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
 
     await user.click(pulsante(dialogo, 'Verifica'));
 
-    const riepilogo = (await within(dialogo).findByText('10 campi da correggere')).closest<HTMLElement>(
+    const riepilogo = (await within(dialogo).findByText('8 campi da correggere')).closest<HTMLElement>(
       '[role="alert"]',
     );
     expect(riepilogo).not.toBeNull();
     await waitFor(() => expect(campo(dialogo, 'periodo.tipo')).toHaveFocus());
-    expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveAttribute('aria-invalid', 'true');
-    expect(within(dialogo).getAllByText('Indica il codice fiscale del dipendente')).toHaveLength(1);
+    // persona e azienda: un solo errore sulla tendina, non sui dati anagrafici (non ancora mostrati)
+    expect(tendina(dialogo, PERSONA)).toHaveAttribute('aria-invalid', 'true');
+    expect(within(dialogo).getAllByText("Scegli la persona dall'elenco o «Crea nuovo»")).toHaveLength(1);
 
     await user.click(
-      within(riepilogo!).getByRole('button', { name: 'Ragione sociale: Indica la ragione sociale' }),
+      within(riepilogo!).getByRole('button', {
+        name: "Azienda in archivio: Scegli l'azienda dall'elenco o «Crea nuova»",
+      }),
     );
-    expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveFocus();
+    expect(tendina(dialogo, AZIENDA)).toHaveFocus();
 
-    // correggendo un campo l'errore sparisce anche dal riepilogo
-    await user.type(campo(dialogo, 'datoreLavoro.ragioneSociale'), 'Delta Servizi S.r.l.');
-    expect(within(dialogo).getByText('9 campi da correggere')).toBeInTheDocument();
+    // scegliendo l'errore sparisce anche dal riepilogo
+    await scegliAnagrafica(user, dialogo, AZIENDA, 'Alfa Software S.r.l.');
+    expect(within(dialogo).getByText('7 campi da correggere')).toBeInTheDocument();
+    expect(tendina(dialogo, AZIENDA)).not.toHaveAttribute('aria-invalid', 'true');
     expect(pulsante(dialogo, 'Salva cedolino')).toBeDisabled();
   });
 
-  it('verifica e salva il cedolino di una persona nuova; salvare richiede una verifica dei dati attuali', async () => {
+  it('verifica e salva il cedolino di persona e azienda nuove; salvare richiede una verifica dei dati attuali', async () => {
     const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
     const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
     await compilaObbligatori(user, dialogo);
@@ -188,15 +523,21 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     await user.click(pulsante(dialogo, 'Verifica'));
     const esito = await within(dialogo).findByRole('region', { name: 'Esito della verifica' });
     expect(esito).toHaveTextContent('Sarà registrato come: Maggio 2025');
-    expect(
-      within(esito).getByText('Verrà creata una nuova persona: controlla il codice fiscale'),
-    ).toBeVisible();
-    expect(within(esito).getByText('Nuovo rapporto di lavoro')).toBeVisible();
+    // tre righe arancioni: persona, azienda e rapporto nuovi (gli avvisi non le ripetono)
+    for (const testo of [
+      'Verrà creata una nuova persona: controlla il codice fiscale',
+      'Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice fiscale',
+      'Nuovo rapporto di lavoro',
+    ]) {
+      expect(within(esito).getByText(testo)).toBeVisible();
+      expect(within(esito).getByText(testo)).toHaveStyle({ color: 'var(--mantine-color-orange-9)' });
+    }
+    expect(within(esito).queryByText(/già presente/)).not.toBeInTheDocument();
     expect(pulsante(dialogo, 'Salva cedolino')).toBeEnabled();
     // l'esito compare in fondo al modulo: i lettori di schermo lo sentono annunciare
     expect(annuncio(dialogo)).toHaveAttribute('aria-live', 'polite');
     expect(annuncio(dialogo)).toHaveTextContent(
-      /^Verifica completata: il cedolino si può salvare \(Maggio 2025\)\. Verrà creata una nuova persona/,
+      /^Verifica completata: il cedolino si può salvare \(Maggio 2025\)\. Verrà creata una nuova persona: controlla il codice fiscale\. Verrà creata una nuova azienda/,
     );
 
     // dati cambiati dopo la verifica: niente salvataggio finché non si verifica di nuovo (anche con Ctrl+Invio)
@@ -233,6 +574,7 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     const esito = await within(dialogo).findByRole('region', { name: 'Esito della verifica' });
     expect(esito).toHaveTextContent('Sarà registrato come: Agosto 2025');
     expect(within(esito).getByText('Dipendente: già presente')).toBeInTheDocument();
+    expect(within(esito).getByText('Azienda: già presente')).toBeInTheDocument();
     expect(within(esito).getByText('Rapporto di lavoro: già presente')).toBeInTheDocument();
 
     // busta-scansione.pdf e cedolino-protetto.pdf si possono ancora completare a mano
@@ -453,6 +795,11 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     const schedaPdf = within(dialogo).getByRole('tab', { name: 'PDF' });
     const pannelloPdf = document.getElementById(schedaPdf.getAttribute('aria-controls') ?? '');
     expect(pannelloPdf).not.toBeVisible();
+    // tendina e «Crea nuovo» su una riga che va a capo invece di uscire dallo schermo
+    const riga = pulsante(dialogo, 'Crea nuovo dipendente').parentElement;
+    expect(riga).toContainElement(tendina(dialogo, PERSONA));
+    expect(riga).toHaveStyle({ '--group-wrap': 'wrap' });
+    await user.click(pulsante(dialogo, 'Crea nuovo dipendente'));
     await scrivi(user, dialogo, 'dipendente.nome', 'Giuseppe');
 
     await user.click(schedaPdf);
@@ -467,13 +814,13 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
   it('chiudere un modulo con dati non salvati chiede conferma', async () => {
     const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
     const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
-    await scrivi(user, dialogo, 'dipendente.nome', 'Giuseppe');
+    await scrivi(user, dialogo, 'dipendente.codiceDipendente', 'M-17');
 
     await user.click(pulsante(dialogo, 'Chiudi la finestra'));
     let conferma = await screen.findByRole('dialog', { name: 'Chiudere senza salvare?' });
     await user.click(within(conferma).getByRole('button', { name: 'Continua l’inserimento' }));
     await waitFor(() => expect(conferma).not.toBeInTheDocument());
-    expect(campo(dialogo, 'dipendente.nome')).toHaveValue('Giuseppe');
+    expect(campo(dialogo, 'dipendente.codiceDipendente')).toHaveValue('M-17');
 
     await user.click(pulsante(dialogo, 'Chiudi la finestra'));
     conferma = await screen.findByRole('dialog', { name: 'Chiudere senza salvare?' });

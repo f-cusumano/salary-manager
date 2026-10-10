@@ -36,6 +36,11 @@ interface PropsBase {
   /** Etichetta di una riga di voce o rateo: nascosta a vista quando la riga e' una riga di tabella. */
   inRiga?: boolean;
   className?: string;
+  /**
+   * Dato in archivio di un'anagrafica scelta dall'elenco: non modificabile, senza asterisco ne' punto blu, con
+   * "Non presente in archivio" se vuoto.
+   */
+  soloLettura?: boolean;
 }
 
 /** Punto blu accanto all'etichetta di un campo compilato in automatico, con la provenienza. */
@@ -59,11 +64,19 @@ function Etichetta({ testo, copiato }: { testo: string; copiato: string | undefi
 }
 
 /** Proprieta' comuni dei campi collegati al modulo. */
-function useCampo({ percorso, etichetta, obbligatorio, descrizione, inRiga, className }: PropsBase) {
+function useCampo({
+  percorso,
+  etichetta,
+  obbligatorio,
+  descrizione,
+  inRiga,
+  className,
+  soloLettura = false,
+}: PropsBase) {
   const { form, copiati, rimuoviCopiato } = useModulo();
   const inputProps = form.getInputProps(percorso);
   const aggiorna = inputProps.onChange as (valore: unknown) => void;
-  const copiato = copiati[percorso];
+  const copiato = soloLettura ? undefined : copiati[percorso];
   return {
     key: form.key(percorso),
     props: {
@@ -75,10 +88,11 @@ function useCampo({ percorso, etichetta, obbligatorio, descrizione, inRiga, clas
         }
       },
       label: <Etichetta testo={etichetta ?? etichettaCampo(percorso)} copiato={copiato} />,
-      withAsterisk: obbligatorio ?? false,
+      withAsterisk: !soloLettura && (obbligatorio ?? false),
       description: descrizione,
       className,
       ...(inRiga ? { classNames: { label: classes.etichettaRiga } } : {}),
+      ...(soloLettura ? { readOnly: true, variant: 'filled' as const, placeholder: t.nonInArchivio } : {}),
     },
   };
 }

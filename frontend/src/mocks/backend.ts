@@ -8,6 +8,7 @@ import type {
   StatoCaricamento,
 } from '../api/types';
 import { STATI_TERMINALI } from '../api/types';
+import { elencoAziende, elencoPersone } from './anagrafiche';
 import {
   CCNL_MOCK,
   MESSAGGI_ERRORE,
@@ -296,6 +297,7 @@ function impostaCcnl(rapporto: RapportoDettaglio, codice: string): RapportoDetta
 
 const ROTTE = {
   persone: /^\/api\/v1\/persone$/,
+  aziende: /^\/api\/v1\/aziende$/,
   rapportiPersona: /^\/api\/v1\/persone\/(\d+)\/rapporti$/,
   rapporto: /^\/api\/v1\/rapporti\/(\d+)$/,
   note: /^\/api\/v1\/rapporti\/(\d+)\/note$/,
@@ -366,7 +368,10 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
     let m: RegExpExecArray | null;
 
     if (metodo === 'GET' && ROTTE.persone.test(pathname)) {
-      return json(db.persone);
+      return json(elencoPersone(db));
+    }
+    if (metodo === 'GET' && ROTTE.aziende.test(pathname)) {
+      return json(elencoAziende(db));
     }
     if (metodo === 'GET' && (m = ROTTE.rapportiPersona.exec(pathname))) {
       const personaId = Number(m[1]);

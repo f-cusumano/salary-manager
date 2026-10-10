@@ -2,14 +2,15 @@ import type { CedolinoManuale } from '../api/types';
 
 /**
  * Richiesta di inserimento a mano con dati INVENTATI (le anagrafiche fittizie del backend simulato): cedolino di
- * Agosto 2025 di Mario Rossi presso Alfa Software, coerente nei totali, modificabile per il singolo test.
+ * Agosto 2025 di Mario Rossi presso Alfa Software scelti dall'elenco (id 1, i dati anagrafici inviati sono sostituiti
+ * da quelli in archivio), coerente nei totali, modificabile per il singolo test.
  */
 export function cedolinoManuale(
   modifiche: (dati: CedolinoManuale) => void = () => undefined,
 ): CedolinoManuale {
   const dati: CedolinoManuale = {
-    personaId: null,
-    aziendaId: null,
+    personaId: 1,
+    aziendaId: 1,
     dipendente: {
       codiceFiscale: 'rssmra80a01h501u ',
       nome: 'Mario',

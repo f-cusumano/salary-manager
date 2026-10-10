@@ -2,6 +2,7 @@ import { Alert, Button, Group, List, Paper, Stack, Text, ThemeIcon } from '@mant
 import {
   IconAlertTriangle,
   IconBan,
+  IconBuildingFactory2,
   IconBuildingSkyscraper,
   IconCalendarCheck,
   IconTrash,
@@ -9,6 +10,7 @@ import {
 } from '@tabler/icons-react';
 import type { ReactNode, Ref } from 'react';
 import type { VerificaCedolinoManuale } from '../api/types';
+import { avvisoDelleAnagrafiche } from '../hooks/useCedolinoManuale';
 import { testi } from '../i18n';
 
 const t = testi.manuale;
@@ -35,11 +37,11 @@ function Riga({ icona, colore, children }: { icona: ReactNode; colore: string; c
 }
 
 /**
- * Esito della verifica dell'inserimento a mano: come verra' registrato il cedolino, se persona e rapporto esistono
- * gia' o verranno creati, gli avvisi; per un duplicato o un aggiuntivo il motivo e la rimozione del file.
+ * Esito della verifica dell'inserimento a mano: come verra' registrato il cedolino, se persona, azienda e rapporto
+ * esistono gia' o verranno creati, gli avvisi; per un duplicato o un aggiuntivo il motivo e la rimozione del file.
  */
 export function PannelloVerifica({ esito, superata, onRimuoviFile, ref }: Props) {
-  const avvisi = esito.avvisi.filter((avviso) => avviso !== t.nuovaPersona);
+  const avvisi = esito.avvisi.filter((avviso) => !avvisoDelleAnagrafiche(avviso));
   const scartato = esito.esito !== 'ACQUISIBILE';
   return (
     <Paper
@@ -85,6 +87,15 @@ export function PannelloVerifica({ esito, superata, onRimuoviFile, ref }: Props)
             ) : (
               <Riga icona={<IconUser size={14} />} colore="teal">
                 {t.dipendentePresente}
+              </Riga>
+            )}
+            {esito.nuovaAzienda ? (
+              <Riga icona={<IconBuildingFactory2 size={14} />} colore="orange">
+                {t.nuovaAzienda}
+              </Riga>
+            ) : (
+              <Riga icona={<IconBuildingFactory2 size={14} />} colore="teal">
+                {t.aziendaPresente}
               </Riga>
             )}
             {esito.nuovoRapporto ? (

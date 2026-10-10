@@ -1,8 +1,10 @@
 import { Badge, Group, Text } from '@mantine/core';
-import { useElencoCcnl } from '../api/queries';
+import { useElencoCcnl, usePersone } from '../api/queries';
 import {
   compilatiSezione,
   controlliCoerenza,
+  modoAzienda,
+  modoPersona,
   sezioneDi,
   TIPI_MENSILITA,
   titoloPrevisto,
@@ -22,6 +24,7 @@ import {
 } from './CampiModulo';
 import classes from './InserimentoManualeModal.module.css';
 import { useModulo, useValoreModulo } from './moduloCedolino';
+import { SceltaAzienda, SceltaPersona } from './SceltaAnagrafiche';
 import { TabellaRateiModificabile } from './TabellaRateiModificabile';
 import { TabellaVociModificabile } from './TabellaVociModificabile';
 
@@ -37,14 +40,13 @@ interface PropsIntestazione {
   sezione: SezioneModulo;
   /** Errori bloccanti mostrati nei campi della sezione. */
   errori: number;
-  codiciFiscaliCensiti: readonly string[];
 }
 
 /** Titolo della sezione con i campi compilati, gli errori e gli avvisi che contiene. */
-export function IntestazioneSezione({ sezione, errori, codiciFiscaliCensiti }: PropsIntestazione) {
+export function IntestazioneSezione({ sezione, errori }: PropsIntestazione) {
   const compilati = useValoreModulo((v) => compilatiSezione(v, sezione));
   const avvisi = useValoreModulo(
-    (v) => controlliCoerenza(v, codiciFiscaliCensiti).filter((a) => sezioneDi(a.campo) === sezione).length,
+    (v) => controlliCoerenza(v).filter((a) => sezioneDi(a.campo) === sezione).length,
   );
   return (
     <Group gap="xs" wrap="wrap">
@@ -74,27 +76,9 @@ export function ContenutoSezione({ sezione }: { sezione: SezioneModulo }) {
     case 'periodo':
       return <SezionePeriodo />;
     case 'dipendente':
-      return (
-        <div className={classes.campi}>
-          <CampoTesto percorso="dipendente.codiceFiscale" obbligatorio codice maxLength={16} />
-          <CampoTesto percorso="dipendente.cognome" obbligatorio />
-          <CampoTesto percorso="dipendente.nome" obbligatorio />
-          <CampoData percorso="dipendente.dataNascita" />
-          <CampoTesto percorso="dipendente.codiceDipendente" />
-        </div>
-      );
+      return <SezioneDipendente />;
     case 'datore':
-      return (
-        <div className={classes.campi}>
-          <CampoTesto percorso="datoreLavoro.ragioneSociale" obbligatorio className={classes.largo} />
-          <CampoTesto percorso="datoreLavoro.partitaIva" codice />
-          <CampoTesto percorso="datoreLavoro.codiceFiscale" codice />
-          <CampoTesto percorso="datoreLavoro.posizioneInps" />
-          <CampoTesto percorso="datoreLavoro.posizioneInail" />
-          <CampoTesto percorso="datoreLavoro.codiceAzienda" />
-          <CampoTesto percorso="datoreLavoro.indirizzo" descrizione={t.noIban} className={classes.largo} />
-        </div>
-      );
+      return <SezioneDatore />;
     case 'contratto':
       return <SezioneContratto />;
     case 'totali':
@@ -173,6 +157,78 @@ export function ContenutoSezione({ sezione }: { sezione: SezioneModulo }) {
         </div>
       );
   }
+}
+
+/**
+ * Persona scelta dall'elenco (dati anagrafici in archivio, in sola lettura: la data di nascita si puo' indicare se
+ * l'archivio non la ha) o nuova (dati come stampati); la matricola e' del rapporto e resta modificabile.
+ */
+function SezioneDipendente() {
+  const modo = useValoreModulo(modoPersona);
+  const personaId = useValoreModulo((v) => v.personaId);
+  const persone = usePersone();
+  const scelta = modo === 'scelta';
+  const dataNascitaInArchivio = persone.data?.find((p) => String(p.id) === personaId)?.dataNascita != null;
+  return (
+    <div className={classes.campi}>
+      <SceltaPersona />
+      {modo !== 'nessuna' && (
+        <>
+          <CampoTesto
+            percorso="dipendente.codiceFiscale"
+            obbligatorio
+            codice
+            maxLength={16}
+            soloLettura={scelta}
+          />
+          <CampoTesto percorso="dipendente.cognome" obbligatorio soloLettura={scelta} />
+          <CampoTesto percorso="dipendente.nome" obbligatorio soloLettura={scelta} />
+          <CampoData percorso="dipendente.dataNascita" soloLettura={scelta && dataNascitaInArchivio} />
+          {scelta && (
+            <Text size="xs" c="dimmed" className={classes.largo}>
+              {t.datiInArchivioPersona}
+            </Text>
+          )}
+        </>
+      )}
+      <CampoTesto percorso="dipendente.codiceDipendente" />
+    </div>
+  );
+}
+
+/**
+ * Azienda scelta dall'elenco (ragione sociale e identificativi in archivio, in sola lettura) o nuova; posizione
+ * INAIL, codice azienda e indirizzo restano modificabili.
+ */
+function SezioneDatore() {
+  const modo = useValoreModulo(modoAzienda);
+  const scelta = modo === 'scelta';
+  return (
+    <div className={classes.campi}>
+      <SceltaAzienda />
+      {modo !== 'nessuna' && (
+        <>
+          <CampoTesto
+            percorso="datoreLavoro.ragioneSociale"
+            obbligatorio
+            className={classes.largo}
+            soloLettura={scelta}
+          />
+          <CampoTesto percorso="datoreLavoro.partitaIva" codice soloLettura={scelta} />
+          <CampoTesto percorso="datoreLavoro.codiceFiscale" codice soloLettura={scelta} />
+          <CampoTesto percorso="datoreLavoro.posizioneInps" soloLettura={scelta} />
+          {scelta && (
+            <Text size="xs" c="dimmed" className={classes.largo}>
+              {t.datiInArchivioAzienda}
+            </Text>
+          )}
+        </>
+      )}
+      <CampoTesto percorso="datoreLavoro.posizioneInail" />
+      <CampoTesto percorso="datoreLavoro.codiceAzienda" />
+      <CampoTesto percorso="datoreLavoro.indirizzo" descrizione={t.noIban} className={classes.largo} />
+    </div>
+  );
 }
 
 function SezionePeriodo() {

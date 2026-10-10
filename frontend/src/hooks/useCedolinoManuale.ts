@@ -1,6 +1,7 @@
 import { randomId } from '@mantine/hooks';
 import type {
   AttribuzioneCaricamento,
+  AziendaSelezionabile,
   CaricamentoInErrore,
   CategoriaVoce,
   CedolinoDettaglio,
@@ -174,6 +175,14 @@ export interface RateoModulo {
  * omonimo), con testi vuoti '' al posto di null, scelte come stringhe e mese delle variabili come "AAAA-MM".
  */
 export interface ValoriCedolinoManuale {
+  /** Persona scelta dall'elenco (id come stringa, valore della tendina); null se non scelta o nuova. */
+  personaId: string | null;
+  /** "Crea nuovo": la persona non e' in archivio e i suoi dati si inseriscono a mano (mai con personaId). */
+  nuovaPersona: boolean;
+  /** Azienda scelta dall'elenco; null se non scelta o nuova. */
+  aziendaId: string | null;
+  /** "Crea nuova": l'azienda non e' in archivio (mai con aziendaId). */
+  nuovaAzienda: boolean;
   dipendente: {
     codiceFiscale: string;
     nome: string;
@@ -276,6 +285,24 @@ type Parziale<T> = T extends readonly unknown[]
     ? { [K in keyof T]?: Parziale<T[K]> }
     : T;
 
+/**
+ * Come si indica una persona o un'azienda: non ancora indicata, scelta dall'elenco delle anagrafiche in archivio
+ * (dati anagrafici in sola lettura) o nuova ("Crea nuovo", dati inseriti a mano).
+ */
+export type ModoAnagrafica = 'nessuna' | 'scelta' | 'nuova';
+
+export function modoPersona(
+  valori: Pick<ValoriCedolinoManuale, 'personaId' | 'nuovaPersona'>,
+): ModoAnagrafica {
+  return valori.personaId !== null ? 'scelta' : valori.nuovaPersona ? 'nuova' : 'nessuna';
+}
+
+export function modoAzienda(
+  valori: Pick<ValoriCedolinoManuale, 'aziendaId' | 'nuovaAzienda'>,
+): ModoAnagrafica {
+  return valori.aziendaId !== null ? 'scelta' : valori.nuovaAzienda ? 'nuova' : 'nessuna';
+}
+
 export const TIPI_MENSILITA: readonly TipoMensilita[] = [
   'ORDINARIA',
   'TREDICESIMA',
@@ -299,6 +326,10 @@ export const UNITA_RATEO: readonly UnitaMisura[] = ['GIORNI', 'ORE'];
 /** Modulo vuoto: nessuna voce, nessun rateo, superminimo non indicato. */
 export function valoriVuoti(): ValoriCedolinoManuale {
   return {
+    personaId: null,
+    nuovaPersona: false,
+    aziendaId: null,
+    nuovaAzienda: false,
     dipendente: { codiceFiscale: '', nome: '', cognome: '', dataNascita: '', codiceDipendente: '' },
     datoreLavoro: {
       codiceFiscale: '',
@@ -515,10 +546,17 @@ function numeri<K extends string>(gruppo: Record<K, NumeroModulo>): Record<K, nu
   ) as Record<K, number | null>;
 }
 
+/** Id di un'anagrafica scelta dall'elenco (valore della tendina) come lo vuole la richiesta. */
+function idDa(valore: string | null): number | null {
+  const id = valore !== null && valore !== '' ? Number(valore) : NaN;
+  return Number.isInteger(id) ? id : null;
+}
+
 /**
- * Richiesta CedolinoManuale dai valori del modulo: testi e numeri vuoti diventano null, le righe vuote di voci e
- * ratei (e quelle copiate da un altro cedolino e non completate) non vengono inviate, il TFR senza alcun valore e' null, i buoni pasto non presenti non hanno importi e il tipo
- * tredicesima/quattordicesima implica il flag corrispondente (come la normalizzazione del backend).
+ * Richiesta CedolinoManuale dai valori del modulo: persona e azienda scelte dall'elenco come id (null per quelle
+ * nuove), testi e numeri vuoti diventano null, le righe vuote di voci e ratei (e quelle copiate da un altro cedolino e
+ * non completate) non vengono inviate, il TFR senza alcun valore e' null, i buoni pasto non presenti non hanno importi
+ * e il tipo tredicesima/quattordicesima implica il flag corrispondente (come la normalizzazione del backend).
  */
 export function richiestaDa(valori: ValoriCedolinoManuale): CedolinoManuale {
   const { dipendente, datoreLavoro, datiContrattuali, periodo, retribuzione, buoniPasto } = valori;
@@ -528,9 +566,9 @@ export function richiestaDa(valori: ValoriCedolinoManuale): CedolinoManuale {
   const { superminimoAssorbibile, ...importiRetribuzione } = retribuzione;
   const presenti = buoniPasto.presenti;
   return {
-    // nessuna anagrafica scelta dall'elenco: persona e azienda si censiscono dai dati inseriti
-    personaId: null,
-    aziendaId: null,
+    // il backend usa i dati in archivio delle anagrafiche scelte; senza id le crea dai dati inseriti
+    personaId: idDa(valori.personaId),
+    aziendaId: idDa(valori.aziendaId),
     dipendente: {
       codiceFiscale: testoDa(dipendente.codiceFiscale),
       nome: testoDa(dipendente.nome),
@@ -768,6 +806,11 @@ class Errori {
     }
   }
 
+  /** C'e' gia' un errore su un campo del gruppo (es. "datoreLavoro"). */
+  inGruppo(gruppo: string): boolean {
+    return [...this.perCampo.keys()].some((campo) => campo.startsWith(`${gruppo}.`));
+  }
+
   testo(campo: string, valore: string, massimo: number, obbligatorio?: string): void {
     const normalizzato = pulito(valore);
     if (normalizzato === '') {
@@ -827,16 +870,28 @@ class Errori {
 const e = testi.manuale.erroreCampo;
 
 /**
+ * Anagrafiche in archivio con cui si confrontano i dati di una persona o di un'azienda nuova ("Crea nuovo"): un codice
+ * fiscale, una partita IVA o un codice fiscale dell'azienda gia' presenti vanno scelti dall'elenco. Matricola INPS e
+ * ragione sociale le confronta solo il backend (con le regole del censimento).
+ */
+export interface ArchivioAnagrafiche {
+  codiciFiscaliPersone: readonly string[];
+  aziende: readonly Pick<AziendaSelezionabile, 'partitaIva' | 'codiceFiscale'>[];
+}
+
+export const ARCHIVIO_VUOTO: ArchivioAnagrafiche = { codiciFiscaliPersone: [], aziende: [] };
+
+/**
  * Errori bloccanti del modulo, come quelli del backend (ValidazioneCedolinoManuale) piu' i numeri non interpretabili
  * e il mese delle variabili incompleto, nell'ordine dei campi del modulo. I percorsi sono quelli della richiesta con
  * gli indici delle righe del modulo ("voci[2].descrizione"): si mostrano con percorsoForm.
  *
- * @param codiciFiscaliCensiti codici fiscali delle persone gia' presenti: uno formalmente non valido e' accettato se
- *                             coincide con quello di una persona censita
+ * Persona e azienda vanno scelte dall'elenco o create: quelle scelte hanno i dati anagrafici in archivio (nessun
+ * controllo), quelle nuove i controlli di sempre e non possono avere identificativi gia' in archivio.
  */
 export function erroriBloccanti(
   valori: ValoriCedolinoManuale,
-  codiciFiscaliCensiti: readonly string[] = [],
+  archivio: ArchivioAnagrafiche = ARCHIVIO_VUOTO,
   oggi: Date = new Date(),
 ): ErroreCampo[] {
   const errori = new Errori();
@@ -865,18 +920,21 @@ export function erroriBloccanti(
   }
 
   // dipendente
-  const cf = codiceNormalizzato(dipendente.codiceFiscale);
-  if (cf === '') {
-    errori.aggiungi('dipendente.codiceFiscale', e.codiceFiscale);
-  } else if (
-    !codiceFiscaleValido(cf) &&
-    !UNDICI_CIFRE.test(cf) &&
-    !codiciFiscaliCensiti.some((censito) => codiceNormalizzato(censito) === cf)
-  ) {
-    errori.aggiungi('dipendente.codiceFiscale', e.codiceFiscaleNonValido);
+  const persona = modoPersona(valori);
+  if (persona === 'nessuna') {
+    errori.aggiungi('personaId', e.personaDaScegliere);
+  } else if (persona === 'nuova') {
+    const cf = codiceNormalizzato(dipendente.codiceFiscale);
+    if (cf === '') {
+      errori.aggiungi('dipendente.codiceFiscale', e.codiceFiscale);
+    } else if (archivio.codiciFiscaliPersone.some((censito) => codiceNormalizzato(censito) === cf)) {
+      errori.aggiungi('dipendente.codiceFiscale', e.codiceFiscaleInArchivio);
+    } else if (!codiceFiscaleValido(cf) && !UNDICI_CIFRE.test(cf)) {
+      errori.aggiungi('dipendente.codiceFiscale', e.codiceFiscaleNonValido);
+    }
+    errori.testo('dipendente.cognome', dipendente.cognome, 100, e.cognome);
+    errori.testo('dipendente.nome', dipendente.nome, 100, e.nome);
   }
-  errori.testo('dipendente.cognome', dipendente.cognome, 100, e.cognome);
-  errori.testo('dipendente.nome', dipendente.nome, 100, e.nome);
   if (dataValida(dipendente.dataNascita) && dipendente.dataNascita > isoLocale(oggi)) {
     errori.aggiungi('dipendente.dataNascita', e.dataNascitaFutura);
   }
@@ -884,22 +942,40 @@ export function erroriBloccanti(
   errori.testo('dipendente.codiceDipendente', dipendente.codiceDipendente, 50);
 
   // datore di lavoro
-  if (!/[\p{L}\p{N}]/u.test(datore.ragioneSociale)) {
-    errori.aggiungi('datoreLavoro.ragioneSociale', e.ragioneSociale);
-  }
-  errori.testo('datoreLavoro.ragioneSociale', datore.ragioneSociale, 200);
+  const azienda = modoAzienda(valori);
   const partitaIva = codiceNormalizzato(datore.partitaIva);
-  if (partitaIva !== '' && !UNDICI_CIFRE.test(partitaIva)) {
-    errori.aggiungi('datoreLavoro.partitaIva', e.partitaIva);
-  }
   const cfAzienda = codiceNormalizzato(datore.codiceFiscale);
-  if (cfAzienda !== '' && !CODICE_FISCALE_AZIENDA.test(cfAzienda)) {
-    errori.aggiungi('datoreLavoro.codiceFiscale', e.codiceFiscaleAzienda);
+  if (azienda === 'nessuna') {
+    errori.aggiungi('aziendaId', e.aziendaDaScegliere);
+  } else if (azienda === 'nuova') {
+    if (!/[\p{L}\p{N}]/u.test(datore.ragioneSociale)) {
+      errori.aggiungi('datoreLavoro.ragioneSociale', e.ragioneSociale);
+    }
+    errori.testo('datoreLavoro.ragioneSociale', datore.ragioneSociale, 200);
+    if (partitaIva !== '' && !UNDICI_CIFRE.test(partitaIva)) {
+      errori.aggiungi('datoreLavoro.partitaIva', e.partitaIva);
+    }
+    if (cfAzienda !== '' && !CODICE_FISCALE_AZIENDA.test(cfAzienda)) {
+      errori.aggiungi('datoreLavoro.codiceFiscale', e.codiceFiscaleAzienda);
+    }
+    errori.testo('datoreLavoro.posizioneInps', datore.posizioneInps, 50);
   }
-  errori.testo('datoreLavoro.posizioneInps', datore.posizioneInps, 50);
   errori.testo('datoreLavoro.posizioneInail', datore.posizioneInail, 50);
   errori.testo('datoreLavoro.indirizzo', datore.indirizzo, 300);
   errori.testo('datoreLavoro.codiceAzienda', datore.codiceAzienda, 50);
+  // come il backend: il confronto con l'archivio solo per dati del datore altrimenti corretti
+  if (azienda === 'nuova' && !errori.inGruppo('datoreLavoro')) {
+    const inArchivio = new Set(
+      archivio.aziende
+        .flatMap((a) => [a.partitaIva, a.codiceFiscale])
+        .flatMap((codice) => (codice ? [codiceNormalizzato(codice)] : [])),
+    );
+    if (partitaIva !== '' && inArchivio.has(partitaIva)) {
+      errori.aggiungi('datoreLavoro.partitaIva', e.partitaIvaInArchivio);
+    } else if (cfAzienda !== '' && inArchivio.has(cfAzienda)) {
+      errori.aggiungi('datoreLavoro.codiceFiscale', e.codiceFiscaleAziendaInArchivio);
+    }
+  }
 
   // dati contrattuali
   errori.data('datiContrattuali.dataAssunzione', contratto.dataAssunzione);
@@ -1021,13 +1097,13 @@ const ERRORE_DERIVATO = /^(voci|ratei)\.\d+(\.|$)|^datiContrattuali\.dataCessazi
 export function senzaErroriRisolti<T>(
   errori: Readonly<Record<string, T>>,
   valori: ValoriCedolinoManuale,
-  codiciFiscaliCensiti: readonly string[] = [],
+  archivio: ArchivioAnagrafiche = ARCHIVIO_VUOTO,
 ): Readonly<Record<string, T>> {
   const derivati = Object.keys(errori).filter((percorso) => ERRORE_DERIVATO.test(percorso));
   if (derivati.length === 0) {
     return errori;
   }
-  const attuali = new Set(erroriBloccanti(valori, codiciFiscaliCensiti).map((e) => percorsoForm(e.campo)));
+  const attuali = new Set(erroriBloccanti(valori, archivio).map((e) => percorsoForm(e.campo)));
   const risolti = new Set(derivati.filter((percorso) => !attuali.has(percorso)));
   if (risolti.size === 0) {
     return errori;
@@ -1054,12 +1130,10 @@ function fuoriTolleranza(a: number, b: number, tolleranza: number): boolean {
 /**
  * Approssimazione nel browser dei controlli di coerenza del backend (salvati come avvisi con il cedolino): netto
  * rispetto ai totali, somme delle voci rispetto ai totali stampati, saldo dei ratei, codici di controllo degli
- * identificativi, fine rapporto senza cessazione. Non bloccano il salvataggio.
+ * identificativi (solo di persona e azienda nuove: quelli in archivio non si cambiano qui), fine rapporto senza
+ * cessazione. Non bloccano il salvataggio.
  */
-export function controlliCoerenza(
-  valori: ValoriCedolinoManuale,
-  codiciFiscaliCensiti: readonly string[] = [],
-): AvvisoCoerenza[] {
+export function controlliCoerenza(valori: ValoriCedolinoManuale): AvvisoCoerenza[] {
   const c = testi.manuale.controllo;
   const avvisi: AvvisoCoerenza[] = [];
   const competenze = numeroDa(valori.totali.totaleCompetenze);
@@ -1073,26 +1147,22 @@ export function controlliCoerenza(
     avvisi.push({ campo: 'periodo.tipo', messaggio: c.fineRapportoSenzaCessazione });
   }
   const cf = codiceNormalizzato(valori.dipendente.codiceFiscale);
-  if (UNDICI_CIFRE.test(cf)) {
+  if (modoPersona(valori) === 'nuova' && UNDICI_CIFRE.test(cf)) {
     avvisi.push({ campo: 'dipendente.codiceFiscale', messaggio: c.codiceFiscaleProvvisorio });
-  } else if (
-    cf.length === 16 &&
-    !codiceFiscaleValido(cf) &&
-    codiciFiscaliCensiti.some((censito) => codiceNormalizzato(censito) === cf)
-  ) {
-    avvisi.push({ campo: 'dipendente.codiceFiscale', messaggio: c.codiceFiscale });
   }
-  const partitaIva = codiceNormalizzato(valori.datoreLavoro.partitaIva);
-  if (UNDICI_CIFRE.test(partitaIva) && !partitaIvaValida(partitaIva)) {
-    avvisi.push({ campo: 'datoreLavoro.partitaIva', messaggio: c.partitaIva });
-  }
-  const cfAzienda = codiceNormalizzato(valori.datoreLavoro.codiceFiscale);
-  if (
-    CODICE_FISCALE_AZIENDA.test(cfAzienda) &&
-    !partitaIvaValida(cfAzienda) &&
-    !codiceFiscaleValido(cfAzienda)
-  ) {
-    avvisi.push({ campo: 'datoreLavoro.codiceFiscale', messaggio: c.codiceFiscaleAzienda });
+  if (modoAzienda(valori) === 'nuova') {
+    const partitaIva = codiceNormalizzato(valori.datoreLavoro.partitaIva);
+    if (UNDICI_CIFRE.test(partitaIva) && !partitaIvaValida(partitaIva)) {
+      avvisi.push({ campo: 'datoreLavoro.partitaIva', messaggio: c.partitaIva });
+    }
+    const cfAzienda = codiceNormalizzato(valori.datoreLavoro.codiceFiscale);
+    if (
+      CODICE_FISCALE_AZIENDA.test(cfAzienda) &&
+      !partitaIvaValida(cfAzienda) &&
+      !codiceFiscaleValido(cfAzienda)
+    ) {
+      avvisi.push({ campo: 'datoreLavoro.codiceFiscale', messaggio: c.codiceFiscaleAzienda });
+    }
   }
   if (competenze !== null && trattenute !== null && netto !== null) {
     const differenza = competenze - trattenute;
@@ -1157,6 +1227,14 @@ export function saldoCalcolato(rateo: RateoModulo): number | null {
   return Math.round((residuo + maturato - goduto) * 1e5) / 1e5;
 }
 
+/**
+ * Avviso della verifica su una persona o un'azienda che verrebbe creata: l'esito lo dice gia' con una riga propria
+ * (nuovaPersona, nuovaAzienda), non si ripete tra gli avvisi.
+ */
+export function avvisoDelleAnagrafiche(avviso: string): boolean {
+  return avviso === testi.manuale.nuovaPersona || avviso === testi.manuale.nuovaAzienda;
+}
+
 // ------------------------------------------------------------------ sezioni del modulo
 
 export type SezioneModulo =
@@ -1207,10 +1285,18 @@ const SEZIONE_DI_GRUPPO: Readonly<Record<string, SezioneModulo>> = {
   progressivi: 'progressivi',
 };
 
+/** Scelta di persona e azienda: nella sezione dell'anagrafica, ma non contano tra i campi compilati. */
+const SEZIONE_DI_SCELTA: Readonly<Record<string, SezioneModulo>> = {
+  personaId: 'dipendente',
+  nuovaPersona: 'dipendente',
+  aziendaId: 'datore',
+  nuovaAzienda: 'datore',
+};
+
 /** Sezione del modulo che contiene un campo (percorso del modulo o della richiesta); null se sconosciuto. */
 export function sezioneDi(percorso: string): SezioneModulo | null {
   const gruppo = /^[a-zA-Z0-9]+/.exec(percorso)?.[0] ?? '';
-  return SEZIONE_DI_GRUPPO[gruppo] ?? null;
+  return SEZIONE_DI_GRUPPO[gruppo] ?? SEZIONE_DI_SCELTA[gruppo] ?? null;
 }
 
 /** Ordina errori o avvisi come i campi nel modulo (le sezioni nell'ordine del modulo, poi l'ordine originale). */
@@ -1307,20 +1393,12 @@ export function daAssociazione(
   return {};
 }
 
-/** Persona, azienda e assunzione di un rapporto gia' presente. */
-export function daRapporto(rapporto: RapportoDettaglio): ValoriParziali {
-  const { persona, azienda } = rapporto;
-  return {
-    dipendente: { codiceFiscale: persona.codiceFiscale, nome: persona.nome, cognome: persona.cognome },
-    datoreLavoro: {
-      ragioneSociale: azienda.ragioneSociale,
-      partitaIva: azienda.partitaIva ?? '',
-      codiceFiscale: azienda.codiceFiscale ?? '',
-      posizioneInps: azienda.posizioneInps ?? '',
-      indirizzo: azienda.indirizzo ?? '',
-    },
-    datiContrattuali: { dataAssunzione: rapporto.dataAssunzione ?? '' },
-  };
+/**
+ * Dati di un rapporto gia' presente che il cedolino ripete: la data di assunzione (persona e azienda vengono dagli
+ * elenchi delle anagrafiche scelte).
+ */
+export function daRapporto(rapporto: Pick<RapportoDettaglio, 'dataAssunzione'>): ValoriParziali {
+  return { datiContrattuali: { dataAssunzione: rapporto.dataAssunzione ?? '' } };
 }
 
 function ordinaleMese(anno: number, mese: number): number {

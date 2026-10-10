@@ -8,7 +8,6 @@ import { useValoreModulo } from './moduloCedolino';
 const t = testi.manuale;
 
 interface Props {
-  codiciFiscaliCensiti: readonly string[];
   onVaiAlCampo: (percorso: string) => void;
 }
 
@@ -16,9 +15,9 @@ interface Props {
  * Controlli di coerenza calcolati durante la compilazione (netto, somme delle voci, saldi dei ratei, codici di
  * controllo): avvisi arancioni che non bloccano il salvataggio.
  */
-export function ControlliCoerenza({ codiciFiscaliCensiti, onVaiAlCampo }: Props) {
+export function ControlliCoerenza({ onVaiAlCampo }: Props) {
   // stringa: il componente si ridisegna solo quando cambiano gli avvisi
-  const serializzati = useValoreModulo((v) => JSON.stringify(controlliCoerenza(v, codiciFiscaliCensiti)));
+  const serializzati = useValoreModulo((v) => JSON.stringify(controlliCoerenza(v)));
   const avvisi = useMemo(() => JSON.parse(serializzati) as AvvisoCoerenza[], [serializzati]);
   if (avvisi.length === 0) {
     return null;

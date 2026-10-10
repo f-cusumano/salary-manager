@@ -39,6 +39,12 @@ export function creaNegozioValori(iniziali: ValoriCedolinoManuale): NegozioValor
   };
 }
 
+/** Scelta "Crea nuovo" nelle tendine di persona e azienda (gli id dell'elenco sono numerici). */
+export const ANAGRAFICA_NUOVA = 'nuova';
+
+/** Lettura dei dati del rapporto della coppia scelta, per precompilare i campi che seguono. */
+export type LetturaRapporto = { stato: 'inCorso' } | { stato: 'errore'; errore: unknown } | null;
+
 export interface ContestoModulo {
   form: ModuloCedolino;
   negozio: NegozioValori;
@@ -46,8 +52,15 @@ export interface ContestoModulo {
   copiati: Readonly<Record<string, string>>;
   /** L'utente ha modificato un campo compilato in automatico: il segno non serve piu'. */
   rimuoviCopiato: (percorso: string) => void;
-  /** Campi compilati con "Copia dati da…". */
-  aggiungiCopiati: (nuovi: Readonly<Record<string, string>>) => void;
+  /**
+   * Scelta della persona: id dell'elenco, ANAGRAFICA_NUOVA ("Crea nuovo") o null (di nuovo da scegliere). I dati
+   * anagrafici e i campi che seguono vengono precompilati di conseguenza.
+   */
+  scegliPersona: (scelta: string | null) => void;
+  /** Scelta dell'azienda, come scegliPersona. */
+  scegliAzienda: (scelta: string | null) => void;
+  letturaRapporto: LetturaRapporto;
+  riprovaLetturaRapporto: () => void;
   /** Cambio del tipo di cedolino (il TFR si apre da solo per i cedolini di fine rapporto). */
   onTipoCambiato: (tipo: string | null) => void;
 }

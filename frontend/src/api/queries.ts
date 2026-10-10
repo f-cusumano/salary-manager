@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { chiavi } from './chiavi';
 import type { ApiClient } from './client';
 import { useApiClient } from './context';
@@ -23,17 +24,30 @@ export function usePersone() {
   });
 }
 
+/**
+ * Aziende (datori di lavoro) per la scelta nell'inserimento a mano, ordinate per ragione sociale, con l'etichetta
+ * anti-omonimia calcolata dal backend su tutte le aziende.
+ */
+export function useAziende(abilitato = true) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: chiavi.aziende,
+    queryFn: async ({ signal }) => esito(await api.GET('/api/v1/aziende', { signal })),
+    enabled: abilitato,
+  });
+}
+
+function leggiRapporti(api: ApiClient, personaId: number, signal?: AbortSignal) {
+  return api
+    .GET('/api/v1/persone/{personaId}/rapporti', { params: { path: { personaId } }, signal })
+    .then((r) => esito(r));
+}
+
 export function useRapporti(personaId: number | null) {
   const api = useApiClient();
   return useQuery({
     queryKey: chiavi.rapporti(personaId ?? 0),
-    queryFn: async ({ signal }) =>
-      esito(
-        await api.GET('/api/v1/persone/{personaId}/rapporti', {
-          params: { path: { personaId: personaId ?? 0 } },
-          signal,
-        }),
-      ),
+    queryFn: ({ signal }) => leggiRapporti(api, personaId ?? 0, signal),
     enabled: personaId !== null,
   });
 }
@@ -70,6 +84,35 @@ export function useCedolino(cedolinoId: number, abilitato: boolean) {
     queryFn: ({ signal }) => leggiCedolino(api, cedolinoId, signal),
     enabled: abilitato,
   });
+}
+
+/**
+ * Letture a richiesta (non legate al disegno di un componente) con la cache condivisa: stesse chiavi e stesse funzioni
+ * degli hook, quindi un dato gia' letto e recente non viene richiesto di nuovo.
+ */
+export function useLetture() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMemo(
+    () => ({
+      rapporti: (personaId: number) =>
+        queryClient.query({
+          queryKey: chiavi.rapporti(personaId),
+          queryFn: ({ signal }) => leggiRapporti(api, personaId, signal),
+        }),
+      rapporto: (rapportoId: number) =>
+        queryClient.query({
+          queryKey: chiavi.rapporto(rapportoId),
+          queryFn: ({ signal }) => leggiRapporto(api, rapportoId, signal),
+        }),
+      cedolino: (cedolinoId: number) =>
+        queryClient.query({
+          queryKey: chiavi.cedolino(cedolinoId),
+          queryFn: ({ signal }) => leggiCedolino(api, cedolinoId, signal),
+        }),
+    }),
+    [api, queryClient],
+  );
 }
 
 export function useElencoCcnl(abilitato: boolean) {
@@ -145,6 +188,7 @@ export function useEliminaCedolino() {
       // persone e aziende (un dettaglio non piu' esistente viene smontato), poi i dettagli ancora visibili
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: chiavi.persone }),
+        queryClient.invalidateQueries({ queryKey: chiavi.aziende }),
         queryClient.invalidateQueries({ queryKey: chiavi.rapportiTutti }),
       ]);
       // l'eliminazione puo' rinumerare i cedolini di fine rapporto rimasti (progressivo e nome del file); un file in

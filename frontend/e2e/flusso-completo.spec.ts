@@ -470,6 +470,13 @@ test.describe('Salary Manager in modalità demo', () => {
       const dialogo = pagina.getByRole('dialog', { name: 'Inserisci a mano · busta-maggio-2023.pdf' });
       await expect(dialogo.getByRole('form', { name: 'Dati del cedolino' })).toBeVisible();
       await senzaScorrimentoOrizzontale(pagina);
+      // sezione Dipendente: la tendina della persona e «Crea nuovo» restano nello schermo
+      const creaNuovo = dialogo.getByRole('button', { name: 'Crea nuovo dipendente' });
+      await creaNuovo.scrollIntoViewIfNeeded();
+      await expect(dialogo.getByRole('combobox', { name: 'Persona in archivio' })).toBeVisible();
+      const riquadro = await creaNuovo.boundingBox();
+      expect((riquadro?.x ?? 0) + (riquadro?.width ?? 0)).toBeLessThanOrEqual(390);
+      await senzaScorrimentoOrizzontale(pagina);
       await screenshot(pagina, '13-mobile-inserimento-dati');
       await dialogo.getByRole('tab', { name: 'PDF' }).click();
       await expect(dialogo.getByTitle('PDF del cedolino')).toBeVisible();
@@ -487,7 +494,8 @@ test.describe('Salary Manager in modalità demo', () => {
       await mobile.close();
     }
 
-    // 6. inserimento a mano dalla riga della mensilità: periodo dal mese associato, anagrafiche dal rapporto
+    // 6. inserimento a mano dalla riga della mensilità: periodo dal mese associato, persona e azienda del suo
+    // rapporto già scelte (dati anagrafici in archivio, in sola lettura)
     await page
       .getByRole('listitem', { name: 'Maggio 2023: Caricato con errore' })
       .getByRole('button', { name: 'Inserisci a mano' })
@@ -498,15 +506,74 @@ test.describe('Salary Manager in modalità demo', () => {
     await expect(campo(dialogo, 'periodo.tipo')).toHaveValue('Mensilità ordinaria');
     await expect(campo(dialogo, 'periodo.mese')).toHaveValue('Maggio');
     await expect(campo(dialogo, 'periodo.anno')).toHaveValue('2023');
+    const persona = dialogo.getByRole('combobox', { name: 'Persona in archivio' });
+    const aziendaScelta = dialogo.getByRole('combobox', { name: 'Azienda in archivio' });
+    // nell'archivio c'e' un omonimo: l'etichetta ha il codice fiscale
+    await expect(persona).toHaveValue('Mario Rossi (RSSMRA80A01H501U)');
+    await expect(aziendaScelta).toHaveValue('Alfa Software S.r.l.');
     await expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('RSSMRA80A01H501U');
     await expect(campo(dialogo, 'dipendente.cognome')).toHaveValue('Rossi');
     await expect(campo(dialogo, 'dipendente.nome')).toHaveValue('Mario');
     await expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveValue('Alfa Software S.r.l.');
+    for (const percorso of [
+      'dipendente.codiceFiscale',
+      'dipendente.cognome',
+      'dipendente.nome',
+      'datoreLavoro.ragioneSociale',
+    ]) {
+      await expect(campo(dialogo, percorso)).toHaveAttribute('readonly', '');
+    }
 
-    // 7. importi inventati, poi la verifica
+    // 6b. «Crea nuovo» con il codice fiscale di una persona in archivio: va scelta dall'elenco
+    await dialogo.getByRole('button', { name: 'Crea nuovo dipendente' }).click();
+    await expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('');
+    await expect(campo(dialogo, 'dipendente.codiceFiscale')).not.toHaveAttribute('readonly', '');
+    await campo(dialogo, 'dipendente.codiceFiscale').fill('RSSMRA80A01H501U');
+    await campo(dialogo, 'dipendente.cognome').fill('Rossi');
+    await campo(dialogo, 'dipendente.nome').fill('Mario');
+    await dialogo.getByRole('button', { name: 'Verifica', exact: true }).click();
+    await expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveAttribute('aria-invalid', 'true');
+    await expect(
+      dialogo
+        .getByText("Questo codice fiscale è già in archivio: seleziona la persona dall'elenco", {
+          exact: true,
+        })
+        .first(),
+    ).toBeVisible();
+    await dialogo.getByRole('button', { name: 'Scegli dall’elenco delle persone' }).click();
+    await persona.click();
+    await page.getByRole('option', { name: 'Mario Rossi (RSSMRA80A01H501U)' }).click();
+    await expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue('RSSMRA80A01H501U');
+    await expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveAttribute('readonly', '');
+
+    // 7. importi inventati
     await campo(dialogo, 'totali.totaleCompetenze').fill('2.100,00');
     await campo(dialogo, 'totali.totaleTrattenute').fill('450,00');
     await campo(dialogo, 'totali.netto').fill('1.650,00');
+
+    // 7b. «Crea nuova» con una variante della ragione sociale di un'azienda in archivio: errore del server sul campo
+    await dialogo.getByRole('button', { name: 'Crea nuova azienda' }).click();
+    await campo(dialogo, 'datoreLavoro.ragioneSociale').fill('ALFA SOFTWARE SRL');
+    await dialogo.getByRole('button', { name: 'Verifica', exact: true }).click();
+    await expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveAttribute('aria-invalid', 'true');
+    await expect(
+      dialogo
+        .getByText("Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco", {
+          exact: true,
+        })
+        .first(),
+    ).toBeVisible();
+    await expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('');
+    await dialogo.getByRole('button', { name: 'Scegli dall’elenco delle aziende' }).click();
+    await aziendaScelta.click();
+    const elencoAziende = page.getByRole('listbox');
+    await expect(elencoAziende.getByText('Aziende di Mario Rossi (RSSMRA80A01H501U)')).toBeVisible();
+    await expect(elencoAziende.getByRole('option').nth(0)).toHaveText('Beta Consulting S.p.A.');
+    await expect(elencoAziende.getByRole('option').nth(1)).toHaveText('Alfa Software S.r.l.');
+    await elencoAziende.getByRole('option', { name: 'Alfa Software S.r.l.' }).click();
+    // di nuovo i dati del rapporto e del cedolino più vicino
+    await expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).not.toHaveValue('');
+    await expect(campo(dialogo, 'datoreLavoro.ragioneSociale')).toHaveAttribute('readonly', '');
     await expect(campo(dialogo, 'voci.0.descrizione')).toHaveValue('Retribuzione ordinaria');
     await expect(campo(dialogo, 'voci.0.categoria')).toHaveValue('COMPETENZA');
     await campo(dialogo, 'voci.0.importoCompetenza').fill('2.100,00');
@@ -514,6 +581,7 @@ test.describe('Salary Manager in modalità demo', () => {
     const esito = dialogo.getByRole('region', { name: 'Esito della verifica' });
     await expect(esito).toContainText('Sarà registrato come: Maggio 2023');
     await expect(esito.getByText('Dipendente: già presente')).toBeVisible();
+    await expect(esito.getByText('Azienda: già presente')).toBeVisible();
     await expect(esito.getByText('Rapporto di lavoro: già presente')).toBeVisible();
     await screenshot(page, '15-inserimento-verificato');
 

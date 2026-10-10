@@ -2,39 +2,56 @@ import { Accordion, Alert, Button, Group, Stack, Text, VisuallyHidden } from '@m
 import { useForm, type FormErrors, type SetErrors } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { IconAlertCircle, IconChecks, IconDeviceFloppy } from '@tabler/icons-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ApiError, erroriDiCampo, messaggioErrore } from '../api/errors';
 import {
+  chiavi,
+  useAziende,
   useCaricamentiInErrore,
   useInserisciCedolinoManuale,
+  useLetture,
   usePersone,
   useVerificaCedolinoManuale,
 } from '../api/queries';
 import type { Caricamento, CaricamentoInErrore, VerificaCedolinoManuale } from '../api/types';
 import {
+  applicaScelta,
+  rapportoDellaCoppia,
+  riempiVuoti,
+  type CambioScelta,
+  type FontiScelta,
+} from '../hooks/sceltaAnagrafiche';
+import {
+  ARCHIVIO_VUOTO,
+  avvisoDelleAnagrafiche,
   completabileAMano,
   erroriBloccanti,
   indiciRighe,
   ordinaPerModulo,
   percorsoForm,
+  periodoDi,
   richiestaDa,
+  rigaDiRiferimento,
   senzaErroriRisolti,
   SEZIONI_MODULO,
   sezioneDi,
+  type ArchivioAnagrafiche,
   type SezioneModulo,
   type ValoriCedolinoManuale,
 } from '../hooks/useCedolinoManuale';
 import { testi } from '../i18n';
 import { useAzioniCaricamenti } from './azioniCaricamenti';
 import { ControlliCoerenza } from './ControlliCoerenza';
-import { CopiaDatiDa } from './CopiaDatiDa';
 import classes from './InserimentoManualeModal.module.css';
 import {
+  ANAGRAFICA_NUOVA,
   campoDelModulo,
   creaNegozioValori,
   ModuloCedolinoContext,
   useValoreModulo,
   type ContestoModulo,
+  type LetturaRapporto,
 } from './moduloCedolino';
 import { PannelloVerifica } from './PannelloVerifica';
 import { RiepilogoErrori, type ErroreModulo } from './RiepilogoErrori';
@@ -69,9 +86,9 @@ interface Props {
 }
 
 /** Errori bloccanti calcolati nel browser, sui percorsi del modulo. */
-function erroriDelModulo(valori: ValoriCedolinoManuale, codiciFiscali: readonly string[]): FormErrors {
+function erroriDelModulo(valori: ValoriCedolinoManuale, archivio: ArchivioAnagrafiche): FormErrors {
   const errori: Record<string, string> = {};
-  for (const { campo, messaggio } of erroriBloccanti(valori, codiciFiscali)) {
+  for (const { campo, messaggio } of erroriBloccanti(valori, archivio)) {
     const percorso = percorsoForm(campo);
     if (percorso !== null) {
       errori[percorso] ??= messaggio;
@@ -85,10 +102,13 @@ function annuncioVerifica(esito: VerificaCedolinoManuale): string {
   if (esito.esito !== 'ACQUISIBILE') {
     return esito.messaggio ? `${t.annuncioNonSalvabile}: ${esito.messaggio}` : t.annuncioNonSalvabile;
   }
-  const avvisi = esito.avvisi.filter((avviso) => avviso !== t.nuovaPersona).length;
+  const avvisi = esito.avvisi.filter((avviso) => !avvisoDelleAnagrafiche(avviso)).length;
   const parti = [esito.titolo ? `${t.annuncioSalvabile} (${esito.titolo})` : t.annuncioSalvabile];
   if (esito.nuovaPersona) {
     parti.push(t.nuovaPersona);
+  }
+  if (esito.nuovaAzienda) {
+    parti.push(t.nuovaAzienda);
   }
   if (avvisi > 0) {
     parti.push(t.annuncioAvvisi.replace('{numero}', String(avvisi)));
@@ -106,6 +126,37 @@ function aggiungiSezioni(aperte: string[], sezioni: Iterable<SezioneModulo | nul
   return nuove.length > 0 ? [...aperte, ...new Set(nuove)] : aperte;
 }
 
+function valoreDi(oggetto: unknown, percorso: string): unknown {
+  return percorso
+    .split('.')
+    .reduce<unknown>(
+      (corrente, parte) =>
+        typeof corrente === 'object' && corrente !== null
+          ? (corrente as Record<string, unknown>)[parte]
+          : undefined,
+      oggetto,
+    );
+}
+
+/** Percorsi (campi, o liste intere) con un valore diverso tra due stati del modulo. */
+function percorsiCambiati(prima: unknown, dopo: unknown, prefisso = ''): string[] {
+  const oggetto = (x: unknown): x is Record<string, unknown> =>
+    typeof x === 'object' && x !== null && !Array.isArray(x);
+  if (oggetto(prima) && oggetto(dopo)) {
+    return [...new Set([...Object.keys(prima), ...Object.keys(dopo)])].flatMap((campo) =>
+      percorsiCambiati(prima[campo], dopo[campo], prefisso ? `${prefisso}.${campo}` : campo),
+    );
+  }
+  const uguali = Array.isArray(prima)
+    ? JSON.stringify(prima) === JSON.stringify(dopo)
+    : Object.is(prima, dopo);
+  return uguali ? [] : [prefisso];
+}
+
+/** Errori del server su una scelta o su un dato che rivela un'anagrafica gia' in archivio: gli elenchi vanno riletti. */
+const ERRORE_ANAGRAFICHE =
+  /^(personaId|aziendaId|dipendente\.codiceFiscale|datoreLavoro\.(ragioneSociale|partitaIva|codiceFiscale|posizioneInps))$/;
+
 /**
  * Modulo dell'inserimento a mano (@mantine/form non controllato: la digitazione non ridisegna il modulo). Verifica
  * (anche con Ctrl/Cmd+Invio) con gli errori bloccanti calcolati nel browser e poi dal backend; il salvataggio e'
@@ -120,28 +171,36 @@ export function ModuloCedolinoManuale({
   onAcquisito,
 }: Props) {
   const azioni = useAzioniCaricamenti();
+  const queryClient = useQueryClient();
   const persone = usePersone();
-  const codiciFiscali = useMemo(() => (persone.data ?? []).map((p) => p.codiceFiscale), [persone.data]);
+  const aziende = useAziende();
+  const archivio = useMemo<ArchivioAnagrafiche>(
+    () => ({
+      codiciFiscaliPersone: (persone.data ?? []).map((p) => p.codiceFiscale),
+      aziende: aziende.data ?? [],
+    }),
+    [persone.data, aziende.data],
+  );
   const [negozio] = useState(() => creaNegozioValori(iniziali));
   const [richiestaIniziale] = useState(() => JSON.stringify(richiestaDa(iniziali)));
   // letti dalla modifica dei valori, che il modulo puo' conservare dalla prima creazione
-  const codiciCensiti = useRef<readonly string[]>(codiciFiscali);
+  const archivioAttuale = useRef<ArchivioAnagrafiche>(ARCHIVIO_VUOTO);
   const impostaErrori = useRef<SetErrors | null>(null);
   const form = useForm({
     mode: 'uncontrolled',
     initialValues: iniziali,
-    validate: (valori: ValoriCedolinoManuale) => erroriDelModulo(valori, codiciFiscali),
+    validate: (valori: ValoriCedolinoManuale) => erroriDelModulo(valori, archivio),
     validateInputOnBlur: true,
     onValuesChange: (valori) => {
       negozio.imposta(valori);
       // un errore di riga o tra campi si risolve anche modificando un altro campo: non deve restare in vista
       impostaErrori.current?.(
-        (attuali) => senzaErroriRisolti(attuali, valori, codiciCensiti.current) as FormErrors,
+        (attuali) => senzaErroriRisolti(attuali, valori, archivioAttuale.current) as FormErrors,
       );
     },
   });
   useEffect(() => {
-    codiciCensiti.current = codiciFiscali;
+    archivioAttuale.current = archivio;
     impostaErrori.current = form.setErrors;
   });
 
@@ -158,9 +217,110 @@ export function ModuloCedolinoManuale({
         : attuali,
     );
   }, []);
-  const aggiungiCopiati = useCallback((nuovi: Readonly<Record<string, string>>) => {
-    setCopiati((attuali) => ({ ...attuali, ...nuovi }));
-  }, []);
+
+  /** Imposta solo i campi cambiati: si ridisegnano (e perdono l'errore) solo quelli, gli altri restano come sono. */
+  const impostaValori = (nuovi: ValoriCedolinoManuale) => {
+    for (const percorso of percorsiCambiati(form.getValues(), nuovi)) {
+      form.setFieldValue(percorso, valoreDi(nuovi, percorso));
+    }
+  };
+
+  // scelta di persona e azienda: dati anagrafici in archivio, poi (con entrambe) i dati del loro rapporto
+  const letture = useLetture();
+  const [letturaRapporto, setLetturaRapporto] = useState<LetturaRapporto>(null);
+  // numero dell'ultima scelta: la lettura di una scelta superata (o del modulo chiuso) non compila nulla
+  const ultimaScelta = useRef(0);
+  useEffect(
+    () => () => {
+      ultimaScelta.current += 1;
+    },
+    [],
+  );
+
+  const anagraficheScelte = (valori: ValoriCedolinoManuale) => ({
+    persona: (persone.data ?? []).find((p) => String(p.id) === valori.personaId) ?? null,
+    azienda: (aziende.data ?? []).find((a) => String(a.id) === valori.aziendaId) ?? null,
+  });
+
+  /** Dati del rapporto di persona e azienda (se esiste) e del suo cedolino piu' vicino al periodo, nei campi vuoti. */
+  const compilaDalRapporto = async (numero: number, personaId: number, aziendaId: number) => {
+    setLetturaRapporto({ stato: 'inCorso' });
+    try {
+      const coppia = rapportoDellaCoppia(await letture.rapporti(personaId), aziendaId);
+      let fonti: Pick<FontiScelta, 'rapporto' | 'riferimento'> | null = null;
+      if (coppia) {
+        const rapporto = await letture.rapporto(coppia.id);
+        const riga = rigaDiRiferimento(rapporto.mensilita, periodoDi(form.getValues().periodo));
+        const cedolino = riga?.cedolinoId != null ? await letture.cedolino(riga.cedolinoId) : null;
+        fonti = { rapporto, riferimento: riga && cedolino ? { riga, cedolino } : null };
+      }
+      if (numero !== ultimaScelta.current) {
+        return;
+      }
+      setLetturaRapporto(null);
+      if (fonti) {
+        const { valori, copiati: nuovi } = riempiVuoti(form.getValues(), { azienda: null, ...fonti });
+        impostaValori(valori);
+        setCopiati((attuali) => ({ ...attuali, ...nuovi }));
+      }
+    } catch (errore) {
+      if (numero === ultimaScelta.current) {
+        setLetturaRapporto({ stato: 'errore', errore });
+      }
+    }
+  };
+
+  const aggiornaScelta = (
+    scelta:
+      | Pick<ValoriCedolinoManuale, 'personaId' | 'nuovaPersona'>
+      | Pick<ValoriCedolinoManuale, 'aziendaId' | 'nuovaAzienda'>,
+    cambio: CambioScelta,
+  ) => {
+    const valori = { ...form.getValues(), ...scelta };
+    const { persona, azienda } = anagraficheScelte(valori);
+    ultimaScelta.current += 1;
+    const risultato = applicaScelta(valori, copiati, cambio, {
+      persona,
+      azienda,
+      rapporto: null,
+      riferimento: null,
+    });
+    impostaValori(risultato.valori);
+    setCopiati(risultato.copiati);
+    if (persona && azienda) {
+      void compilaDalRapporto(ultimaScelta.current, persona.id, azienda.id);
+    } else {
+      setLetturaRapporto(null);
+    }
+  };
+
+  const scegliPersona = (scelta: string | null) => {
+    const nuovaPersona = scelta === ANAGRAFICA_NUOVA;
+    const personaId = nuovaPersona ? null : scelta;
+    const attuali = form.getValues();
+    if (attuali.personaId !== personaId || attuali.nuovaPersona !== nuovaPersona) {
+      aggiornaScelta({ personaId, nuovaPersona }, { persona: true, azienda: false });
+    }
+  };
+
+  const scegliAzienda = (scelta: string | null) => {
+    const nuovaAzienda = scelta === ANAGRAFICA_NUOVA;
+    const aziendaId = nuovaAzienda ? null : scelta;
+    const attuali = form.getValues();
+    if (attuali.aziendaId !== aziendaId || attuali.nuovaAzienda !== nuovaAzienda) {
+      aggiornaScelta({ aziendaId, nuovaAzienda }, { persona: false, azienda: true });
+    }
+  };
+
+  const riprovaLetturaRapporto = () => {
+    const { persona, azienda } = anagraficheScelte(form.getValues());
+    ultimaScelta.current += 1;
+    if (persona && azienda) {
+      void compilaDalRapporto(ultimaScelta.current, persona.id, azienda.id);
+    } else {
+      setLetturaRapporto(null);
+    }
+  };
 
   const [aperte, setAperte] = useState<string[]>(SEZIONI_APERTE);
   // una sezione si disegna alla prima apertura e poi resta montata (i valori sono comunque nel modulo)
@@ -244,6 +404,11 @@ export function ModuloCedolinoManuale({
     form.setErrors(perCampo);
     setErroriGenerali(generali);
     mostraErrori(Object.keys(perCampo));
+    // una persona o un'azienda scelta e non piu' in archivio, o una "nuova" che nel frattempo e' stata censita
+    if (errori.some((e) => e.campo !== null && ERRORE_ANAGRAFICHE.test(e.campo))) {
+      void queryClient.invalidateQueries({ queryKey: chiavi.persone });
+      void queryClient.invalidateQueries({ queryKey: chiavi.aziende });
+    }
   };
 
   const occupato = verificaCedolino.isPending || inserisci.isPending;
@@ -318,7 +483,10 @@ export function ModuloCedolinoManuale({
     negozio,
     copiati,
     rimuoviCopiato,
-    aggiungiCopiati,
+    scegliPersona,
+    scegliAzienda,
+    letturaRapporto,
+    riprovaLetturaRapporto,
     onTipoCambiato,
   };
 
@@ -339,10 +507,6 @@ export function ModuloCedolinoManuale({
               <span className={classes.puntoCopiato} aria-hidden /> {t.copiatiNota}
             </Text>
           )}
-          <CopiaDatiDa
-            personaIniziale={elemento.attribuzione?.personaId ?? null}
-            rapportoIniziale={elemento.attribuzione?.rapportoId ?? null}
-          />
           {problema !== null && (
             <Alert
               color="red"
@@ -374,7 +538,6 @@ export function ModuloCedolinoManuale({
                   <IntestazioneSezione
                     sezione={sezione}
                     errori={erroriCampi.filter((e) => sezioneDi(e.campo) === sezione).length}
-                    codiciFiscaliCensiti={codiciFiscali}
                   />
                 </Accordion.Control>
                 <Accordion.Panel>
@@ -383,7 +546,7 @@ export function ModuloCedolinoManuale({
               </Accordion.Item>
             ))}
           </Accordion>
-          <ControlliCoerenza codiciFiscaliCensiti={codiciFiscali} onVaiAlCampo={vaiAlCampo} />
+          <ControlliCoerenza onVaiAlCampo={vaiAlCampo} />
           {verifica !== null && (
             <EsitoVerifica
               verifica={verifica}

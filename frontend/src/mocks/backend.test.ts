@@ -57,8 +57,11 @@ async function errore(chiamata: Promise<unknown>): Promise<ApiError> {
   return risultato;
 }
 
+/** Anagrafiche nuove ("Crea nuovo"), senza dati. */
 function vuoto(): CedolinoManuale {
   return cedolinoManuale((d) => {
+    d.personaId = null;
+    d.aziendaId = null;
     d.dipendente = {
       codiceFiscale: null,
       nome: null,
@@ -360,6 +363,8 @@ describe('backend simulato: inserimento a mano', () => {
     const { api } = avvia();
     const ristampa = await fileDi(api, 'ristampa.pdf');
     const dati = cedolinoManuale((d) => {
+      d.personaId = null;
+      d.aziendaId = null;
       d.dipendente.codiceFiscale = 'ABCDEF';
       d.datoreLavoro.partitaIva = '123';
       d.voci.push({
@@ -529,6 +534,8 @@ describe('backend simulato: inserimento a mano', () => {
     const { api } = avvia();
     const scansione = await fileDi(api, 'busta-scansione.pdf');
     const nuova = cedolinoManuale((d) => {
+      d.personaId = null;
+      d.aziendaId = null;
       d.dipendente = {
         codiceFiscale: 'NRENNA90A41F205Y',
         nome: 'Anna',
@@ -546,20 +553,31 @@ describe('backend simulato: inserimento a mano', () => {
     expect(prova).toMatchObject({
       esito: 'ACQUISIBILE',
       nuovaPersona: true,
+      nuovaAzienda: true,
       nuovoRapporto: true,
       rapportoId: null,
     });
+    // il nuovo rapporto non si annuncia: con persona o azienda nuove e' ovvio
     expect(prova.avvisi).toEqual([
       'Verrà creata una nuova persona: controlla il codice fiscale',
-      "Verrà creato un nuovo rapporto di lavoro: se l'azienda esiste già controlla ragione sociale, partita IVA e " +
-        'codice fiscale',
+      'Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice fiscale',
     ]);
 
     const caricamento = await inserisci(api, scansione.id, nuova);
 
     const persone = esito(await api.GET('/api/v1/persone'));
     expect(persone.map((p) => p.etichetta)).toEqual(['Laura Bianchi', 'Anna Neri', 'Mario Rossi']);
-    expect(persone.find((p) => p.etichetta === 'Anna Neri')?.id).toBe(caricamento.personaId);
+    expect(persone.find((p) => p.etichetta === 'Anna Neri')).toMatchObject({
+      id: caricamento.personaId,
+      dataNascita: '1990-01-01',
+    });
+    const aziende = esito(await api.GET('/api/v1/aziende'));
+    expect(aziende.map((a) => a.etichetta)).toEqual([
+      'Alfa Software S.r.l.',
+      'Beta Consulting S.p.A.',
+      'Delta Servizi S.r.l.',
+      'Gamma Servizi S.r.l.',
+    ]);
     const nuovo = await rapporto(api, caricamento.rapportoId ?? 0);
     expect(nuovo).toMatchObject({
       etichetta: 'Delta Servizi S.r.l.',
@@ -583,6 +601,234 @@ describe('backend simulato: inserimento a mano', () => {
     expect(prova.avvisi).toEqual([
       'Totale competenze meno totale trattenute non corrisponde al netto',
       'La somma delle voci di trattenuta non corrisponde al totale trattenute stampato',
+    ]);
+  });
+});
+
+describe('backend simulato: persona e azienda dall’elenco', () => {
+  it('elenca le aziende dei rapporti per ragione sociale, con l’identificativo solo per le omonime', async () => {
+    const { api, backend } = avvia();
+
+    expect(esito(await api.GET('/api/v1/aziende'))).toEqual([
+      {
+        id: 1,
+        ragioneSociale: 'Alfa Software S.r.l.',
+        partitaIva: '01234567897',
+        codiceFiscale: '01234567897',
+        posizioneInps: '1234567890',
+        indirizzo: 'Via Roma 1, 00100 Roma',
+        codiceAzienda: null,
+        etichetta: 'Alfa Software S.r.l.',
+      },
+      expect.objectContaining({ id: 2, etichetta: 'Beta Consulting S.p.A.' }) as unknown,
+      expect.objectContaining({ id: 3, etichetta: 'Gamma Servizi S.r.l.', codiceFiscale: null }) as unknown,
+    ]);
+
+    // un'omonima con un'altra partita IVA (identificativi in conflitto: non e' la stessa azienda)
+    const scansione = await fileDi(api, 'busta-scansione.pdf');
+    await inserisci(
+      api,
+      scansione.id,
+      cedolinoManuale((d) => {
+        d.aziendaId = null;
+        d.datoreLavoro = {
+          ...d.datoreLavoro,
+          ragioneSociale: 'ALFA SOFTWARE SRL',
+          partitaIva: '22334455668',
+        };
+      }),
+    );
+    // e un omonimo di Mario Rossi, con un altro codice fiscale
+    backend.db.persone.push({
+      id: 50,
+      nome: 'Mario',
+      cognome: 'Rossi',
+      codiceFiscale: 'RSSMRA85C12F205M',
+      dataNascita: null,
+      etichetta: 'Mario Rossi',
+    });
+
+    const aziende = esito(await api.GET('/api/v1/aziende'));
+    expect(aziende.map((a) => a.etichetta)).toEqual([
+      'Alfa Software S.r.l. (P.IVA 01234567897)',
+      'ALFA SOFTWARE SRL (P.IVA 22334455668)',
+      'Beta Consulting S.p.A.',
+      'Gamma Servizi S.r.l.',
+    ]);
+    const persone = esito(await api.GET('/api/v1/persone'));
+    expect(persone.map((p) => p.etichetta)).toEqual([
+      'Laura Bianchi',
+      'Mario Rossi (RSSMRA80A01H501U)',
+      'Mario Rossi (RSSMRA85C12F205M)',
+    ]);
+    expect(persone[0]).toMatchObject({ codiceFiscale: 'BNCLRA85M41F205X', dataNascita: '1985-08-01' });
+  });
+
+  it('usa i dati in archivio della persona e dell’azienda scelte, qualunque cosa sia stata inviata', async () => {
+    const { api, backend } = avvia();
+    const ristampa = await fileDi(api, 'ristampa.pdf');
+    const conRefusi = cedolinoManuale((d) => {
+      d.dipendente = { ...d.dipendente, codiceFiscale: 'RSSMRA80A01H501X', nome: 'Maro', cognome: '' };
+      d.datoreLavoro = { ...d.datoreLavoro, ragioneSociale: 'Alfa Sofware', partitaIva: '123' };
+    });
+
+    expect(await verifica(api, ristampa.id, conRefusi)).toMatchObject({
+      esito: 'ACQUISIBILE',
+      nuovaPersona: false,
+      nuovaAzienda: false,
+      nuovoRapporto: false,
+      rapportoId: 1,
+      avvisi: [],
+    });
+    const caricamento = await inserisci(api, ristampa.id, conRefusi);
+
+    expect(caricamento).toMatchObject({ personaId: 1, rapportoId: 1 });
+    expect(backend.db.persone).toHaveLength(2);
+    expect(esito(await api.GET('/api/v1/aziende'))).toHaveLength(3);
+  });
+
+  it('una persona o un’azienda nuova già in archivio va scelta dall’elenco: 400 sul campo', async () => {
+    const { api, backend } = avvia();
+    const scansione = await fileDi(api, 'busta-scansione.pdf');
+    const cedolini = backend.db.cedolini.size;
+    const campoInErrore = async (modifica: (d: CedolinoManuale) => void) =>
+      erroriDiCampo(await errore(inserisci(api, scansione.id, cedolinoManuale(modifica))));
+
+    expect(
+      await campoInErrore((d) => {
+        d.personaId = null;
+        d.dipendente.codiceFiscale = ' rssmra80a01h501u';
+      }),
+    ).toEqual([
+      {
+        campo: 'dipendente.codiceFiscale',
+        messaggio: "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco",
+      },
+    ]);
+    const azienda = (datore: Partial<CedolinoManuale['datoreLavoro']>) => (d: CedolinoManuale) => {
+      d.aziendaId = null;
+      d.datoreLavoro = {
+        ...d.datoreLavoro,
+        ragioneSociale: 'Delta Servizi S.r.l.',
+        partitaIva: null,
+        codiceFiscale: null,
+        ...datore,
+      };
+    };
+    expect(await campoInErrore(azienda({ partitaIva: '01234567897' }))).toEqual([
+      {
+        campo: 'datoreLavoro.partitaIva',
+        messaggio: "Questa partita IVA è già in archivio: seleziona l'azienda dall'elenco",
+      },
+    ]);
+    // codice fiscale numerico uguale alla partita IVA di un'azienda in archivio
+    expect(await campoInErrore(azienda({ codiceFiscale: '09876543217' }))).toEqual([
+      {
+        campo: 'datoreLavoro.codiceFiscale',
+        messaggio: "Questo codice fiscale è già in archivio: seleziona l'azienda dall'elenco",
+      },
+    ]);
+    expect(await campoInErrore(azienda({ posizioneInps: '1234567890/01' }))).toEqual([
+      {
+        campo: 'datoreLavoro.posizioneInps',
+        messaggio: "Questa posizione INPS è già in archivio: seleziona l'azienda dall'elenco",
+      },
+    ]);
+    expect(await campoInErrore(azienda({ ragioneSociale: 'ALFA SOFTWARE SRL' }))).toEqual([
+      {
+        campo: 'datoreLavoro.ragioneSociale',
+        messaggio: "Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco",
+      },
+    ]);
+    // il confronto con l'archivio solo con i dati del datore altrimenti corretti
+    expect(await campoInErrore(azienda({ partitaIva: '01234567897', codiceFiscale: 'X' }))).toEqual([
+      { campo: 'datoreLavoro.codiceFiscale', messaggio: "Codice fiscale dell'azienda non valido" },
+    ]);
+    expect(backend.db.cedolini.size).toBe(cedolini);
+    expect((await fileDi(api, 'busta-scansione.pdf')).id).toBe(scansione.id);
+  });
+
+  it('una scelta non più in archivio dà i soli errori della scelta', async () => {
+    const { api } = avvia();
+    const scansione = await fileDi(api, 'busta-scansione.pdf');
+    const sceltaPersa = cedolinoManuale((d) => {
+      d.personaId = 999;
+      d.aziendaId = 0;
+      d.totali.netto = null;
+    });
+
+    const rifiuto = await errore(verifica(api, scansione.id, sceltaPersa));
+
+    expect(rifiuto.status).toBe(400);
+    expect(erroriDiCampo(rifiuto)).toEqual([
+      {
+        campo: 'personaId',
+        messaggio: "La persona scelta non è più in archivio: scegline un'altra o creane una nuova",
+      },
+      {
+        campo: 'aziendaId',
+        messaggio: "L'azienda scelta non è più in archivio: scegline un'altra o creane una nuova",
+      },
+    ]);
+    const malformato = await errore(
+      api
+        .POST('/api/v1/caricamenti/{caricamentoId}/cedolino/verifica', {
+          params: { path: { caricamentoId: scansione.id } },
+          body: { ...cedolinoManuale(), personaId: 'uno' as unknown as number },
+        })
+        .then((r) => esito(r)),
+    );
+    expect(malformato.status).toBe(400);
+  });
+
+  it('con un’azienda nuova o una coppia senza rapporto la verifica lo dice e il rapporto nasce', async () => {
+    const { api, backend } = avvia();
+    const scansione = await fileDi(api, 'busta-scansione.pdf');
+    const aziendaNuova = cedolinoManuale((d) => {
+      d.aziendaId = null;
+      d.datoreLavoro = {
+        ...d.datoreLavoro,
+        ragioneSociale: 'Delta Servizi S.r.l.',
+        partitaIva: '22334455668',
+      };
+    });
+    expect(await verifica(api, scansione.id, aziendaNuova)).toMatchObject({
+      nuovaPersona: false,
+      nuovaAzienda: true,
+      nuovoRapporto: true,
+      rapportoId: null,
+      avvisi: ['Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice fiscale'],
+    });
+
+    // Laura Bianchi con Alfa Software: entrambe in archivio, nessun rapporto tra loro
+    const coppiaNuova = cedolinoManuale((d) => (d.personaId = 2));
+    const provaCoppia = await verifica(api, scansione.id, coppiaNuova);
+    expect(provaCoppia).toMatchObject({ nuovaPersona: false, nuovaAzienda: false, nuovoRapporto: true });
+    // (il codice fiscale inventato di Laura Bianchi non ha il carattere di controllo giusto: avviso di coerenza)
+    expect(provaCoppia.avvisi.filter((a) => a.startsWith('Verrà'))).toEqual([
+      "Verrà creato un nuovo rapporto di lavoro: la persona scelta non ha ancora cedolini con l'azienda scelta",
+    ]);
+    const caricamento = await inserisci(api, scansione.id, coppiaNuova);
+    const nuovo = await rapporto(api, caricamento.rapportoId ?? 0);
+    expect(nuovo.azienda.id).toBe(1);
+    expect(nuovo.persona.id).toBe(2);
+    expect(backend.db.persone).toHaveLength(2);
+    expect(esito(await api.GET('/api/v1/aziende'))).toHaveLength(3);
+  });
+
+  it('avvisa se il cedolino andrebbe in un rapporto diverso da quello del mese associato', async () => {
+    const { api } = avvia();
+    const ristampa = await fileDi(api, 'ristampa.pdf');
+
+    const prova = await verifica(
+      api,
+      ristampa.id,
+      cedolinoManuale((d) => (d.aziendaId = 2)),
+    );
+
+    expect(prova).toMatchObject({ rapportoId: 2, nuovoRapporto: false });
+    expect(prova.avvisi).toEqual([
+      'Persona o azienda diverse da quelle del mese associato al file (Agosto 2025)',
     ]);
   });
 });

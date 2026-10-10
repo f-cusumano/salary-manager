@@ -3,18 +3,11 @@ import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { IconFileOff, IconPencil } from '@tabler/icons-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { useCaricamentiInErrore, useCedolino, useRapporto } from '../api/queries';
-import type {
-  Caricamento,
-  CaricamentoInErrore,
-  CedolinoDettaglio,
-  RapportoDettaglio,
-  RigaMensilita,
-} from '../api/types';
+import { useAziende, useCaricamentiInErrore, useCedolino, usePersone, useRapporto } from '../api/queries';
+import type { Caricamento, CaricamentoInErrore } from '../api/types';
+import { valoriIniziali, type ValoriECopiati } from '../hooks/sceltaAnagrafiche';
 import {
   daAssociazione,
-  daCedolinoRiferimento,
-  daRapporto,
   periodoDi,
   rigaDiRiferimento,
   unisciSeVuoti,
@@ -25,7 +18,6 @@ import { AnteprimaPdf } from './AnteprimaPdf';
 import { ErroreConRiprova } from './ErroreConRiprova';
 import classes from './InserimentoManualeModal.module.css';
 import { ModuloCedolinoManuale } from './ModuloCedolinoManuale';
-import { copiaSeVuoti, notaCopia, type FonteCopia } from './moduloCedolino';
 import { MotivoErroreBadge } from './MotivoErroreBadge';
 
 const t = testi.manuale;
@@ -227,38 +219,11 @@ function Disposizione({ elemento, stretto, registraModifiche, onChiudi, onAcquis
 }
 
 /**
- * Valori iniziali del modulo: periodo dal mese associato, anagrafiche dal rapporto e dati che si ripetono dal
- * cedolino di riferimento, solo nei campi vuoti e con la loro provenienza.
- */
-function precompilazione(
-  elemento: CaricamentoInErrore,
-  rapporto: RapportoDettaglio | undefined,
-  riferimento: { riga: RigaMensilita; cedolino: CedolinoDettaglio } | null,
-) {
-  const { attribuzione } = elemento;
-  const fonti: FonteCopia[] = [];
-  if (attribuzione) {
-    fonti.push({
-      dati: daAssociazione(attribuzione, rapporto?.ccnl?.meseQuattordicesima ?? null),
-      nota: `${t.dalMeseAssociato} (${attribuzione.titolo}): ${t.daVerificare}`,
-    });
-  }
-  if (rapporto) {
-    fonti.push({ dati: daRapporto(rapporto), nota: notaCopia(rapporto.etichetta) });
-  }
-  if (riferimento) {
-    fonti.push({
-      dati: daCedolinoRiferimento(riferimento.cedolino, attribuzione?.competenza.anno ?? null),
-      nota: notaCopia(riferimento.riga.titolo),
-    });
-  }
-  return copiaSeVuoti(valoriVuoti(), fonti);
-}
-
-/**
- * Attende i dati del rapporto associato (e del cedolino di riferimento) prima di creare il modulo. I valori iniziali
- * si fissano una volta sola: dopo il salvataggio le stesse letture vengono aggiornate (il mese diventa presente) e il
- * modulo non deve essere ricreato mentre conclude il salvataggio.
+ * Attende gli elenchi di persone e aziende in archivio, i dati del rapporto associato e del cedolino di riferimento
+ * prima di creare il modulo: con un mese associato persona e azienda del suo rapporto sono gia' scelte e i campi che
+ * seguono precompilati (valoriIniziali). I valori iniziali si fissano una volta sola: dopo il salvataggio le stesse
+ * letture vengono aggiornate (il mese diventa presente) e il modulo non deve essere ricreato mentre conclude il
+ * salvataggio.
  */
 function PreparazioneModulo({
   elemento,
@@ -267,8 +232,12 @@ function PreparazioneModulo({
   onAcquisito,
 }: Omit<PropsDisposizione, 'stretto'>) {
   const { attribuzione } = elemento;
-  const [preparato, setPreparato] = useState<ReturnType<typeof precompilazione> | null>(null);
+  const [preparato, setPreparato] = useState<ValoriECopiati | null>(null);
   const daLeggere = preparato === null;
+  // un errore degli elenchi non blocca: nulla e' scelto in anticipo e le tendine propongono di riprovare
+  const persone = usePersone();
+  const aziende = useAziende();
+  const elenchiPronti = !persone.isPending && !aziende.isPending;
   const rapporto = useRapporto(attribuzione?.rapportoId ?? 0, daLeggere && attribuzione !== null);
   const meseQuattordicesima = rapporto.data?.ccnl?.meseQuattordicesima ?? null;
   const periodo = attribuzione
@@ -281,13 +250,15 @@ function PreparazioneModulo({
   const cedolino = useCedolino(cedolinoId ?? 0, daLeggere && cedolinoId !== null);
   // senza il rapporto (errore) si parte dal solo mese associato; senza il cedolino, senza i suoi dati
   const pronto =
-    attribuzione === null ||
-    rapporto.isError ||
-    (rapporto.isSuccess && (cedolinoId === null || !cedolino.isPending));
+    elenchiPronti &&
+    (attribuzione === null ||
+      rapporto.isError ||
+      (rapporto.isSuccess && (cedolinoId === null || !cedolino.isPending)));
   if (preparato === null && pronto) {
     setPreparato(
-      precompilazione(
-        elemento,
+      valoriIniziali(
+        attribuzione,
+        { persone: persone.data, aziende: aziende.data },
         rapporto.data,
         riga && cedolino.data ? { riga, cedolino: cedolino.data } : null,
       ),

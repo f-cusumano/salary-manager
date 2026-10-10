@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AttribuzioneCaricamento, CaricamentoInErrore, MotivoErrore } from '../api/types';
 import { creaDbMock } from '../mocks/dati';
 import {
+  ARCHIVIO_VUOTO,
   azioniPerCaricamento,
   chiaveMensilita,
   codiceFiscaleValido,
@@ -14,6 +15,8 @@ import {
   daRapporto,
   erroriBloccanti,
   indiciRighe,
+  modoAzienda,
+  modoPersona,
   partitaIvaValida,
   percorsoForm,
   rateoCopiatoVuoto,
@@ -177,9 +180,11 @@ describe('chiave di una mensilità', () => {
 /** Oggi fissato: l'anno massimo del periodo e' l'anno successivo (2027). */
 const OGGI = new Date(2026, 9, 10);
 
-/** Modulo minimo valido: Giuseppe Verdi presso Delta Servizi, Agosto 2025. */
+/** Modulo minimo valido: Giuseppe Verdi presso Delta Servizi (persona e azienda nuove), Agosto 2025. */
 function valoriValidi(modifica: (v: ValoriCedolinoManuale) => void = () => undefined): ValoriCedolinoManuale {
   const v = valoriVuoti();
+  v.nuovaPersona = true;
+  v.nuovaAzienda = true;
   v.periodo = { ...v.periodo, tipo: 'ORDINARIA', mese: '8', anno: 2025 };
   v.dipendente = { ...v.dipendente, codiceFiscale: 'VRDGPP90C15L219G', nome: 'Giuseppe', cognome: 'Verdi' };
   v.datoreLavoro.ragioneSociale = 'Delta Servizi S.r.l.';
@@ -351,7 +356,7 @@ type Modifica = (v: ValoriCedolinoManuale) => void;
 
 describe('errori bloccanti (come il backend)', () => {
   it('un modulo completo non ha errori', () => {
-    expect(erroriBloccanti(valoriValidi(), [], OGGI)).toEqual([]);
+    expect(erroriBloccanti(valoriValidi(), ARCHIVIO_VUOTO, OGGI)).toEqual([]);
   });
 
   it.each<[string, Modifica, string, string]>([
@@ -626,18 +631,17 @@ describe('errori bloccanti (come il backend)', () => {
       'Testo troppo lungo (massimo 50 caratteri)',
     ],
   ])('%s', (_descrizione, modifica, campo, messaggio) => {
-    expect(erroriBloccanti(valoriValidi(modifica), [], OGGI)).toEqual([{ campo, messaggio }]);
+    expect(erroriBloccanti(valoriValidi(modifica), ARCHIVIO_VUOTO, OGGI)).toEqual([{ campo, messaggio }]);
   });
 
-  it('accetta il codice fiscale provvisorio, quello di una persona già presente e quello scritto male', () => {
+  it('accetta il codice fiscale provvisorio, quello scritto in minuscolo e la partita IVA con prefisso', () => {
     const conCf = (cf: string) => valoriValidi((v) => (v.dipendente.codiceFiscale = cf));
-    expect(erroriBloccanti(conCf('12345678901'), [], OGGI)).toEqual([]);
-    expect(erroriBloccanti(conCf(' vrdgpp90c15l219g '), [], OGGI)).toEqual([]);
-    expect(erroriBloccanti(conCf('VRDGPP90C15L219X'), ['vrdgpp90c15l219x'], OGGI)).toEqual([]);
+    expect(erroriBloccanti(conCf('12345678901'), ARCHIVIO_VUOTO, OGGI)).toEqual([]);
+    expect(erroriBloccanti(conCf(' vrdgpp90c15l219g '), ARCHIVIO_VUOTO, OGGI)).toEqual([]);
     expect(
       erroriBloccanti(
         valoriValidi((v) => (v.datoreLavoro.partitaIva = 'IT 01234567897')),
-        [],
+        ARCHIVIO_VUOTO,
         OGGI,
       ),
     ).toEqual([]);
@@ -652,7 +656,7 @@ describe('errori bloccanti (come il backend)', () => {
       v.retribuzione.pagaOraria = 12.13873;
       v.datiContrattuali.dataCessazione = '2024-02-29';
     });
-    expect(erroriBloccanti(valori, [], OGGI)).toEqual([]);
+    expect(erroriBloccanti(valori, ARCHIVIO_VUOTO, OGGI)).toEqual([]);
   });
 
   it('una cessazione incompleta non viene confrontata con l’assunzione', () => {
@@ -660,7 +664,7 @@ describe('errori bloccanti (come il backend)', () => {
       v.datiContrattuali.dataAssunzione = '2022-03-01';
       v.datiContrattuali.dataCessazione = DATA_INCOMPLETA;
     });
-    expect(erroriBloccanti(valori, [], OGGI)).toEqual([
+    expect(erroriBloccanti(valori, ARCHIVIO_VUOTO, OGGI)).toEqual([
       {
         campo: 'datiContrattuali.dataCessazione',
         messaggio: 'Data incompleta o inesistente: indica giorno, mese e anno',
@@ -675,23 +679,125 @@ describe('errori bloccanti (come il backend)', () => {
       v.voci = [voce({ categoria: 'INFORMATIVA' })];
       v.ratei = [rateoVuoto()];
     });
-    expect(erroriBloccanti(valori, [], OGGI)).toEqual([]);
+    expect(erroriBloccanti(valori, ARCHIVIO_VUOTO, OGGI)).toEqual([]);
   });
 
   it('segnala un solo errore per campo, nell’ordine dei campi del modulo', () => {
-    const errori = erroriBloccanti(valoriVuoti(), [], OGGI);
+    const errori = erroriBloccanti(valoriVuoti(), ARCHIVIO_VUOTO, OGGI);
     expect(errori.map((e) => e.campo)).toEqual([
       'periodo.tipo',
       'periodo.mese',
       'periodo.anno',
-      'dipendente.codiceFiscale',
-      'dipendente.cognome',
-      'dipendente.nome',
-      'datoreLavoro.ragioneSociale',
+      'personaId',
+      'aziendaId',
       'totali.totaleCompetenze',
       'totali.totaleTrattenute',
       'totali.netto',
     ]);
+  });
+});
+
+describe('persona e azienda: dall’elenco, nuove o da scegliere', () => {
+  /** Archivio con Mario Rossi e Alfa Software (dati INVENTATI del backend simulato). */
+  const archivio = {
+    codiciFiscaliPersone: ['RSSMRA80A01H501U'],
+    aziende: [{ partitaIva: '01234567897', codiceFiscale: '01234567897' }],
+  };
+  const scelte = (modifica: Modifica = () => undefined) =>
+    valoriValidi((v) => {
+      v.personaId = '1';
+      v.nuovaPersona = false;
+      v.aziendaId = '1';
+      v.nuovaAzienda = false;
+      modifica(v);
+    });
+
+  it('il modo dipende dall’id scelto, poi da «Crea nuovo»', () => {
+    expect(modoPersona({ personaId: null, nuovaPersona: false })).toBe('nessuna');
+    expect(modoPersona({ personaId: null, nuovaPersona: true })).toBe('nuova');
+    expect(modoPersona({ personaId: '3', nuovaPersona: false })).toBe('scelta');
+    expect(modoAzienda({ aziendaId: null, nuovaAzienda: false })).toBe('nessuna');
+    expect(modoAzienda({ aziendaId: null, nuovaAzienda: true })).toBe('nuova');
+    expect(modoAzienda({ aziendaId: '2', nuovaAzienda: false })).toBe('scelta');
+  });
+
+  it('senza scelta un solo errore sulla tendina, anche con i dati anagrafici compilati', () => {
+    const valori = valoriValidi((v) => {
+      v.nuovaPersona = false;
+      v.nuovaAzienda = false;
+    });
+    expect(erroriBloccanti(valori, ARCHIVIO_VUOTO, OGGI)).toEqual([
+      { campo: 'personaId', messaggio: "Scegli la persona dall'elenco o «Crea nuovo»" },
+      { campo: 'aziendaId', messaggio: "Scegli l'azienda dall'elenco o «Crea nuova»" },
+    ]);
+  });
+
+  it('con persona e azienda scelte non controlla i dati anagrafici, ma sì gli altri campi', () => {
+    const vuote = scelte((v) => {
+      v.dipendente = { ...v.dipendente, codiceFiscale: '', nome: '', cognome: '' };
+      v.datoreLavoro = { ...v.datoreLavoro, ragioneSociale: '', partitaIva: '123', codiceFiscale: 'X' };
+    });
+    expect(erroriBloccanti(vuote, archivio, OGGI)).toEqual([]);
+    const conErrori = scelte((v) => {
+      v.dipendente.dataNascita = '2030-01-01';
+      v.dipendente.codiceDipendente = '1'.repeat(51);
+      v.datoreLavoro.indirizzo = 'i'.repeat(301);
+    });
+    expect(erroriBloccanti(conErrori, archivio, OGGI).map((e) => e.campo)).toEqual([
+      'dipendente.dataNascita',
+      'dipendente.codiceDipendente',
+      'datoreLavoro.indirizzo',
+    ]);
+  });
+
+  it('una persona nuova non può avere un codice fiscale già in archivio (anche scritto diverso)', () => {
+    const valori = valoriValidi((v) => (v.dipendente.codiceFiscale = ' rssmra80a01h501u'));
+    expect(erroriBloccanti(valori, archivio, OGGI)).toEqual([
+      {
+        campo: 'dipendente.codiceFiscale',
+        messaggio: "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco",
+      },
+    ]);
+    // l'archivio ha la precedenza sul codice di controllo
+    const archivioErrato = { ...archivio, codiciFiscaliPersone: ['RSSMRA80A01H501X'] };
+    const errato = valoriValidi((v) => (v.dipendente.codiceFiscale = 'RSSMRA80A01H501X'));
+    expect(erroriBloccanti(errato, archivioErrato, OGGI)[0]?.messaggio).toBe(
+      "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco",
+    );
+  });
+
+  it('un’azienda nuova non può avere partita IVA o codice fiscale già in archivio, anche scambiati', () => {
+    const conPartitaIva = valoriValidi((v) => (v.datoreLavoro.partitaIva = 'IT 01234567897'));
+    expect(erroriBloccanti(conPartitaIva, archivio, OGGI)).toEqual([
+      {
+        campo: 'datoreLavoro.partitaIva',
+        messaggio: "Questa partita IVA è già in archivio: seleziona l'azienda dall'elenco",
+      },
+    ]);
+    // il codice fiscale numerico uguale alla partita IVA di un'azienda in archivio
+    const conCodiceFiscale = valoriValidi((v) => (v.datoreLavoro.codiceFiscale = '01234567897'));
+    expect(erroriBloccanti(conCodiceFiscale, archivio, OGGI)).toEqual([
+      {
+        campo: 'datoreLavoro.codiceFiscale',
+        messaggio: "Questo codice fiscale è già in archivio: seleziona l'azienda dall'elenco",
+      },
+    ]);
+  });
+
+  it('il confronto con l’archivio delle aziende si fa solo con i dati del datore corretti', () => {
+    const valori = valoriValidi((v) => {
+      v.datoreLavoro.partitaIva = '01234567897';
+      v.datoreLavoro.codiceFiscale = '12';
+    });
+    expect(erroriBloccanti(valori, archivio, OGGI)).toEqual([
+      { campo: 'datoreLavoro.codiceFiscale', messaggio: "Codice fiscale dell'azienda non valido" },
+    ]);
+  });
+
+  it('nella richiesta gli id scelti come numeri, null per le anagrafiche nuove', () => {
+    expect(richiestaDa(scelte())).toMatchObject({ personaId: 1, aziendaId: 1 });
+    expect(richiestaDa(valoriValidi())).toMatchObject({ personaId: null, aziendaId: null });
+    expect(richiestaDa(valoriVuoti())).toMatchObject({ personaId: null, aziendaId: null });
   });
 });
 
@@ -713,7 +819,7 @@ describe('errori risolti modificando un altro campo', () => {
       v.datiContrattuali.dataCessazione = '2021-12-31';
     });
 
-    expect(senzaErroriRisolti(errori, corretti, [])).toEqual({
+    expect(senzaErroriRisolti(errori, corretti)).toEqual({
       'dipendente.codiceFiscale': 'Codice fiscale già usato da un’altra persona',
     });
   });
@@ -721,9 +827,9 @@ describe('errori risolti modificando un altro campo', () => {
   it('lascia gli errori ancora presenti e restituisce lo stesso oggetto se non cambia nulla', () => {
     const errori = { 'ratei.0': 'Indica almeno un valore del rateo' };
     const ancoraVuoto = valoriValidi((v) => (v.ratei = [rateoVuoto('ROL', 'ORE')]));
-    expect(senzaErroriRisolti(errori, ancoraVuoto, [])).toBe(errori);
+    expect(senzaErroriRisolti(errori, ancoraVuoto)).toBe(errori);
     const senzaDerivati = { 'totali.netto': 'Indica il netto' };
-    expect(senzaErroriRisolti(senzaDerivati, valoriValidi(), [])).toBe(senzaDerivati);
+    expect(senzaErroriRisolti(senzaDerivati, valoriValidi())).toBe(senzaDerivati);
   });
 });
 
@@ -747,7 +853,7 @@ describe('voci e ratei copiati da un altro cedolino', () => {
 
     expect(richiestaDa(valori).voci).toEqual([]);
     expect(richiestaDa(valori).ratei).toEqual([]);
-    expect(erroriBloccanti(valori, [], OGGI)).toEqual([]);
+    expect(erroriBloccanti(valori, ARCHIVIO_VUOTO, OGGI)).toEqual([]);
     expect(compilatiSezione(valori, 'voci')).toBe(0);
     expect(compilatiSezione(valori, 'ratei')).toBe(0);
   });
@@ -771,7 +877,7 @@ describe('voci e ratei copiati da un altro cedolino', () => {
   it('un rateo copiato con il solo residuo dell’anno precedente non è un errore', () => {
     const valori = copiati();
     expect(valori.ratei.some((r) => r.residuoAnnoPrecedente !== '')).toBe(true);
-    expect(erroriBloccanti(valori, [], OGGI)).toEqual([]);
+    expect(erroriBloccanti(valori, ARCHIVIO_VUOTO, OGGI)).toEqual([]);
   });
 
   it('una nuova copia sostituisce le righe copiate non completate', () => {
@@ -853,13 +959,20 @@ describe('controlli di coerenza (non bloccanti)', () => {
       'Codice fiscale provvisorio (11 cifre)',
       "Partita IVA dell'azienda formalmente non valida",
     ]);
-    const censito = valoriValidi((v) => (v.dipendente.codiceFiscale = 'VRDGPP90C15L219X'));
-    expect(controlliCoerenza(censito, ['VRDGPP90C15L219X'])).toEqual([
-      {
-        campo: 'dipendente.codiceFiscale',
-        messaggio: 'Codice fiscale del dipendente formalmente non valido',
-      },
-    ]);
+  });
+
+  it('non controlla gli identificativi di persona e azienda scelte dall’elenco (sono quelli in archivio)', () => {
+    const valori = valoriValidi((v) => {
+      v.dipendente.codiceFiscale = '12345678901';
+      v.datoreLavoro.partitaIva = '01234567890';
+      v.datoreLavoro.codiceFiscale = '01234567890';
+    });
+    expect(controlliCoerenza(valori)).toHaveLength(3);
+    valori.personaId = '1';
+    valori.nuovaPersona = false;
+    valori.aziendaId = '2';
+    valori.nuovaAzienda = false;
+    expect(controlliCoerenza(valori)).toEqual([]);
   });
 });
 
@@ -890,18 +1003,8 @@ describe('precompilamento', () => {
     expect(daAssociazione(competenza(14)).periodo?.mese).toBe('7');
   });
 
-  it('dal rapporto: anagrafiche del dipendente e dell’azienda e data di assunzione', () => {
-    expect(daRapporto(rapporto)).toEqual({
-      dipendente: { codiceFiscale: 'RSSMRA80A01H501U', nome: 'Mario', cognome: 'Rossi' },
-      datoreLavoro: {
-        ragioneSociale: 'Alfa Software S.r.l.',
-        partitaIva: rapporto.azienda.partitaIva ?? '',
-        codiceFiscale: rapporto.azienda.codiceFiscale ?? '',
-        posizioneInps: rapporto.azienda.posizioneInps ?? '',
-        indirizzo: rapporto.azienda.indirizzo ?? '',
-      },
-      datiContrattuali: { dataAssunzione: '2022-03-01' },
-    });
+  it('dal rapporto solo la data di assunzione (le anagrafiche vengono dalla scelta)', () => {
+    expect(daRapporto(rapporto)).toEqual({ datiContrattuali: { dataAssunzione: '2022-03-01' } });
   });
 
   it('il cedolino di riferimento è il più vicino tra i precedenti, altrimenti il primo successivo', () => {
@@ -999,5 +1102,17 @@ describe('riepiloghi del modulo', () => {
     expect(sezioneDi('voci[2].descrizione')).toBe('voci');
     expect(sezioneDi('buoniPasto.numero')).toBe('scatti');
     expect(sezioneDi('sconosciuto')).toBeNull();
+  });
+
+  it('la scelta di persona e azienda è nella loro sezione ma non conta tra i campi compilati', () => {
+    expect(sezioneDi('personaId')).toBe('dipendente');
+    expect(sezioneDi('aziendaId')).toBe('datore');
+    const valori = valoriVuoti();
+    valori.personaId = '1';
+    valori.nuovaAzienda = true;
+    expect(compilatiSezione(valori, 'dipendente')).toBe(0);
+    expect(compilatiSezione(valori, 'datore')).toBe(0);
+    valori.dipendente.codiceDipendente = '0042';
+    expect(compilatiSezione(valori, 'dipendente')).toBe(1);
   });
 });

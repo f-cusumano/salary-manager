@@ -12,6 +12,7 @@ import type {
   Voce,
 } from '../api/types';
 import { codiceFiscaleValido, partitaIvaValida } from '../hooks/useCedolinoManuale';
+import { aziendeInArchivio, ragioneSocialeNormalizzata } from './anagrafiche';
 import {
   aggiungiRapporto,
   chiaveFile,
@@ -37,8 +38,9 @@ import {
 
 /**
  * Inserimento a mano del cedolino di un file in errore nel backend simulato: stessi errori bloccanti principali del
- * backend (400 con `errori` sui percorsi dello schema), duplicati e aggiuntivi (409), censimento di persona, azienda e
- * rapporto e verifica senza salvataggio.
+ * backend (400 con `errori` sui percorsi dello schema), duplicati e aggiuntivi (409), persona e azienda scelte
+ * dall'elenco (dati anagrafici in archivio) o nuove (rifiutate se gia' in archivio), rapporto e verifica senza
+ * salvataggio.
  */
 
 const UNDICI_CIFRE = /^\d{11}$/;
@@ -234,6 +236,103 @@ function normalizza(dati: CedolinoManuale): CedolinoManuale {
   };
 }
 
+// ------------------------------------------------------------------ anagrafiche scelte
+
+/** Testi del backend (MessaggiCaricamento) per le anagrafiche scelte o gia' in archivio. */
+const MESSAGGI_ANAGRAFICHE = {
+  personaNonInArchivio: "La persona scelta non è più in archivio: scegline un'altra o creane una nuova",
+  aziendaNonInArchivio: "L'azienda scelta non è più in archivio: scegline un'altra o creane una nuova",
+  codiceFiscaleInArchivio: "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco",
+  'datoreLavoro.partitaIva': "Questa partita IVA è già in archivio: seleziona l'azienda dall'elenco",
+  'datoreLavoro.codiceFiscale': "Questo codice fiscale è già in archivio: seleziona l'azienda dall'elenco",
+  'datoreLavoro.posizioneInps': "Questa posizione INPS è già in archivio: seleziona l'azienda dall'elenco",
+  'datoreLavoro.ragioneSociale':
+    "Un'azienda con questa ragione sociale è già in archivio: selezionala dall'elenco",
+} as const;
+
+/** Persona e azienda scelte dall'elenco (undefined = nuove). */
+interface Scelte {
+  persona: PersonaSintesi | undefined;
+  azienda: AziendaSintesi | undefined;
+}
+
+/** Le anagrafiche indicate per id, se ancora in archivio: altrimenti 400 con i soli errori della scelta. */
+function risolviScelte(db: MockDb, dati: CedolinoManuale): Scelte {
+  const { personaId, aziendaId } = dati;
+  const errori: ErroreCampo[] = [];
+  const persona = personaId != null ? db.persone.find((p) => p.id === personaId) : undefined;
+  if (personaId != null && !persona) {
+    errori.push({ campo: 'personaId', messaggio: MESSAGGI_ANAGRAFICHE.personaNonInArchivio });
+  }
+  const azienda = aziendaId != null ? aziendeInArchivio(db).find((a) => a.id === aziendaId) : undefined;
+  if (aziendaId != null && !azienda) {
+    errori.push({ campo: 'aziendaId', messaggio: MESSAGGI_ANAGRAFICHE.aziendaNonInArchivio });
+  }
+  if (errori.length > 0) {
+    throw datiNonValidi(errori);
+  }
+  return { persona, azienda };
+}
+
+/** I dati anagrafici delle anagrafiche scelte sono quelli in archivio, qualunque cosa sia stata inviata. */
+function conDatiInArchivio(dati: CedolinoManuale, { persona, azienda }: Scelte): CedolinoManuale {
+  return {
+    ...dati,
+    dipendente: persona
+      ? {
+          ...dati.dipendente,
+          codiceFiscale: persona.codiceFiscale,
+          nome: persona.nome,
+          cognome: persona.cognome,
+          dataNascita: persona.dataNascita ?? dati.dipendente.dataNascita,
+        }
+      : dati.dipendente,
+    datoreLavoro: azienda
+      ? {
+          ...dati.datoreLavoro,
+          ragioneSociale: azienda.ragioneSociale,
+          partitaIva: azienda.partitaIva,
+          codiceFiscale: azienda.codiceFiscale,
+          posizioneInps: azienda.posizioneInps,
+        }
+      : dati.datoreLavoro,
+  };
+}
+
+/**
+ * Campo che farebbe riconoscere ai dati di un'azienda nuova un'azienda gia' in archivio (semplificazione del
+ * censimento del backend): partita IVA o codice fiscale tra i suoi identificativi, la stessa matricola INPS, la stessa
+ * ragione sociale senza identificativi in conflitto. null se nessuna.
+ */
+function aziendaRiconosciuta(
+  aziende: readonly AziendaSintesi[],
+  datore: CedolinoManuale['datoreLavoro'],
+): keyof typeof MESSAGGI_ANAGRAFICHE | null {
+  const { partitaIva, codiceFiscale } = datore;
+  const fiscale = aziende.find((a) =>
+    [a.partitaIva, a.codiceFiscale].some((id) => id !== null && (id === partitaIva || id === codiceFiscale)),
+  );
+  if (fiscale) {
+    return partitaIva !== null && [fiscale.partitaIva, fiscale.codiceFiscale].includes(partitaIva)
+      ? 'datoreLavoro.partitaIva'
+      : 'datoreLavoro.codiceFiscale';
+  }
+  const matricola = datore.posizioneInps?.replace(/\D/g, '').slice(0, 10) ?? '';
+  if (matricola.length === 10 && aziende.some((a) => a.posizioneInps === matricola)) {
+    return 'datoreLavoro.posizioneInps';
+  }
+  const inConflitto = (archivio: string | null, inserito: string | null) =>
+    archivio !== null && inserito !== null && archivio !== inserito;
+  const nome = ragioneSocialeNormalizzata(datore.ragioneSociale);
+  const omonima = aziende.some(
+    (a) =>
+      ragioneSocialeNormalizzata(a.ragioneSociale) === nome &&
+      !inConflitto(a.partitaIva, partitaIva) &&
+      !inConflitto(a.codiceFiscale, codiceFiscale),
+  );
+  return omonima ? 'datoreLavoro.ragioneSociale' : null;
+}
+
 // ------------------------------------------------------------------ errori bloccanti
 
 function valoreDi(oggetto: unknown, percorso: string): unknown {
@@ -295,9 +394,11 @@ function annoFuoriIntervallo(valore: string): boolean {
 
 /**
  * Errori bloccanti come li calcola il backend: al piu' un errore per campo (il primo rilevato, quindi le regole di
- * uno stesso campo seguono l'ordine del backend) e campi nell'ordine dello schema.
+ * uno stesso campo seguono l'ordine del backend) e campi nell'ordine dello schema. I dati anagrafici di persona e
+ * azienda scelte non si controllano (sono quelli in archivio); quelli di una persona o di un'azienda nuova non possono
+ * essere gia' in archivio.
  */
-function erroriBloccanti(dati: CedolinoManuale, codiciFiscaliCensiti: Set<string>): ErroreCampo[] {
+function erroriBloccanti(db: MockDb, dati: CedolinoManuale, scelte: Scelte): ErroreCampo[] {
   const trovati = new Map<string, string>();
   const errore = (campo: string, messaggio: string) => {
     if (!trovati.has(campo)) {
@@ -338,25 +439,31 @@ function erroriBloccanti(dati: CedolinoManuale, codiciFiscaliCensiti: Set<string
     errore('periodo.meseVariabili', MESSAGGIO_DATA);
   }
   const cf = dipendente.codiceFiscale;
-  if (cf === null) {
-    errore('dipendente.codiceFiscale', 'Indica il codice fiscale del dipendente');
-  } else if (!codiceFiscaleValido(cf) && !UNDICI_CIFRE.test(cf) && !codiciFiscaliCensiti.has(cf)) {
-    errore('dipendente.codiceFiscale', 'Codice fiscale non valido: controlla i 16 caratteri');
+  if (!scelte.persona) {
+    if (cf === null) {
+      errore('dipendente.codiceFiscale', 'Indica il codice fiscale del dipendente');
+    } else if (db.persone.some((p) => p.codiceFiscale === cf)) {
+      errore('dipendente.codiceFiscale', MESSAGGI_ANAGRAFICHE.codiceFiscaleInArchivio);
+    } else if (!codiceFiscaleValido(cf) && !UNDICI_CIFRE.test(cf)) {
+      errore('dipendente.codiceFiscale', 'Codice fiscale non valido: controlla i 16 caratteri');
+    }
+    if (dipendente.cognome === null) {
+      errore('dipendente.cognome', 'Indica il cognome');
+    }
+    if (dipendente.nome === null) {
+      errore('dipendente.nome', 'Indica il nome');
+    }
   }
-  if (dipendente.cognome === null) {
-    errore('dipendente.cognome', 'Indica il cognome');
-  }
-  if (dipendente.nome === null) {
-    errore('dipendente.nome', 'Indica il nome');
-  }
-  if (datoreLavoro.ragioneSociale === null || !/[\p{L}\p{N}]/u.test(datoreLavoro.ragioneSociale)) {
-    errore('datoreLavoro.ragioneSociale', 'Indica la ragione sociale');
-  }
-  if (datoreLavoro.partitaIva !== null && !UNDICI_CIFRE.test(datoreLavoro.partitaIva)) {
-    errore('datoreLavoro.partitaIva', 'Partita IVA non valida: deve avere 11 cifre');
-  }
-  if (datoreLavoro.codiceFiscale !== null && !/^(\d{11}|[A-Z0-9]{16})$/.test(datoreLavoro.codiceFiscale)) {
-    errore('datoreLavoro.codiceFiscale', "Codice fiscale dell'azienda non valido");
+  if (!scelte.azienda) {
+    if (datoreLavoro.ragioneSociale === null || !/[\p{L}\p{N}]/u.test(datoreLavoro.ragioneSociale)) {
+      errore('datoreLavoro.ragioneSociale', 'Indica la ragione sociale');
+    }
+    if (datoreLavoro.partitaIva !== null && !UNDICI_CIFRE.test(datoreLavoro.partitaIva)) {
+      errore('datoreLavoro.partitaIva', 'Partita IVA non valida: deve avere 11 cifre');
+    }
+    if (datoreLavoro.codiceFiscale !== null && !/^(\d{11}|[A-Z0-9]{16})$/.test(datoreLavoro.codiceFiscale)) {
+      errore('datoreLavoro.codiceFiscale', "Codice fiscale dell'azienda non valido");
+    }
   }
   const totaliObbligatori = [
     ['totaleCompetenze', 'Indica il totale competenze'],
@@ -437,6 +544,13 @@ function erroriBloccanti(dati: CedolinoManuale, codiciFiscaliCensiti: Set<string
   }
   for (const [campo, massimo] of LUNGHEZZE) {
     testoValido(campo, valoreDi(dati, campo), massimo);
+  }
+  // un'azienda nuova che il censimento riconoscerebbe va scelta dall'elenco (solo con i dati del datore corretti)
+  if (!scelte.azienda && ![...trovati.keys()].some((campo) => campo.startsWith('datoreLavoro.'))) {
+    const campo = aziendaRiconosciuta(aziendeInArchivio(db), datoreLavoro);
+    if (campo !== null) {
+      errore(campo, MESSAGGI_ANAGRAFICHE[campo]);
+    }
   }
   return [...trovati]
     .sort(([a], [b]) => confrontaPosizioni(a, b))
@@ -545,19 +659,13 @@ function avvisiCoerenza(dati: CedolinoManuale): string[] {
 
 // ------------------------------------------------------------------ esito dell'acquisizione
 
-function stessaAzienda(azienda: AziendaSintesi, dati: CedolinoManuale['datoreLavoro']): boolean {
-  const nome = (valore: string | null) => valore?.toLowerCase().replace(/\s+/g, ' ').trim() ?? null;
-  return (
-    (azienda.partitaIva !== null && azienda.partitaIva === dati.partitaIva) ||
-    (azienda.codiceFiscale !== null && azienda.codiceFiscale === dati.codiceFiscale) ||
-    nome(azienda.ragioneSociale) === nome(dati.ragioneSociale)
-  );
-}
-
 interface Esito {
   dati: CedolinoManuale;
   file: FileInErrore;
+  /** Persona e azienda scelte (undefined = da creare). */
   persona: PersonaSintesi | undefined;
+  azienda: AziendaSintesi | undefined;
+  /** Rapporto della coppia scelta, se esiste. */
   rapporto: RapportoDettaglio | undefined;
   competenza: Competenza;
   titolo: string;
@@ -589,8 +697,13 @@ function dataEsistente(valore: string): boolean {
   return data.getUTCFullYear() === anno && data.getUTCMonth() === mese - 1 && data.getUTCDate() === giorno;
 }
 
+/** Id facoltativo (persona o azienda scelta): assente, null o intero, come un Long del backend. */
+function idValido(valore: unknown): boolean {
+  return valore === null || valore === undefined || Number.isInteger(valore);
+}
+
 /**
- * Struttura minima del corpo (sezioni e liste presenti, date e mese delle variabili leggibili), come la
+ * Struttura minima del corpo (sezioni e liste presenti, id interi, date e mese delle variabili leggibili), come la
  * deserializzazione del backend.
  */
 function formaValida(corpo: unknown): corpo is CedolinoManuale {
@@ -600,6 +713,8 @@ function formaValida(corpo: unknown): corpo is CedolinoManuale {
   const campi = corpo as Record<string, unknown>;
   const meseVariabili = valoreDi(corpo, 'periodo.meseVariabili');
   return (
+    idValido(campi.personaId) &&
+    idValido(campi.aziendaId) &&
     SEZIONI.every((sezione) => typeof campi[sezione] === 'object' && campi[sezione] !== null) &&
     Array.isArray(campi.voci) &&
     Array.isArray(campi.ratei) &&
@@ -615,12 +730,13 @@ function formaValida(corpo: unknown): corpo is CedolinoManuale {
 
 /** Controlli comuni, errori bloccanti e acquisizione simulata, senza modificare nulla. */
 function valuta(db: MockDb, caricamentoId: number, corpo: unknown): Esito {
-  // come il backend: prima il corpo (400), poi il file (404, 409)
+  // come il backend: prima il corpo (400), poi le anagrafiche scelte e i campi (400), infine il file (404, 409)
   if (!formaValida(corpo)) {
     throw new RifiutoMock(400, 'Corpo della richiesta mancante o non valido (JSON atteso).');
   }
-  const dati = normalizza(corpo);
-  const errori = erroriBloccanti(dati, new Set(db.persone.map((p) => p.codiceFiscale)));
+  const scelte = risolviScelte(db, corpo);
+  const dati = normalizza(conDatiInArchivio(corpo, scelte));
+  const errori = erroriBloccanti(db, dati, scelte);
   if (errori.length > 0) {
     throw datiNonValidi(errori);
   }
@@ -630,12 +746,12 @@ function valuta(db: MockDb, caricamentoId: number, corpo: unknown): Esito {
   }
   const anno = dati.periodo.anno ?? 0;
   const numeroMese = dati.periodo.mese ?? 1;
-  const persona = db.persone.find((p) => p.codiceFiscale === dati.dipendente.codiceFiscale);
-  const rapporto = persona
-    ? [...db.rapporti.values()].find(
-        (r) => r.persona.id === persona.id && stessaAzienda(r.azienda, dati.datoreLavoro),
-      )
-    : undefined;
+  const { persona, azienda } = scelte;
+  // persona e azienda nuove non hanno rapporti; scelte entrambe, il cedolino va al loro rapporto (o a uno nuovo)
+  const rapporto =
+    persona && azienda
+      ? [...db.rapporti.values()].find((r) => r.persona.id === persona.id && r.azienda.id === azienda.id)
+      : undefined;
   const periodo = mese(anno, numeroMese);
   let competenza: Competenza;
   switch (dati.periodo.tipo) {
@@ -673,29 +789,34 @@ function valuta(db: MockDb, caricamentoId: number, corpo: unknown): Esito {
           cedolinoId: esistente.id,
         };
   }
-  return { dati, file, persona, rapporto, competenza, titolo, periodo, scarto };
+  return { dati, file, persona, azienda, rapporto, competenza, titolo, periodo, scarto };
 }
 
 /** Prova dell'inserimento a mano: competenza, conflitti, nuove anagrafiche e avvisi, senza salvare nulla. */
 export function verificaManuale(db: MockDb, caricamentoId: number, corpo: unknown): VerificaCedolinoManuale {
-  const { dati, file, persona, rapporto, competenza, titolo, scarto } = valuta(db, caricamentoId, corpo);
+  const { dati, file, persona, azienda, rapporto, competenza, titolo, scarto } = valuta(
+    db,
+    caricamentoId,
+    corpo,
+  );
+  // avvisi di contesto (non salvati) dopo quelli di coerenza, nell'ordine del backend
   const avvisi = avvisiCoerenza(dati);
-  if (persona && (persona.nome !== dati.dipendente.nome || persona.cognome !== dati.dipendente.cognome)) {
-    avvisi.push(
-      'Nome e cognome in archivio per questo codice fiscale sono diversi: restano quelli in archivio',
-    );
-  }
   const associata = file.elemento.attribuzione;
   if (associata && associata.competenza.chiave !== competenza.chiave) {
     avvisi.push(`Il periodo indicato è diverso dal mese associato al file (${associata.titolo})`);
   }
+  if (associata && associata.rapportoId !== rapporto?.id) {
+    avvisi.push(`Persona o azienda diverse da quelle del mese associato al file (${associata.titolo})`);
+  }
   if (!persona) {
     avvisi.push('Verrà creata una nuova persona: controlla il codice fiscale');
   }
-  if (!rapporto) {
+  if (!azienda) {
+    avvisi.push('Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice fiscale');
+  }
+  if (persona && azienda && !rapporto) {
     avvisi.push(
-      "Verrà creato un nuovo rapporto di lavoro: se l'azienda esiste già controlla ragione sociale, partita IVA e " +
-        'codice fiscale',
+      "Verrà creato un nuovo rapporto di lavoro: la persona scelta non ha ancora cedolini con l'azienda scelta",
     );
   }
   return {
@@ -704,7 +825,7 @@ export function verificaManuale(db: MockDb, caricamentoId: number, corpo: unknow
     competenza: scarto ? null : competenza,
     titolo: scarto ? null : titolo,
     nuovaPersona: !persona,
-    nuovaAzienda: ![...db.rapporti.values()].some((r) => stessaAzienda(r.azienda, dati.datoreLavoro)),
+    nuovaAzienda: !azienda,
     nuovoRapporto: !rapporto,
     rapportoId: scarto ? null : (rapporto?.id ?? null),
     cedolinoEsistenteId: scarto?.cedolinoId ?? null,
@@ -726,18 +847,14 @@ function vociDi(dati: CedolinoManuale, categoria: CategoriaVoce): Voce[] {
     }));
 }
 
-function nuovoRapporto(db: MockDb, dati: CedolinoManuale, persona: PersonaSintesi, periodo: string) {
-  const { datoreLavoro, datiContrattuali } = dati;
-  const azienda: AziendaSintesi = [...db.rapporti.values()]
-    .map((r) => r.azienda)
-    .find((a) => stessaAzienda(a, datoreLavoro)) ?? {
-    id: db.contatori.prossimoIdAnagrafica++,
-    ragioneSociale: datoreLavoro.ragioneSociale ?? '',
-    partitaIva: datoreLavoro.partitaIva,
-    codiceFiscale: datoreLavoro.codiceFiscale,
-    posizioneInps: datoreLavoro.posizioneInps,
-    indirizzo: datoreLavoro.indirizzo,
-  };
+function nuovoRapporto(
+  db: MockDb,
+  dati: CedolinoManuale,
+  persona: PersonaSintesi,
+  azienda: AziendaSintesi,
+  periodo: string,
+) {
+  const { datiContrattuali } = dati;
   const rapporto: RapportoDettaglio = {
     id: db.contatori.prossimoIdAnagrafica++,
     persona,
@@ -767,9 +884,9 @@ function nuovoRapporto(db: MockDb, dati: CedolinoManuale, persona: PersonaSintes
 }
 
 /**
- * Inserimento a mano: il cedolino entra nel rapporto (persona, azienda e rapporto creati se nuovi), la mensilita'
- * mancante o in errore lascia il posto alla presente e il tentativo indicato diventa ACQUISITO. Un duplicato o un
- * aggiuntivo viene rifiutato con 409 e il file resta in errore.
+ * Inserimento a mano: il cedolino entra nel rapporto della persona e dell'azienda scelte (persona, azienda e rapporto
+ * creati se nuovi), la mensilita' mancante o in errore lascia il posto alla presente e il tentativo indicato diventa
+ * ACQUISITO. Un duplicato o un aggiuntivo viene rifiutato con 409 e il file resta in errore.
  */
 export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unknown): Caricamento {
   const valutazione = valuta(db, caricamentoId, corpo);
@@ -785,7 +902,16 @@ export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unkno
     dataNascita: dati.dipendente.dataNascita,
     etichetta: `${dati.dipendente.nome ?? ''} ${dati.dipendente.cognome ?? ''}`,
   };
-  const rapporto = valutazione.rapporto ?? nuovoRapporto(db, dati, persona, periodo);
+  const { datoreLavoro } = dati;
+  const azienda: AziendaSintesi = valutazione.azienda ?? {
+    id: db.contatori.prossimoIdAnagrafica++,
+    ragioneSociale: datoreLavoro.ragioneSociale ?? '',
+    partitaIva: datoreLavoro.partitaIva,
+    codiceFiscale: datoreLavoro.codiceFiscale,
+    posizioneInps: datoreLavoro.posizioneInps,
+    indirizzo: datoreLavoro.indirizzo,
+  };
+  const rapporto = valutazione.rapporto ?? nuovoRapporto(db, dati, persona, azienda, periodo);
   const adesso = new Date().toISOString();
   const cedolino: CedolinoDettaglio = {
     id: db.contatori.prossimoIdCedolino++,
