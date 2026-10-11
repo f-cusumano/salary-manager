@@ -473,15 +473,19 @@ nell'archivio. È una cosa diversa da una **mensilità mancante**, per cui nessu
 - **Inserisci a mano**: un modulo con tutti i campi che il lettore avrebbe estratto, accanto all'anteprima del PDF.
   Il dipendente si sceglie da **"Persona in archivio"** ("Seleziona persona/dipendente": nome e cognome, con il
   codice fiscale solo per gli omonimi) e il datore di lavoro da **"Azienda in archivio"** (ragione sociale, con la
-  partita IVA solo per le omonime; prima le aziende della persona scelta); la ricerca trova anche codice fiscale e
-  partita IVA. I loro dati anagrafici arrivano dall'archivio e restano in sola lettura, così un refuso non crea un
-  doppione; matricola, indirizzo, codice azienda e posizione INAIL restano modificabili. Solo per una persona o
-  un'azienda che non è ancora in archivio si usa **"Crea nuovo"** / **"Crea nuova"** e si scrivono i dati come
-  stampati sul cedolino: se il codice fiscale, la partita IVA, la posizione INPS o la ragione sociale sono già in
-  archivio il modulo chiede di sceglierla dall'elenco. Scelti persona e azienda, i campi vuoti si riempiono dal loro rapporto e dal cedolino più vicino al
-  periodo (voci senza importi, ...): le voci e i ratei copiati sono modelli e vengono salvati solo se li completi
-  (una nota permette di togliere quelli rimasti vuoti). Aprendo il modulo da un file associato a un mese persona e
-  azienda sono già scelte. Importi e quantità hanno al massimo 8 cifre intere e 5 decimali.
+  partita IVA solo per le omonime, in mancanza il codice fiscale o la posizione INPS; prima le aziende della persona
+  scelta); la ricerca trova anche codice fiscale e partita IVA. I loro dati anagrafici arrivano dall'archivio e
+  restano in sola lettura, così un refuso non crea un doppione; matricola, indirizzo, codice azienda e posizione
+  INAIL restano modificabili. Solo per una persona o un'azienda che non è ancora in archivio si usa **"Crea nuovo"**
+  / **"Crea nuova"** e si scrivono i dati come stampati sul cedolino: il modulo chiede di sceglierla dall'elenco se
+  il codice fiscale della persona è già in archivio, se la partita IVA o il codice fiscale dell'azienda sono già in
+  archivio, o se posizione INPS o ragione sociale coincidono con un'azienda in archivio senza identificativi diversi
+  (un'omonima con un'altra partita IVA è un'azienda diversa e si può creare). "Scegli dall'elenco" riporta alla
+  tendina senza cancellare i dati scritti. Scelti persona e azienda, i campi vuoti si riempiono dal loro rapporto e
+  dal cedolino più vicino al periodo (voci senza importi, ...), anche se il periodo si indica o si cambia dopo la
+  scelta: le voci e i ratei copiati sono modelli e vengono salvati solo se li completi (una nota permette di togliere
+  quelli rimasti vuoti). Aprendo il modulo da un file associato a un mese persona e azienda sono già scelte. Importi
+  e quantità hanno al massimo 8 cifre intere e 5 decimali.
   **Verifica** prova l'archiviazione senza salvare (mensilità, persona, azienda o rapporto nuovi, conflitti, controlli
   di coerenza); **Salva cedolino** lo archivia con il PDF originale come se fosse stato letto: riepilogo e
   segnalazioni si ricalcolano, e nel dettaglio compare "Inserito a mano" al posto dell'affidabilità della lettura.

@@ -86,6 +86,19 @@ export function useValoreModulo<T extends Semplice>(selettore: (valori: ValoriCe
   return useSyncExternalStore(negozio.sottoscrivi, () => selettore(negozio.leggi()));
 }
 
+/** Valore di un percorso del modulo ("dipendente.nome", "voci.2.base"); undefined se non c'e'. */
+export function valoreDi(oggetto: unknown, percorso: string): unknown {
+  return percorso
+    .split('.')
+    .reduce<unknown>(
+      (corrente, parte) =>
+        typeof corrente === 'object' && corrente !== null
+          ? (corrente as Record<string, unknown>)[parte]
+          : undefined,
+      oggetto,
+    );
+}
+
 const campiCedolino: Readonly<Record<string, string>> = testi.campoCedolino;
 
 /** "voci.3.descrizione" => "voci.descrizione": percorso senza indici, chiave delle etichette dei campi. */

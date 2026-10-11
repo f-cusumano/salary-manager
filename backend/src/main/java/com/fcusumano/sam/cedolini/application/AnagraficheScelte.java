@@ -57,6 +57,14 @@ final class AnagraficheScelte {
         Scelte scelte() {
             return new Scelte(persona == null ? null : persona.id(), azienda == null ? null : azienda.id());
         }
+
+        /**
+         * La persona scelta ha la data di nascita in archivio: e' quella del cedolino ({@link #conDatiInArchivio}) e,
+         * come gli altri dati in archivio, non si valida.
+         */
+        boolean dataNascitaInArchivio() {
+            return persona != null && persona.dataNascita() != null;
+        }
     }
 
     /**

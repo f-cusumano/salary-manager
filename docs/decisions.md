@@ -882,7 +882,10 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        file puo' essere di un nuovo datore di lavoro).
      - **Ricerca e ritorno all'elenco**: le tendine cercano anche il codice fiscale della persona e la partita IVA o
        il codice fiscale dell'azienda (senza distinzione di maiuscole e accenti); dopo "Crea nuovo" i dati anagrafici
-       sono modificabili e "Scegli dall'elenco" riporta alla tendina.
+       sono modificabili e "Scegli dall'elenco" riporta alla tendina senza cancellarli (nascosti, tornano tornando a
+       "Crea nuovo"): i dati anagrafici cambiano solo da o verso un'anagrafica in archivio. Le tendine sono
+       obbligatorie (asterisco e `aria-required`); cambiando scelta gli errori della scelta precedente e dei suoi dati
+       anagrafici (anche quelli del server) spariscono subito da campo, riepilogo e intestazione della sezione.
      - **Modifica le decisioni** 145 (ultimo punto: con la persona scelta nome e cognome sono quelli in archivio, con
        "Crea nuovo" un codice fiscale censito e' un errore), 147 (il codice fiscale non e' piu' accettato perche'
        censito: vedi la decisione 152) e 149 (la "Copia dei dati" da un rapporto o da un cedolino diventa la
@@ -895,8 +898,11 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        completare. Un id non positivo non diventa mai "Crea nuovo" in silenzio.
      - **Dati anagrafici sovrascritti** con quelli in archivio (`AnagraficheScelte.conDatiInArchivio`) prima della
        validazione: cio' che il client invia per quei campi non conta, e il JSON salvato con il cedolino riporta i
-       dati in archivio. Codice fiscale, nome e cognome della persona scelta e i quattro identificativi dell'azienda
-       scelta non vengono validati (sono gia' in archivio).
+       dati in archivio. Codice fiscale, nome e cognome della persona scelta, la sua data di nascita se in archivio
+       e i quattro identificativi dell'azienda scelta non vengono validati (sono gia' in archivio): il censimento dei
+       PDF salva la data di nascita come letta, e una data non plausibile (nel futuro, anno fuori intervallo) in sola
+       lettura bloccherebbe per sempre l'inserimento a mano per quella persona. La data inserita per una persona
+       scelta che in archivio non la ha (la completa) si valida come sempre.
      - **Collegamento**: la persona si ritrova con il normale `trovaOCreaPersona` sul codice fiscale in archivio
        (univoco nel workspace, `uk_persona_cf`); l'azienda con il nuovo `CensimentoAnagrafica.aggiornaAziendaScelta`,
        che aggiorna proprio l'azienda scelta senza abbinamento (stessi aggiornamenti per recenza e identificativi
@@ -943,8 +949,14 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      cedolino di riferimento piu' vicino al periodo riempiono i campi successivi, solo se vuoti (prima fonte vince:
      azienda, rapporto, cedolino). Cambiando una scelta i campi riempiti in automatico dalla scelta precedente si
      svuotano e si riempiono di nuovo, quelli modificati dall'utente restano; il periodo (anche quello del mese
-     associato) non viene mai ricopiato. Aprendo il modulo da un file associato a un mese persona e azienda sono gia'
-     scelte. Il pannello "Copia dati da…" e' eliminato: il suo compito lo fa la scelta.
+     associato) non viene mai ricopiato. L'interruttore dei buoni pasto copiato resta acceso se numero, valore unitario
+     o importo hanno un valore dell'utente (altrimenti quei valori sparirebbero dal modulo e dalla richiesta). Aprendo
+     il modulo da un file associato a un mese persona e azienda sono gia' scelte. Il pannello "Copia dati da…" e'
+     eliminato: il suo compito lo fa la scelta.
+     - **Il riferimento segue il periodo**: indicando o cambiando il periodo dopo la scelta, il cedolino di
+       riferimento si rilegge; se cambia (o cambia il criterio "stesso anno" per residui dei ratei e fondo TFR) i dati
+       copiati si sostituiscono come al cambio di scelta. Il risultato non dipende dall'ordine di compilazione; senza
+       cambio del riferimento nulla si muove (anche digitando l'anno cifra per cifra).
 155. **Esito della verifica**: `VerificaCedolinoManuale` ha in piu' `nuovaAzienda` (`aziendaId` assente: il ricontrollo
      garantisce che nessuna azienda in archivio venga riconosciuta) e il pannello mostra dipendente, azienda e rapporto
      presenti o nuovi. Avvisi di contesto, in quest'ordine: periodo diverso dal mese associato; "Persona o azienda

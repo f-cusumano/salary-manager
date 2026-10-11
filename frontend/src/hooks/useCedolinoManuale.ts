@@ -8,6 +8,7 @@ import type {
   CedolinoManuale,
   ErroreCampo,
   MotivoErrore,
+  PersonaSintesi,
   RapportoDettaglio,
   RigaMensilita,
   TipoMensilita,
@@ -872,14 +873,15 @@ const e = testi.manuale.erroreCampo;
 /**
  * Anagrafiche in archivio con cui si confrontano i dati di una persona o di un'azienda nuova ("Crea nuovo"): un codice
  * fiscale, una partita IVA o un codice fiscale dell'azienda gia' presenti vanno scelti dall'elenco. Matricola INPS e
- * ragione sociale le confronta solo il backend (con le regole del censimento).
+ * ragione sociale le confronta solo il backend (con le regole del censimento). La data di nascita in archivio della
+ * persona scelta non si controlla, come gli altri dati in archivio.
  */
 export interface ArchivioAnagrafiche {
-  codiciFiscaliPersone: readonly string[];
+  persone: readonly Pick<PersonaSintesi, 'id' | 'codiceFiscale' | 'dataNascita'>[];
   aziende: readonly Pick<AziendaSelezionabile, 'partitaIva' | 'codiceFiscale'>[];
 }
 
-export const ARCHIVIO_VUOTO: ArchivioAnagrafiche = { codiciFiscaliPersone: [], aziende: [] };
+export const ARCHIVIO_VUOTO: ArchivioAnagrafiche = { persone: [], aziende: [] };
 
 /**
  * Errori bloccanti del modulo, come quelli del backend (ValidazioneCedolinoManuale) piu' i numeri non interpretabili
@@ -887,7 +889,8 @@ export const ARCHIVIO_VUOTO: ArchivioAnagrafiche = { codiciFiscaliPersone: [], a
  * gli indici delle righe del modulo ("voci[2].descrizione"): si mostrano con percorsoForm.
  *
  * Persona e azienda vanno scelte dall'elenco o create: quelle scelte hanno i dati anagrafici in archivio (nessun
- * controllo), quelle nuove i controlli di sempre e non possono avere identificativi gia' in archivio.
+ * controllo, anche per la data di nascita se l'archivio la ha), quelle nuove i controlli di sempre e non possono avere
+ * identificativi gia' in archivio.
  */
 export function erroriBloccanti(
   valori: ValoriCedolinoManuale,
@@ -927,7 +930,7 @@ export function erroriBloccanti(
     const cf = codiceNormalizzato(dipendente.codiceFiscale);
     if (cf === '') {
       errori.aggiungi('dipendente.codiceFiscale', e.codiceFiscale);
-    } else if (archivio.codiciFiscaliPersone.some((censito) => codiceNormalizzato(censito) === cf)) {
+    } else if (archivio.persone.some((censita) => codiceNormalizzato(censita.codiceFiscale) === cf)) {
       errori.aggiungi('dipendente.codiceFiscale', e.codiceFiscaleInArchivio);
     } else if (!codiceFiscaleValido(cf) && !UNDICI_CIFRE.test(cf)) {
       errori.aggiungi('dipendente.codiceFiscale', e.codiceFiscaleNonValido);
@@ -935,10 +938,18 @@ export function erroriBloccanti(
     errori.testo('dipendente.cognome', dipendente.cognome, 100, e.cognome);
     errori.testo('dipendente.nome', dipendente.nome, 100, e.nome);
   }
-  if (dataValida(dipendente.dataNascita) && dipendente.dataNascita > isoLocale(oggi)) {
-    errori.aggiungi('dipendente.dataNascita', e.dataNascitaFutura);
+  // la data di nascita si controlla solo se e' scritta nel modulo: quella in archivio della persona scelta (in sola
+  // lettura) e' come l'ha salvata il censimento; senza scelta i dati anagrafici sono nascosti
+  const dataScritta =
+    persona === 'nuova' ||
+    (persona === 'scelta' &&
+      !archivio.persone.some((p) => String(p.id) === valori.personaId && p.dataNascita != null));
+  if (dataScritta) {
+    if (dataValida(dipendente.dataNascita) && dipendente.dataNascita > isoLocale(oggi)) {
+      errori.aggiungi('dipendente.dataNascita', e.dataNascitaFutura);
+    }
+    errori.data('dipendente.dataNascita', dipendente.dataNascita);
   }
-  errori.data('dipendente.dataNascita', dipendente.dataNascita);
   errori.testo('dipendente.codiceDipendente', dipendente.codiceDipendente, 50);
 
   // datore di lavoro

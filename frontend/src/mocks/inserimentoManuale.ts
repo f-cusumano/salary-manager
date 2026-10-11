@@ -458,10 +458,19 @@ function erroriBloccanti(db: MockDb, dati: CedolinoManuale, scelte: Scelte): Err
   ) {
     errore('datiContrattuali.dataCessazione', "La data di cessazione precede l'assunzione");
   }
-  if (dipendente.dataNascita !== null && dipendente.dataNascita > new Date().toISOString().slice(0, 10)) {
+  // la data in archivio della persona scelta non si controlla, come gli altri dati in archivio
+  const dataInArchivio = scelte.persona?.dataNascita != null;
+  if (
+    !dataInArchivio &&
+    dipendente.dataNascita !== null &&
+    dipendente.dataNascita > new Date().toISOString().slice(0, 10)
+  ) {
     errore('dipendente.dataNascita', 'La data di nascita è nel futuro');
   }
   for (const campo of DATE) {
+    if (campo === 'dipendente.dataNascita' && dataInArchivio) {
+      continue;
+    }
     const valore = valoreDi(dati, campo);
     if (typeof valore === 'string' && annoFuoriIntervallo(valore)) {
       errore(campo, MESSAGGIO_DATA);

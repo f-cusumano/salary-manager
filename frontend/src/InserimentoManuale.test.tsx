@@ -333,6 +333,120 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
     inSolaLettura(dialogo, 'dipendente.codiceFiscale');
   });
 
+  it('le tendine sono obbligatorie; «Crea nuovo» toglie l’errore della scelta e i dati scritti restano tornando dall’elenco', async () => {
+    const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
+    const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
+    await waitFor(() => expect(tendina(dialogo, PERSONA)).toBeEnabled());
+    expect(tendina(dialogo, PERSONA)).toBeRequired();
+    expect(tendina(dialogo, AZIENDA)).toBeRequired();
+    expect(etichettaDi(dialogo, 'personaId')).toHaveTextContent(`${PERSONA} *`);
+
+    await user.click(pulsante(dialogo, 'Verifica'));
+    expect(await within(dialogo).findByText('8 campi da correggere')).toBeInTheDocument();
+    const intestazione = within(dialogo).getByRole('button', { name: /^Dipendente/ });
+    expect(intestazione).toHaveTextContent('1 errore');
+
+    // fatto cio' che chiedeva il messaggio, l'errore sparisce subito da riepilogo e intestazione
+    await user.click(pulsante(dialogo, 'Crea nuovo dipendente'));
+
+    expect(within(dialogo).getByText('7 campi da correggere')).toBeInTheDocument();
+    expect(
+      within(dialogo).queryByText("Scegli la persona dall'elenco o «Crea nuovo»"),
+    ).not.toBeInTheDocument();
+    expect(intestazione).not.toHaveTextContent('errore');
+    await scrivi(user, dialogo, 'dipendente.codiceFiscale', CF_NUOVO);
+    await scrivi(user, dialogo, 'dipendente.cognome', 'Verdi');
+    await user.clear(campo(dialogo, 'dipendente.cognome'));
+    await user.tab();
+    expect(within(dialogo).getByText('8 campi da correggere')).toBeInTheDocument();
+    await scrivi(user, dialogo, 'dipendente.cognome', 'Verdi');
+    await scrivi(user, dialogo, 'dipendente.nome', 'Giuseppe');
+
+    // si torna all'elenco a cercare un omonimo e non lo si trova: i dati scritti non si perdono
+    await user.click(pulsante(dialogo, 'Scegli dall’elenco delle persone'));
+    await waitFor(() => expect(tendina(dialogo, PERSONA)).toHaveFocus());
+    await user.click(pulsante(dialogo, 'Crea nuovo dipendente'));
+
+    expect(campo(dialogo, 'dipendente.codiceFiscale')).toHaveValue(CF_NUOVO);
+    expect(campo(dialogo, 'dipendente.cognome')).toHaveValue('Verdi');
+    expect(campo(dialogo, 'dipendente.nome')).toHaveValue('Giuseppe');
+    // scegliendo una persona in archivio i dati sono i suoi; con "Crea nuovo" si riparte da vuoto
+    await user.click(pulsante(dialogo, 'Scegli dall’elenco delle persone'));
+    await scegliAnagrafica(user, dialogo, PERSONA, 'Laura Bianchi');
+    expect(campo(dialogo, 'dipendente.cognome')).toHaveValue('Bianchi');
+    await user.click(pulsante(dialogo, 'Crea nuovo dipendente'));
+    expect(campo(dialogo, 'dipendente.cognome')).toHaveValue('');
+  });
+
+  it('date e buoni pasto scritti dopo un cambio di scelta arrivano alla richiesta', async () => {
+    const richieste: CedolinoManuale[] = [];
+    const { user } = renderConMock(<App />, {
+      datiIniziali: 'errori',
+      avvolgiFetch: registraVerifiche(richieste),
+    });
+    const dialogo = await apriInserimento(user, 'ristampa.pdf');
+    expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('2022-03-01');
+    await user.click(within(dialogo).getByRole('button', { name: /^Scatti e buoni pasto/ }));
+    const buoni = await within(dialogo).findByRole('switch', { name: /^Buoni pasto presenti/ });
+    expect(buoni).toBeChecked();
+    await scrivi(user, dialogo, 'buoniPasto.numero', '20');
+    await scrivi(user, dialogo, 'buoniPasto.importo', '160');
+
+    // un'azienda nuova non ha rapporti: i dati copiati dal rapporto si tolgono, quelli scritti restano
+    await user.click(pulsante(dialogo, 'Crea nuova azienda'));
+
+    expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('');
+    expect(buoni).toBeChecked();
+    expect(campo(dialogo, 'buoniPasto.numero')).toHaveValue('20');
+    expect(campo(dialogo, 'buoniPasto.valoreUnitario')).toHaveValue('');
+    // la stessa data che era stata copiata, riscritta a mano
+    await user.type(campo(dialogo, 'datiContrattuali.dataAssunzione'), '2022-03-01');
+    await scrivi(user, dialogo, 'datoreLavoro.ragioneSociale', 'Delta Servizi S.r.l.');
+    await compilaTotali(user, dialogo);
+    await user.click(pulsante(dialogo, 'Verifica'));
+
+    await within(dialogo).findByRole('region', { name: 'Esito della verifica' });
+    expect(richieste.at(-1)).toMatchObject({
+      aziendaId: null,
+      datiContrattuali: { dataAssunzione: '2022-03-01' },
+      buoniPasto: { presenti: true, numero: 20, valoreUnitario: null, importo: 160 },
+    });
+  });
+
+  it('cambiando il periodo dopo la scelta la precompilazione segue il cedolino più vicino al periodo', async () => {
+    const richieste: CedolinoManuale[] = [];
+    const { user } = renderConMock(<App />, {
+      datiIniziali: 'errori',
+      avvolgiFetch: registraVerifiche(richieste),
+    });
+    const dialogo = await apriInserimento(user, 'busta-scansione.pdf');
+    await scegli(user, dialogo, 'periodo.tipo', 'Mensilità ordinaria');
+    await scegliAnagrafica(user, dialogo, PERSONA, 'Mario Rossi');
+    await scegliAnagrafica(user, dialogo, AZIENDA, 'Alfa Software S.r.l.');
+    // senza periodo il riferimento e' il cedolino piu' recente
+    expect(await within(dialogo).findByText('Copiato da Settembre 2026: verifica')).toBeInTheDocument();
+    await user.clear(campo(dialogo, 'datiContrattuali.qualifica'));
+    await scrivi(user, dialogo, 'datiContrattuali.qualifica', 'Quadro');
+
+    await scegli(user, dialogo, 'periodo.mese', 'Febbraio');
+    await scrivi(user, dialogo, 'periodo.anno', '2024');
+
+    expect(await within(dialogo).findByText('Copiato da Febbraio 2024: verifica')).toBeInTheDocument();
+    expect(within(dialogo).queryByText('Copiato da Settembre 2026: verifica')).not.toBeInTheDocument();
+    expect(campo(dialogo, 'datiContrattuali.qualifica')).toHaveValue('Quadro');
+    expect(campo(dialogo, 'datiContrattuali.dataAssunzione')).toHaveValue('2022-03-01');
+    await compilaTotali(user, dialogo);
+    await user.click(pulsante(dialogo, 'Verifica'));
+    await within(dialogo).findByRole('region', { name: 'Esito della verifica' });
+    // stessi dati di una scelta fatta dopo il periodo: elementi prima del rinnovo, fondo TFR dello stesso anno
+    expect(richieste.at(-1)).toMatchObject({
+      periodo: { anno: 2024, mese: 2 },
+      datiContrattuali: { qualifica: 'Quadro' },
+      retribuzione: { minimo: 1780.1 },
+      tfr: { fondo31DicembreAnnoPrecedente: 15900 },
+    });
+  });
+
   it('«Crea nuova» con la ragione sociale di un’azienda in archivio: l’errore del server è sul campo', async () => {
     const { user } = renderConMock(<App />, { datiIniziali: 'errori' });
     const dialogo = await apriInserimento(user, 'busta-scansione.pdf');

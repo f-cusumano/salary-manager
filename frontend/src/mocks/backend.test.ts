@@ -697,6 +697,28 @@ describe('backend simulato: persona e azienda dall’elenco', () => {
     expect(esito(await api.GET('/api/v1/aziende'))).toHaveLength(3);
   });
 
+  it('la data di nascita in archivio della persona scelta non si controlla, nemmeno se non plausibile', async () => {
+    const { api, backend } = avvia();
+    const ristampa = await fileDi(api, 'ristampa.pdf');
+    const mario = backend.db.persone.find((p) => p.id === 1)!;
+    for (const inArchivio of ['2090-01-01', '1850-03-01']) {
+      // letta male da un PDF e salvata dal censimento
+      mario.dataNascita = inArchivio;
+      for (const inviata of [inArchivio, null, '1980-01-01']) {
+        const dati = cedolinoManuale((d) => (d.dipendente = { ...d.dipendente, dataNascita: inviata }));
+        expect(await verifica(api, ristampa.id, dati)).toMatchObject({ esito: 'ACQUISIBILE' });
+      }
+    }
+    // senza data in archivio quella inserita completa la persona: si controlla
+    mario.dataNascita = null;
+    const futura = cedolinoManuale((d) => (d.dipendente = { ...d.dipendente, dataNascita: '2090-01-01' }));
+    const rifiuto = await errore(verifica(api, ristampa.id, futura));
+    expect(rifiuto.status).toBe(400);
+    expect(erroriDiCampo(rifiuto)).toEqual([
+      { campo: 'dipendente.dataNascita', messaggio: 'La data di nascita è nel futuro' },
+    ]);
+  });
+
   it('una persona o un’azienda nuova già in archivio va scelta dall’elenco: 400 sul campo', async () => {
     const { api, backend } = avvia();
     const scansione = await fileDi(api, 'busta-scansione.pdf');

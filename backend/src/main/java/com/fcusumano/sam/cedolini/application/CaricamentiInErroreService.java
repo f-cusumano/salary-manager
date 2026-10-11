@@ -291,7 +291,7 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
                 .collect(Collectors.toSet());
         var errori = validazione.verifica(conDati, codiciFiscali, datore -> AnagraficheScelte.datiAzienda(datore)
                 .flatMap(consultazione::aziendaRiconosciuta)
-                .map(AziendaRiconosciuta::dato));
+                .map(AziendaRiconosciuta::dato), risolte.dataNascitaInArchivio());
         if (!errori.isEmpty()) {
             throw new DatiNonValidiException(errori);
         }

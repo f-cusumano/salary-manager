@@ -8,7 +8,7 @@ import type {
   RapportoSintesi,
   RigaMensilita,
 } from '../api/types';
-import { copiaSeVuoti, notaCopia, type FonteCopia } from '../components/moduloCedolino';
+import { copiaSeVuoti, notaCopia, valoreDi, type FonteCopia } from '../components/moduloCedolino';
 import { testi } from '../i18n';
 import {
   daAssociazione,
@@ -18,6 +18,7 @@ import {
   rateoCopiatoVuoto,
   valoriVuoti,
   voceCopiataVuota,
+  type ModoAnagrafica,
   type ValoriCedolinoManuale,
   type ValoriParziali,
 } from './useCedolinoManuale';
@@ -156,18 +157,6 @@ export interface CambioScelta {
 /** I dati presi dal mese associato al file restano anche cambiando le scelte. */
 const MAI_LIBERATI = /^(periodo\.|contieneTredicesima$|contieneQuattordicesima$)/;
 
-function valoreDi(oggetto: unknown, percorso: string): unknown {
-  return percorso
-    .split('.')
-    .reduce<unknown>(
-      (corrente, parte) =>
-        typeof corrente === 'object' && corrente !== null
-          ? (corrente as Record<string, unknown>)[parte]
-          : undefined,
-      oggetto,
-    );
-}
-
 function conValore<T>(oggetto: T, percorso: string, valore: unknown): T {
   const [primo = '', ...resto] = percorso.split('.');
   const radice = oggetto as Record<string, unknown>;
@@ -188,10 +177,15 @@ function sostituisci(valori: ValoriCedolinoManuale, dati: ValoriParziali): Valor
   return risultato;
 }
 
+/** Interruttore dei buoni pasto: rivela numero, valore unitario e importo. */
+const BUONI_PASTO_PRESENTI = 'buoniPasto.presenti';
+
 /**
  * Toglie i dati compilati in automatico da una scelta precedente: ogni campo copiato torna vuoto, tranne periodo e
  * flag presi dal mese associato al file. Di voci e ratei spariscono solo le righe copiate e mai toccate: quelle
- * dell'utente e le copie modificate restano. I campi modificati dall'utente non sono piu' tra i copiati e restano.
+ * dell'utente e le copie modificate restano. I campi modificati dall'utente non sono piu' tra i copiati e restano;
+ * l'interruttore dei buoni pasto copiato resta acceso (e diventa dell'utente) se numero, valore unitario o importo
+ * hanno ancora un valore, che altrimenti sparirebbe dal modulo e dalla richiesta.
  */
 export function liberaCopiati(valori: ValoriCedolinoManuale, copiati: Copiati): ValoriECopiati {
   const vuoti = valoriVuoti();
@@ -204,9 +198,14 @@ export function liberaCopiati(valori: ValoriCedolinoManuale, copiati: Copiati): 
       risultato = { ...risultato, voci: risultato.voci.filter((v) => !voceCopiataVuota(v)) };
     } else if (percorso === 'ratei') {
       risultato = { ...risultato, ratei: risultato.ratei.filter((r) => !rateoCopiatoVuoto(r)) };
-    } else {
+    } else if (percorso !== BUONI_PASTO_PRESENTI) {
       risultato = conValore(risultato, percorso, valoreDi(vuoti, percorso));
     }
+  }
+  // dopo gli altri campi: un valore unitario copiato e' gia' stato tolto, contano solo i valori dell'utente
+  const { numero, valoreUnitario, importo } = risultato.buoniPasto;
+  if (BUONI_PASTO_PRESENTI in copiati && [numero, valoreUnitario, importo].every((v) => v === '')) {
+    risultato = conValore(risultato, BUONI_PASTO_PRESENTI, vuoti.buoniPasto.presenti);
   }
   return { valori: risultato, copiati: restanti };
 }
@@ -233,6 +232,31 @@ export function riempiVuoti(
     });
   }
   return copiaSeVuoti(valori, elenco);
+}
+
+/**
+ * Alla scelta di un'altra persona o azienda, i suoi dati anagrafici cambiano solo da o verso un'anagrafica in archivio
+ * (anche da una all'altra). Tra "Crea nuovo" e "Scegli dall'elenco" (ancora nessuna scelta) restano quelli scritti:
+ * chi torna all'elenco per cercare un omonimo e non lo trova li ritrova tornando a "Crea nuovo" (nascosti, intanto non
+ * vengono verificati ne' salvati: manca la scelta).
+ */
+export function cambiaIdentita(prima: ModoAnagrafica, dopo: ModoAnagrafica): boolean {
+  return prima === 'scelta' || dopo === 'scelta';
+}
+
+/**
+ * Riferimento di una precompilazione dal rapporto: il cedolino copiato e il criterio "stesso anno" del periodo (residui
+ * e fondo TFR). Se cambiando il periodo il riferimento resta lo stesso, la precompilazione non va rifatta.
+ */
+export function chiaveRiferimento(
+  riferimento: FontiScelta['riferimento'],
+  periodo: { anno: number } | null,
+): string {
+  if (!riferimento) {
+    return 'nessuno';
+  }
+  const stessoAnno = periodo !== null && riferimento.cedolino.competenza.anno === periodo.anno;
+  return `${String(riferimento.riga.cedolinoId)}:${String(stessoAnno)}`;
 }
 
 /**

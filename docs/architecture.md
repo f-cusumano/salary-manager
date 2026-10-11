@@ -364,6 +364,7 @@ CedolinoManuale (personaId, aziendaId + stessi percorsi di prompts/cedolino-sche
   └─ AnagraficheScelte.conDatiInArchivio: codice fiscale, nome, cognome (data di nascita se in archivio) della persona
        scelta; ragione sociale, P.IVA, codice fiscale, posizione INPS dell'azienda scelta
   └─ ValidazioneCedolinoManuale.verifica ─► errori bloccanti ─► DatiNonValidiException ─► 400 Problema.errori[]
+       (dati anagrafici in archivio esclusi, anche la data di nascita della persona scelta)
        anagrafiche nuove: codice fiscale di una persona in archivio, azienda che il censimento riconoscerebbe
        (ConsultazioneAnagrafica.aziendaRiconosciuta) ─► 400 "… già in archivio: seleziona … dall'elenco"
   └─ ValidazioneCedolinoManuale.normalizza (testi, codici maiuscoli, flag 13a/14a dal tipo, buoni pasto)

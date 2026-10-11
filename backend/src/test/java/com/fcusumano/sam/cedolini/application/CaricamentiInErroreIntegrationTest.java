@@ -57,6 +57,7 @@ import com.fcusumano.sam.shared.UnitaMisura;
 import com.fcusumano.sam.shared.WorkspaceId;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -750,6 +751,34 @@ class CaricamentiInErroreIntegrationTest {
                 .get(0, String.class);
         assertThat(json).contains(CedoliniManualiDiProva.CF_MARIO, "\"Rossi\"", "Alfa Software S.r.l.", PIVA_ALFA)
                 .doesNotContain("RSSMRA80A01H501X", "Rosi", "Maria", "Alfa Sofware", "98765432109");
+    }
+
+    @Test
+    void unaDataDiNascitaNonPlausibileInArchivioNonBloccaLaPersonaScelta() {
+        var aprile = caricaFixture("rossi-alfa-2023-04");
+        var caricato = caricaInErrore("nascita.pdf", pdfConTesto("Persona con la data di nascita letta male"));
+        var scelti = sceltoDa(aprile);
+        // date lette male da un PDF e salvate dal censimento senza controlli: nel futuro, poi con un anno troppo vecchio
+        for (var inArchivio : List.of(LocalDate.of(2090, 1, 1), LocalDate.of(1850, 3, 1))) {
+            dsl.execute("UPDATE persona SET data_nascita = ?", inArchivio);
+            // la data inviata non conta: quella in sola lettura del modulo, nessuna o una corretta
+            for (var inviata : Arrays.asList(inArchivio, null, LocalDate.of(1980, 1, 1))) {
+                var dati = conDipendente(scelti, new CedolinoManuale.Dipendente(null, null, null, inviata, null));
+                assertThat(inErrore.verifica(caricato.id(), dati).esito()).as("%s / %s", inArchivio, inviata)
+                        .isEqualTo(Esito.ACQUISIBILE);
+            }
+        }
+
+        var esito = inErrore.inserisci(caricato.id(), conDipendente(scelti,
+                new CedolinoManuale.Dipendente(null, null, null, LocalDate.of(1980, 1, 1), null)));
+
+        assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
+        assertThat(esito.personaId()).isEqualTo(aprile.personaId());
+        assertThat(dsl.fetchSingle("SELECT data_nascita FROM persona").get(0, LocalDate.class))
+                .as("la persona resta com'e'").isEqualTo(LocalDate.of(1850, 3, 1));
+        var json = dsl.fetchSingle("SELECT estratto_json FROM cedolino WHERE id = ?", esito.cedolinoId().valore())
+                .get(0, String.class);
+        assertThat(json).contains("1850-03-01").doesNotContain("1980-01-01");
     }
 
     @Test

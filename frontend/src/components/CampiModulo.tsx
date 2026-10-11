@@ -11,12 +11,12 @@ import {
   Tooltip,
   type ComboboxData,
 } from '@mantine/core';
-import { useId, useRef, type ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { DATA_INCOMPLETA, type SceltaSuperminimo } from '../hooks/useCedolinoManuale';
 import { testi } from '../i18n';
 import { CampoNumero } from './CampoNumero';
 import classes from './InserimentoManualeModal.module.css';
-import { etichettaCampo, useModulo, useValoreModulo } from './moduloCedolino';
+import { etichettaCampo, useModulo, useValoreModulo, valoreDi } from './moduloCedolino';
 
 const t = testi.manuale;
 
@@ -145,16 +145,15 @@ export function CampoTesto({
  * inesistente) ha valore vuoto: diventa DATA_INCOMPLETA, segnalata come errore invece di andare persa.
  */
 export function CampoData(base: PropsBase) {
+  const { form } = useModulo();
   const { key, props } = useCampo(base);
   const onChange = props.onChange;
   const onBlur = props.onBlur as (() => void) | undefined;
-  const iniziale: unknown = props.defaultValue;
-  const ultimo = useRef(typeof iniziale === 'string' ? iniziale : '');
   const aggiorna = (input: HTMLInputElement) => {
     const valore = input.validity.badInput ? DATA_INCOMPLETA : input.value;
-    // senza cambiare la data mostrata: il campo resta com'e', il modulo riceve il valore da segnalare
-    if (valore !== ultimo.current) {
-      ultimo.current = valore;
+    // senza cambiare la data mostrata: il campo resta com'e', il modulo riceve il valore da segnalare. Il confronto e'
+    // con il valore attuale del modulo, che la scelta di persona e azienda puo' aver cambiato (o svuotato) nel frattempo
+    if (valore !== valoreDi(form.getValues(), base.percorso)) {
       onChange(valore);
     }
   };

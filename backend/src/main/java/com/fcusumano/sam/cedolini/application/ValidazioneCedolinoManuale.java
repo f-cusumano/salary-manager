@@ -115,18 +115,23 @@ final class ValidazioneCedolinoManuale {
      * ({@link AnagraficheScelte#conDatiInArchivio}) e non si controllano; per una nuova non devono essere gia' in
      * archivio.
      *
-     * @param codiciFiscaliCensiti codici fiscali delle persone del workspace: quello di una persona nuova non puo'
-     *                             esserne uno (la persona va scelta dall'elenco)
-     * @param aziendaGiaCensita    per i dati (normalizzati) di un'azienda nuova, il dato per cui il censimento li
-     *                             abbinerebbe a un'azienda gia' censita; chiamata solo se gli altri dati dell'azienda
-     *                             non hanno errori
+     * @param codiciFiscaliCensiti  codici fiscali delle persone del workspace: quello di una persona nuova non puo'
+     *                              esserne uno (la persona va scelta dall'elenco)
+     * @param aziendaGiaCensita     per i dati (normalizzati) di un'azienda nuova, il dato per cui il censimento li
+     *                              abbinerebbe a un'azienda gia' censita; chiamata solo se gli altri dati dell'azienda
+     *                              non hanno errori
+     * @param dataNascitaInArchivio la data di nascita e' quella in archivio della persona scelta: come gli altri dati
+     *                              anagrafici in archivio non si controlla (il censimento la salva come letta dal PDF,
+     *                              anche non plausibile, e qui nessuno potrebbe correggerla); quella inserita per una
+     *                              persona che in archivio non la ha si controlla sempre
      * @return errori, vuota se il cedolino si puo' acquisire
      */
     List<ErroreCampo> verifica(CedolinoManuale dati, Set<String> codiciFiscaliCensiti,
-                               RiconoscimentoAzienda aziendaGiaCensita) {
+                               RiconoscimentoAzienda aziendaGiaCensita, boolean dataNascitaInArchivio) {
         var c = normalizza(dati);
         var errori = new Errori();
-        dipendente(c.dipendente(), c.personaId() != null, codiciFiscaliCensiti, errori);
+        dipendente(c.dipendente(), c.personaId() != null, c.personaId() != null && dataNascitaInArchivio,
+                codiciFiscaliCensiti, errori);
         datoreLavoro(c.datoreLavoro(), c.aziendaId() != null, aziendaGiaCensita, errori);
         datiContrattuali(c.datiContrattuali(), errori);
         periodo(c.periodo(), errori);
@@ -155,9 +160,12 @@ final class ValidazioneCedolinoManuale {
         return errori.elenco();
     }
 
-    /** @param scelta persona scelta dall'elenco: codice fiscale, nome e cognome sono quelli in archivio */
-    private void dipendente(CedolinoManuale.Dipendente d, boolean scelta, Set<String> codiciFiscaliCensiti,
-                            Errori errori) {
+    /**
+     * @param scelta                persona scelta dall'elenco: codice fiscale, nome e cognome sono quelli in archivio
+     * @param dataNascitaInArchivio la data di nascita e' quella in archivio della persona scelta
+     */
+    private void dipendente(CedolinoManuale.Dipendente d, boolean scelta, boolean dataNascitaInArchivio,
+                            Set<String> codiciFiscaliCensiti, Errori errori) {
         if (!scelta) {
             var cf = d.codiceFiscale();
             if (cf == null) {
@@ -172,10 +180,12 @@ final class ValidazioneCedolinoManuale {
             errori.obbligatorio("dipendente.cognome", d.cognome(), "Indica il cognome");
             errori.testo("dipendente.cognome", d.cognome(), 100);
         }
-        if (d.dataNascita() != null && d.dataNascita().isAfter(LocalDate.now(clock))) {
-            errori.aggiungi("dipendente.dataNascita", "La data di nascita è nel futuro");
+        if (!dataNascitaInArchivio) {
+            if (d.dataNascita() != null && d.dataNascita().isAfter(LocalDate.now(clock))) {
+                errori.aggiungi("dipendente.dataNascita", "La data di nascita è nel futuro");
+            }
+            errori.data("dipendente.dataNascita", d.dataNascita());
         }
-        errori.data("dipendente.dataNascita", d.dataNascita());
         errori.testo("dipendente.codiceDipendente", d.codiceDipendente(), 50);
     }
 

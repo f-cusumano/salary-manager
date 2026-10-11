@@ -5,6 +5,8 @@ import { elencoAziende, elencoPersone } from '../mocks/anagrafiche';
 import { creaDbMock } from '../mocks/dati';
 import {
   applicaScelta,
+  cambiaIdentita,
+  chiaveRiferimento,
   corrisponde,
   filtroAnagrafiche,
   identitaAzienda,
@@ -315,6 +317,79 @@ describe('precompilazione alla scelta', () => {
       'periodo.anno',
       'contieneTredicesima',
     ]);
+  });
+
+  it('l’interruttore dei buoni pasto copiato resta acceso se l’utente ne ha scritto numero o importo', () => {
+    const { valori, copiati } = agosto();
+    valori.buoniPasto = { presenti: true, numero: '', valoreUnitario: 8, importo: '' };
+    const conCopiati = {
+      ...copiati,
+      'buoniPasto.presenti': 'nota',
+      'buoniPasto.valoreUnitario': 'nota',
+    };
+    // solo dati copiati: tutto torna vuoto
+    expect(liberaCopiati(valori, conCopiati).valori.buoniPasto).toEqual(valoriVuoti().buoniPasto);
+    // numero e importo dell'utente: restano, con l'interruttore, che non e' piu' tra i copiati
+    const conUtente = { ...valori, buoniPasto: { ...valori.buoniPasto, numero: 20, importo: 160 } };
+    const liberati = liberaCopiati(conUtente, conCopiati);
+    expect(liberati.valori.buoniPasto).toEqual({
+      presenti: true,
+      numero: 20,
+      valoreUnitario: '',
+      importo: 160,
+    });
+    expect(liberati.copiati).not.toHaveProperty('buoniPasto.presenti');
+    // anche il valore unitario cambiato dall'utente (non piu' tra i copiati)
+    const valoreUtente = liberaCopiati(valori, { ...copiati, 'buoniPasto.presenti': 'nota' });
+    expect(valoreUtente.valori.buoniPasto).toMatchObject({ presenti: true, valoreUnitario: 8 });
+  });
+
+  it('i dati anagrafici cambiano da o verso un’anagrafica in archivio, non tra «Crea nuovo» e l’elenco', () => {
+    expect(cambiaIdentita('scelta', 'scelta')).toBe(true);
+    expect(cambiaIdentita('scelta', 'nuova')).toBe(true);
+    expect(cambiaIdentita('nuova', 'scelta')).toBe(true);
+    expect(cambiaIdentita('nessuna', 'scelta')).toBe(true);
+    expect(cambiaIdentita('nuova', 'nessuna')).toBe(false);
+    expect(cambiaIdentita('nessuna', 'nuova')).toBe(false);
+
+    // «Scegli dall'elenco» e di nuovo «Crea nuovo»: i dati scritti restano
+    const { valori, copiati } = agosto();
+    valori.nuovaPersona = true;
+    valori.dipendente = {
+      ...valori.dipendente,
+      codiceFiscale: 'VRDGPP90C15L219G',
+      cognome: 'Verdi',
+      nome: 'Giuseppe',
+    };
+    const fonti: FontiScelta = { persona: null, azienda: null, rapporto: null, riferimento: null };
+    const nessuna = applicaScelta(
+      { ...valori, nuovaPersona: false },
+      copiati,
+      { persona: cambiaIdentita('nuova', 'nessuna'), azienda: false },
+      fonti,
+    );
+    const ancoraNuova = applicaScelta(
+      { ...nessuna.valori, nuovaPersona: true },
+      nessuna.copiati,
+      { persona: cambiaIdentita('nessuna', 'nuova'), azienda: false },
+      fonti,
+    );
+    expect(ancoraNuova.valori.dipendente).toEqual(valori.dipendente);
+  });
+
+  it('la chiave del riferimento cambia con il cedolino copiato e con il criterio «stesso anno»', () => {
+    const riferimento = riferimentoDi(rapportoAlfa);
+    const anno = riferimento.cedolino.competenza.anno;
+    expect(chiaveRiferimento(null, { anno })).toBe('nessuno');
+    expect(chiaveRiferimento(riferimento, { anno })).toBe(chiaveRiferimento(riferimento, { anno }));
+    expect(chiaveRiferimento(riferimento, { anno })).not.toBe(
+      chiaveRiferimento(riferimento, { anno: anno + 1 }),
+    );
+    expect(chiaveRiferimento(riferimento, null)).toBe(chiaveRiferimento(riferimento, { anno: anno + 1 }));
+    const precedente = rigaDiRiferimento(rapportoAlfa.mensilita, { anno: 2024, mese: 2 })!;
+    expect(
+      chiaveRiferimento({ riga: precedente, cedolino: db.cedolini.get(precedente.cedolinoId!)! }, { anno }),
+    ).not.toBe(chiaveRiferimento(riferimento, { anno }));
   });
 });
 

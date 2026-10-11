@@ -166,20 +166,27 @@ tutti i campi del lettore, divisi in sezioni, senza dati bancari:
   La ricerca trova anche per codice fiscale o partita IVA, senza distinguere maiuscole e accenti. I dati anagrafici
   della scelta (codice fiscale, nome, cognome, data di nascita se in archivio; ragione sociale, P.IVA, codice
   fiscale, posizione INPS) sono in sola lettura e il server usa comunque quelli in archivio; matricola, posizione
-  INAIL, codice azienda e indirizzo restano modificabili. Accanto alla tendina **"Crea nuovo"** / **"Crea nuova"**
-  mostra i campi da scrivere come stampati (il focus va al primo) e "Scegli dall'elenco" riporta alla tendina; con
-  l'archivio vuoto si parte direttamente da lì. Il modulo blocca un codice fiscale o una P.IVA/codice fiscale
-  dell'azienda già in archivio (confronto incrociato); posizione INPS e ragione sociale le controlla il backend alla
-  verifica. Senza scelta né "Crea nuovo" la verifica chiede di scegliere (un solo errore sulla tendina);
+  INAIL, codice azienda e indirizzo restano modificabili; la data di nascita in archivio non si controlla (è come
+  l'ha salvata il censimento). Accanto alla tendina (obbligatoria: asterisco e `aria-required`) **"Crea nuovo"** /
+  **"Crea nuova"** mostra i campi da scrivere come stampati (il focus va al primo) e "Scegli dall'elenco" riporta
+  alla tendina senza cancellarli: tornando a "Crea nuovo" ci sono ancora (scegliendo invece un'anagrafica in archivio
+  i dati diventano i suoi). Con l'archivio vuoto si parte direttamente da "Crea nuovo". Il modulo blocca un codice
+  fiscale o una P.IVA/codice fiscale dell'azienda già in archivio (confronto incrociato); posizione INPS e ragione
+  sociale le controlla il backend alla verifica. Senza scelta né "Crea nuovo" la verifica chiede di scegliere (un
+  solo errore sulla tendina); cambiando la scelta gli errori della scelta precedente e dei suoi dati anagrafici
+  spariscono subito;
 - è precompilato dal mese associato (periodo, con persona e azienda del suo rapporto già scelte) e, scelte persona e
   azienda, dall'indirizzo e dal codice azienda in archivio, dal loro rapporto (assunzione) e dal cedolino più vicino
   dello stesso rapporto (inquadramento, elementi retributivi, voci senza quantità e importi, ratei); il rapporto si
   legge alla scelta (con "Riprova" se la lettura fallisce). Si compilano solo i campi vuoti, segnati con un punto
   blu; cambiando una scelta i campi compilati in automatico si svuotano e si compilano di nuovo, quelli modificati
-  restano, il periodo non cambia. La data di cessazione, i totali e quantità e importi delle voci non vengono mai
-  copiati. Voci e ratei copiati sono modelli: finché restano senza quantità né importi (i ratei senza valori del
-  mese) non vengono inviati, validati né contati, e una nota permette di toglierli; appena modificati diventano righe
-  come le altre;
+  restano (anche l'interruttore dei buoni pasto copiato, se numero, valore o importo sono dell'utente), il periodo
+  non cambia. Il cedolino di riferimento segue il periodo: se il periodo viene indicato o cambiato dopo la scelta e
+  il riferimento (o il criterio "stesso anno" di residui e fondo TFR) cambia, i dati copiati si sostituiscono allo
+  stesso modo, così l'ordine di compilazione non conta. La data di cessazione, i totali e quantità e importi delle
+  voci non vengono mai copiati. Voci e ratei copiati sono modelli: finché restano senza quantità né importi (i ratei
+  senza valori del mese) non vengono inviati, validati né contati, e una nota permette di toglierli; appena
+  modificati diventano righe come le altre;
 - i numeri si scrivono all'italiana ("1.234,56"; il punto non diventa mai la virgola decimale) e si possono incollare
   da un PDF ("1.234,56", "1234.56", "123,45-"): negli importi delle voci il segno incollato si ignora (lo dà la
   categoria), maturato e goduto dei ratei possono essere negativi, negli altri campi un valore negativo incollato è

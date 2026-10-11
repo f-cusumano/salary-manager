@@ -700,7 +700,7 @@ describe('errori bloccanti (come il backend)', () => {
 describe('persona e azienda: dall’elenco, nuove o da scegliere', () => {
   /** Archivio con Mario Rossi e Alfa Software (dati INVENTATI del backend simulato). */
   const archivio = {
-    codiciFiscaliPersone: ['RSSMRA80A01H501U'],
+    persone: [{ id: 1, codiceFiscale: 'RSSMRA80A01H501U', dataNascita: null }],
     aziende: [{ partitaIva: '01234567897', codiceFiscale: '01234567897' }],
   };
   const scelte = (modifica: Modifica = () => undefined) =>
@@ -725,6 +725,10 @@ describe('persona e azienda: dall’elenco, nuove o da scegliere', () => {
     const valori = valoriValidi((v) => {
       v.nuovaPersona = false;
       v.nuovaAzienda = false;
+      // scritti dopo «Crea nuovo» e nascosti tornando all'elenco
+      v.dipendente.codiceFiscale = 'X';
+      v.dipendente.dataNascita = '2090-01-01';
+      v.datoreLavoro.partitaIva = '123';
     });
     expect(erroriBloccanti(valori, ARCHIVIO_VUOTO, OGGI)).toEqual([
       { campo: 'personaId', messaggio: "Scegli la persona dall'elenco o «Crea nuovo»" },
@@ -750,6 +754,42 @@ describe('persona e azienda: dall’elenco, nuove o da scegliere', () => {
     ]);
   });
 
+  it('la data di nascita in archivio della persona scelta non si controlla, quella inserita sì', () => {
+    // letta male da un PDF e salvata dal censimento: in sola lettura, non deve bloccare
+    const nataNelFuturo = { ...archivio, persone: [{ ...archivio.persone[0]!, dataNascita: '2090-01-01' }] };
+    const annoVecchio = { ...archivio, persone: [{ ...archivio.persone[0]!, dataNascita: '1850-03-01' }] };
+    expect(
+      erroriBloccanti(
+        scelte((v) => (v.dipendente.dataNascita = '2090-01-01')),
+        nataNelFuturo,
+        OGGI,
+      ),
+    ).toEqual([]);
+    expect(
+      erroriBloccanti(
+        scelte((v) => (v.dipendente.dataNascita = '1850-03-01')),
+        annoVecchio,
+        OGGI,
+      ),
+    ).toEqual([]);
+    // senza data in archivio quella inserita completa la persona: si controlla
+    expect(
+      erroriBloccanti(
+        scelte((v) => (v.dipendente.dataNascita = '2090-01-01')),
+        archivio,
+        OGGI,
+      ).map((e) => e.campo),
+    ).toEqual(['dipendente.dataNascita']);
+    // una persona nuova ha sempre la data inserita
+    expect(
+      erroriBloccanti(
+        valoriValidi((v) => (v.dipendente.dataNascita = '2090-01-01')),
+        nataNelFuturo,
+        OGGI,
+      ).map((e) => e.campo),
+    ).toEqual(['dipendente.dataNascita']);
+  });
+
   it('una persona nuova non può avere un codice fiscale già in archivio (anche scritto diverso)', () => {
     const valori = valoriValidi((v) => (v.dipendente.codiceFiscale = ' rssmra80a01h501u'));
     expect(erroriBloccanti(valori, archivio, OGGI)).toEqual([
@@ -759,7 +799,10 @@ describe('persona e azienda: dall’elenco, nuove o da scegliere', () => {
       },
     ]);
     // l'archivio ha la precedenza sul codice di controllo
-    const archivioErrato = { ...archivio, codiciFiscaliPersone: ['RSSMRA80A01H501X'] };
+    const archivioErrato = {
+      ...archivio,
+      persone: [{ id: 1, codiceFiscale: 'RSSMRA80A01H501X', dataNascita: null }],
+    };
     const errato = valoriValidi((v) => (v.dipendente.codiceFiscale = 'RSSMRA80A01H501X'));
     expect(erroriBloccanti(errato, archivioErrato, OGGI)[0]?.messaggio).toBe(
       "Questo codice fiscale è già in archivio: seleziona la persona dall'elenco",

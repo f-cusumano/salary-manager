@@ -17,8 +17,9 @@ import {
 import type { Caricamento, CaricamentoInErrore, VerificaCedolinoManuale } from '../api/types';
 import {
   applicaScelta,
+  cambiaIdentita,
+  chiaveRiferimento,
   rapportoDellaCoppia,
-  riempiVuoti,
   type CambioScelta,
   type FontiScelta,
 } from '../hooks/sceltaAnagrafiche';
@@ -28,6 +29,8 @@ import {
   completabileAMano,
   erroriBloccanti,
   indiciRighe,
+  modoAzienda,
+  modoPersona,
   ordinaPerModulo,
   percorsoForm,
   periodoDi,
@@ -50,6 +53,7 @@ import {
   creaNegozioValori,
   ModuloCedolinoContext,
   useValoreModulo,
+  valoreDi,
   type ContestoModulo,
   type LetturaRapporto,
 } from './moduloCedolino';
@@ -126,18 +130,6 @@ function aggiungiSezioni(aperte: string[], sezioni: Iterable<SezioneModulo | nul
   return nuove.length > 0 ? [...aperte, ...new Set(nuove)] : aperte;
 }
 
-function valoreDi(oggetto: unknown, percorso: string): unknown {
-  return percorso
-    .split('.')
-    .reduce<unknown>(
-      (corrente, parte) =>
-        typeof corrente === 'object' && corrente !== null
-          ? (corrente as Record<string, unknown>)[parte]
-          : undefined,
-      oggetto,
-    );
-}
-
 /** Percorsi (campi, o liste intere) con un valore diverso tra due stati del modulo. */
 function percorsiCambiati(prima: unknown, dopo: unknown, prefisso = ''): string[] {
   const oggetto = (x: unknown): x is Record<string, unknown> =>
@@ -151,6 +143,21 @@ function percorsiCambiati(prima: unknown, dopo: unknown, prefisso = ''): string[
     ? JSON.stringify(prima) === JSON.stringify(dopo)
     : Object.is(prima, dopo);
   return uguali ? [] : [prefisso];
+}
+
+/**
+ * Errori legati alla scelta di persona o azienda: la scelta stessa e i dati anagrafici (in archivio o da scrivere),
+ * che cambiano con la scelta.
+ */
+const ERRORI_SCELTA = {
+  persona: /^(personaId|dipendente\.(codiceFiscale|cognome|nome|dataNascita))$/,
+  azienda: /^(aziendaId|datoreLavoro\.(ragioneSociale|partitaIva|codiceFiscale|posizioneInps))$/,
+} as const;
+
+/** Periodo che decide il cedolino di riferimento della precompilazione ("" se incompleto). */
+function chiavePeriodo(valori: ValoriCedolinoManuale): string {
+  const periodo = periodoDi(valori.periodo);
+  return periodo ? `${String(periodo.anno)}-${String(periodo.mese)}` : '';
 }
 
 /** Errori del server su una scelta o su un dato che rivela un'anagrafica gia' in archivio: gli elenchi vanno riletti. */
@@ -176,7 +183,7 @@ export function ModuloCedolinoManuale({
   const aziende = useAziende();
   const archivio = useMemo<ArchivioAnagrafiche>(
     () => ({
-      codiciFiscaliPersone: (persone.data ?? []).map((p) => p.codiceFiscale),
+      persone: persone.data ?? [],
       aziende: aziende.data ?? [],
     }),
     [persone.data, aziende.data],
@@ -186,17 +193,21 @@ export function ModuloCedolinoManuale({
   // letti dalla modifica dei valori, che il modulo puo' conservare dalla prima creazione
   const archivioAttuale = useRef<ArchivioAnagrafiche>(ARCHIVIO_VUOTO);
   const impostaErrori = useRef<SetErrors | null>(null);
+  const periodoCambiato = useRef<(() => void) | null>(null);
   const form = useForm({
     mode: 'uncontrolled',
     initialValues: iniziali,
     validate: (valori: ValoriCedolinoManuale) => erroriDelModulo(valori, archivio),
     validateInputOnBlur: true,
-    onValuesChange: (valori) => {
+    onValuesChange: (valori, precedenti) => {
       negozio.imposta(valori);
       // un errore di riga o tra campi si risolve anche modificando un altro campo: non deve restare in vista
       impostaErrori.current?.(
         (attuali) => senzaErroriRisolti(attuali, valori, archivioAttuale.current) as FormErrors,
       );
+      if (chiavePeriodo(valori) !== chiavePeriodo(precedenti)) {
+        periodoCambiato.current?.();
+      }
     },
   });
   useEffect(() => {
@@ -209,14 +220,22 @@ export function ModuloCedolinoManuale({
     registraModifiche(() => JSON.stringify(richiestaDa(form.getValues())) !== richiestaIniziale);
   });
 
+  // i copiati si leggono anche dopo le letture asincrone del rapporto: il riferimento e' sempre quello attuale
   const [copiati, setCopiati] = useState<Readonly<Record<string, string>>>(copiatiIniziali);
-  const rimuoviCopiato = useCallback((percorso: string) => {
-    setCopiati((attuali) =>
-      percorso in attuali
-        ? Object.fromEntries(Object.entries(attuali).filter(([p]) => p !== percorso))
-        : attuali,
-    );
+  const copiatiAttuali = useRef<Readonly<Record<string, string>>>(copiatiIniziali);
+  const impostaCopiati = useCallback((nuovi: Readonly<Record<string, string>>) => {
+    copiatiAttuali.current = nuovi;
+    setCopiati(nuovi);
   }, []);
+  const rimuoviCopiato = useCallback(
+    (percorso: string) => {
+      const attuali = copiatiAttuali.current;
+      if (percorso in attuali) {
+        impostaCopiati(Object.fromEntries(Object.entries(attuali).filter(([p]) => p !== percorso)));
+      }
+    },
+    [impostaCopiati],
+  );
 
   /** Imposta solo i campi cambiati: si ridisegnano (e perdono l'errore) solo quelli, gli altri restano come sono. */
   const impostaValori = (nuovi: ValoriCedolinoManuale) => {
@@ -236,32 +255,57 @@ export function ModuloCedolinoManuale({
     },
     [],
   );
+  // riferimento (chiaveRiferimento) dell'ultima precompilazione dal rapporto; undefined se va rifatta comunque
+  const riferimentoUsato = useRef<string | undefined>(undefined);
 
   const anagraficheScelte = (valori: ValoriCedolinoManuale) => ({
     persona: (persone.data ?? []).find((p) => String(p.id) === valori.personaId) ?? null,
     azienda: (aziende.data ?? []).find((a) => String(a.id) === valori.aziendaId) ?? null,
   });
 
-  /** Dati del rapporto di persona e azienda (se esiste) e del suo cedolino piu' vicino al periodo, nei campi vuoti. */
-  const compilaDalRapporto = async (numero: number, personaId: number, aziendaId: number) => {
-    setLetturaRapporto({ stato: 'inCorso' });
+  /**
+   * Dati del rapporto di persona e azienda (se esiste) e del suo cedolino piu' vicino al periodo: i dati copiati in
+   * precedenza si tolgono e i campi vuoti si riempiono di nuovo (quelli modificati dall'utente restano). Al cambio del
+   * periodo (`soloSeCambiato`) solo se il cedolino di riferimento o il criterio "stesso anno" cambiano.
+   */
+  const compilaDalRapporto = async (numero: number, soloSeCambiato = false) => {
+    const { persona, azienda } = anagraficheScelte(form.getValues());
+    if (!persona || !azienda) {
+      return;
+    }
+    if (!soloSeCambiato) {
+      setLetturaRapporto({ stato: 'inCorso' });
+    }
     try {
-      const coppia = rapportoDellaCoppia(await letture.rapporti(personaId), aziendaId);
+      const coppia = rapportoDellaCoppia(await letture.rapporti(persona.id), azienda.id);
       let fonti: Pick<FontiScelta, 'rapporto' | 'riferimento'> | null = null;
+      let chiave = chiaveRiferimento(null, null);
       if (coppia) {
         const rapporto = await letture.rapporto(coppia.id);
-        const riga = rigaDiRiferimento(rapporto.mensilita, periodoDi(form.getValues().periodo));
+        const periodo = periodoDi(form.getValues().periodo);
+        const riga = rigaDiRiferimento(rapporto.mensilita, periodo);
         const cedolino = riga?.cedolinoId != null ? await letture.cedolino(riga.cedolinoId) : null;
-        fonti = { rapporto, riferimento: riga && cedolino ? { riga, cedolino } : null };
+        const riferimento = riga && cedolino ? { riga, cedolino } : null;
+        fonti = { rapporto, riferimento };
+        chiave = chiaveRiferimento(riferimento, periodo);
       }
       if (numero !== ultimaScelta.current) {
         return;
       }
       setLetturaRapporto(null);
+      if (soloSeCambiato && chiave === riferimentoUsato.current) {
+        return;
+      }
+      riferimentoUsato.current = chiave;
       if (fonti) {
-        const { valori, copiati: nuovi } = riempiVuoti(form.getValues(), { azienda: null, ...fonti });
-        impostaValori(valori);
-        setCopiati((attuali) => ({ ...attuali, ...nuovi }));
+        const risultato = applicaScelta(
+          form.getValues(),
+          copiatiAttuali.current,
+          { persona: false, azienda: false },
+          { persona, azienda, ...fonti },
+        );
+        impostaValori(risultato.valori);
+        impostaCopiati(risultato.copiati);
       }
     } catch (errore) {
       if (numero === ultimaScelta.current) {
@@ -270,25 +314,46 @@ export function ModuloCedolinoManuale({
     }
   };
 
+  /** Con persona e azienda scelte, rilegge il riferimento: la precompilazione segue il periodo indicato. */
+  const ripetiPrecompilazione = () => {
+    const { persona, azienda } = anagraficheScelte(form.getValues());
+    if (persona && azienda) {
+      ultimaScelta.current += 1;
+      void compilaDalRapporto(ultimaScelta.current, true);
+    }
+  };
+  useEffect(() => {
+    periodoCambiato.current = ripetiPrecompilazione;
+  });
+
   const aggiornaScelta = (
     scelta:
       | Pick<ValoriCedolinoManuale, 'personaId' | 'nuovaPersona'>
       | Pick<ValoriCedolinoManuale, 'aziendaId' | 'nuovaAzienda'>,
+    anagrafica: 'persona' | 'azienda',
     cambio: CambioScelta,
   ) => {
     const valori = { ...form.getValues(), ...scelta };
     const { persona, azienda } = anagraficheScelte(valori);
     ultimaScelta.current += 1;
-    const risultato = applicaScelta(valori, copiati, cambio, {
+    riferimentoUsato.current = undefined;
+    const risultato = applicaScelta(valori, copiatiAttuali.current, cambio, {
       persona,
       azienda,
       rapporto: null,
       riferimento: null,
     });
     impostaValori(risultato.valori);
-    setCopiati(risultato.copiati);
+    impostaCopiati(risultato.copiati);
+    // gli errori della scelta precedente (scelta mancante, dati anagrafici, anagrafica non piu' in archivio) non
+    // valgono piu': restano solo quelli che la prossima verifica trovera' di nuovo
+    form.setErrors((attuali) =>
+      Object.fromEntries(
+        Object.entries(attuali).filter(([percorso]) => !ERRORI_SCELTA[anagrafica].test(percorso)),
+      ),
+    );
     if (persona && azienda) {
-      void compilaDalRapporto(ultimaScelta.current, persona.id, azienda.id);
+      void compilaDalRapporto(ultimaScelta.current);
     } else {
       setLetturaRapporto(null);
     }
@@ -299,7 +364,8 @@ export function ModuloCedolinoManuale({
     const personaId = nuovaPersona ? null : scelta;
     const attuali = form.getValues();
     if (attuali.personaId !== personaId || attuali.nuovaPersona !== nuovaPersona) {
-      aggiornaScelta({ personaId, nuovaPersona }, { persona: true, azienda: false });
+      const identita = cambiaIdentita(modoPersona(attuali), modoPersona({ personaId, nuovaPersona }));
+      aggiornaScelta({ personaId, nuovaPersona }, 'persona', { persona: identita, azienda: false });
     }
   };
 
@@ -308,18 +374,16 @@ export function ModuloCedolinoManuale({
     const aziendaId = nuovaAzienda ? null : scelta;
     const attuali = form.getValues();
     if (attuali.aziendaId !== aziendaId || attuali.nuovaAzienda !== nuovaAzienda) {
-      aggiornaScelta({ aziendaId, nuovaAzienda }, { persona: false, azienda: true });
+      const identita = cambiaIdentita(modoAzienda(attuali), modoAzienda({ aziendaId, nuovaAzienda }));
+      aggiornaScelta({ aziendaId, nuovaAzienda }, 'azienda', { persona: false, azienda: identita });
     }
   };
 
   const riprovaLetturaRapporto = () => {
-    const { persona, azienda } = anagraficheScelte(form.getValues());
     ultimaScelta.current += 1;
-    if (persona && azienda) {
-      void compilaDalRapporto(ultimaScelta.current, persona.id, azienda.id);
-    } else {
-      setLetturaRapporto(null);
-    }
+    riferimentoUsato.current = undefined;
+    setLetturaRapporto(null);
+    void compilaDalRapporto(ultimaScelta.current);
   };
 
   const [aperte, setAperte] = useState<string[]>(SEZIONI_APERTE);

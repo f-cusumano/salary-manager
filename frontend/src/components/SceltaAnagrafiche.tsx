@@ -124,6 +124,9 @@ function RigaScelta({
         maxDropdownHeight={280}
         comboboxProps={{ withinPortal: true }}
         disabled={elenco.inCaricamento}
+        // la scelta (o "Crea nuovo") e' obbligatoria: l'asterisco a vista, aria-required per i lettori di schermo
+        withAsterisk
+        aria-required
         error={form.errors[percorso]}
         data-path={percorso}
         autoComplete="off"
