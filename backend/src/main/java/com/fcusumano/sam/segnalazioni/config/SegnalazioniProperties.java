@@ -21,7 +21,7 @@ public record SegnalazioniProperties(
         @DefaultValue("5.00") BigDecimal tolleranzaTfr,
         @DefaultValue("1.00") BigDecimal tolleranzaImporti,
         @DefaultValue("2") int mesiAttesaFineRapporto,
-        @DefaultValue("EDILIZIA_INDUSTRIA") Set<String> ccnlTredicesimaCassaEdile) {
+        @DefaultValue({"EDILIZIA_INDUSTRIA", "EDILIZIA_ARTIGIANATO"}) Set<String> ccnlTredicesimaCassaEdile) {
 
     public SegnalazioniProperties {
         if (tolleranzaTfr.signum() < 0 || tolleranzaImporti.signum() < 0 || mesiAttesaFineRapporto < 0) {

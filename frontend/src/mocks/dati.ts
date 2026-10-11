@@ -22,6 +22,7 @@ import { formatMese } from '../format/format';
  * Gli importi sono coerenti tra loro solo quanto basta a rendere credibile l'interfaccia.
  */
 
+/** Copia della tabella `ccnl` reale (changelog 2xx): stessi codici, descrizioni, valori e note. */
 export const CCNL_MOCK: Ccnl[] = [
   {
     codice: 'ALTRO_13',
@@ -43,11 +44,235 @@ export const CCNL_MOCK: Ccnl[] = [
       'Voce generica per CCNL non presenti in tabella: quattordicesima assunta a luglio, nessuna regola sugli scatti.',
   },
   {
+    codice: 'COMMERCIO',
+    descrizione: 'Commercio - Terziario, distribuzione e servizi (Confcommercio)',
+    mensilita: 14,
+    periodicitaScattiMesi: 36,
+    maxScatti: 10,
+    meseQuattordicesima: 7,
+    noteVerifica: null,
+  },
+  {
+    codice: 'COMMERCIO_CONFESERCENTI',
+    descrizione: 'Commercio - Terziario, distribuzione e servizi (Confesercenti)',
+    mensilita: 14,
+    periodicitaScattiMesi: 36,
+    maxScatti: 10,
+    meseQuattordicesima: 7,
+    noteVerifica: null,
+  },
+  {
+    codice: 'DISTRIBUZIONE_MODERNA_ORGANIZZATA',
+    descrizione: 'Distribuzione moderna organizzata - DMO (Federdistribuzione)',
+    mensilita: 14,
+    periodicitaScattiMesi: 36,
+    maxScatti: 10,
+    meseQuattordicesima: 7,
+    noteVerifica: null,
+  },
+  {
+    codice: 'DISTRIBUZIONE_COOPERATIVA',
+    descrizione: 'Distribuzione cooperativa - Cooperative di consumo (ANCC-Coop, Confcooperative, AGCI)',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: 10,
+    meseQuattordicesima: 6,
+    noteVerifica:
+      'Scatti: 10 triennali, ma secondo la sintesi Filcams maturano "dal 21° anno di età". Il calcolo parte dalla data di assunzione e sbaglierebbe per chi è stato assunto prima dei 21 anni, quindi la periodicità non è impostata. Va verificato sul testo integrale se la regola vale ancora per tutti o, come nel CCNL DMO (art. 188), solo per gli assunti prima del 1987.',
+  },
+  {
+    codice: 'FARMACIE_PRIVATE',
+    descrizione: 'Farmacie private - Dipendenti da farmacia privata (Federfarma)',
+    mensilita: 14,
+    periodicitaScattiMesi: 24,
+    maxScatti: 15,
+    meseQuattordicesima: 7,
+    noteVerifica: null,
+  },
+  {
+    codice: 'DIRIGENTI_TERZIARIO',
+    descrizione:
+      'Dirigenti commercio - Dirigenti di aziende del terziario, distribuzione e servizi (Confcommercio-Manageritalia)',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: 6,
+    noteVerifica:
+      "Scatti di anzianità aboliti dal 1° luglio 2004 (art. 9). Restano solo, in via transitoria, per i dirigenti in servizio al 30 giugno 2004, quindi periodicità e massimo non sono impostati. Dal 1° gennaio 2026 vale l'ipotesi di rinnovo del 5 novembre 2025: verificare che gli artt. 8-9 non siano cambiati.",
+  },
+  {
     codice: 'METALMECCANICO_INDUSTRIA',
-    descrizione: 'Metalmeccanico industria (Federmeccanica-Assistal)',
+    descrizione:
+      'Metalmeccanici - Industria metalmeccanica e installazione di impianti (Federmeccanica-Assistal)',
     mensilita: 13,
     periodicitaScattiMesi: 24,
     maxScatti: 5,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Valori verificati: 13 mensilità, 5 aumenti biennali. Norma transitoria: i lavoratori in forza al 16/07/1979 possono maturare fino a 12 aumenti periodici (fonte pmi.it); per questi casi rari il limite di 5 non vale. Esclusi i contratti fratelli (artigianato area meccanica, piccola industria Confapi/Confimi, contratti Confsal-Conflavoro/CIFA).',
+  },
+  {
+    codice: 'METALMECCANICO_PMI',
+    descrizione:
+      'Metalmeccanici - Piccola e media industria metalmeccanica, orafa e installazione impianti (Unionmeccanica-Confapi)',
+    mensilita: 13,
+    periodicitaScattiMesi: 24,
+    maxScatti: 5,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Valori verificati: 5 aumenti biennali (art. 41), 13 mensilità. Il CCNL contiene norme transitorie per i lavoratori con elevata anzianità aziendale maturata prima dell'armonizzazione (dal 1/3/2008): per loro gli importi possono differire. 'Piccola industria' o 'p.ind' da soli non bastano: esiste anche il CCNL Confimi.",
+  },
+  {
+    codice: 'METALMECCANICO_ARTIGIANATO',
+    descrizione:
+      'Metalmeccanici - Artigianato area meccanica, metalmeccanica e installazione impianti (Confartigianato, CNA, Casartigiani, CLAAI)',
+    mensilita: 13,
+    periodicitaScattiMesi: 24,
+    maxScatti: 5,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Due regimi di calcolo degli scatti in base alla data di maturazione del primo scatto (27/11/1997): cambia l'importo, non la periodicità biennale né il massimo di 5. Per gli operai la tredicesima è una gratifica natalizia di 173 ore. Gli apprendisti maturano gli scatti solo dal 1/1/2025 (rinnovo 2024). Lo stesso CCNL (C030) copre anche orafi e odontotecnici artigiani (anche per loro massimo 5 bienni), che però qui non vengono riconosciuti dalle parole chiave.",
+  },
+  {
+    codice: 'ALIMENTARI_INDUSTRIA',
+    descrizione: 'Alimentari - Industria alimentare (Federalimentare e associazioni di settore)',
+    mensilita: 14,
+    periodicitaScattiMesi: 24,
+    maxScatti: 5,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Valori verificati sul testo contrattuale: 14 mensilità (art. 54), 5 aumenti biennali (art. 53, gli scatti maturati prima del 1/6/1995 contano nel massimo). Mese della quattordicesima non impostato: il CCNL non lo fissa; nella prassi è luglio. Per alcune piccole aziende (Assobibe, Mineracqua) è ammesso il pagamento a rate di 13ª e 14ª entro 2 mesi dalla scadenza. Escluso anche 'unionalimentari' (CCNL piccola industria Confapi).",
+  },
+  {
+    codice: 'TESSILE_ABBIGLIAMENTO_MODA_INDUSTRIA',
+    descrizione: 'Tessile, abbigliamento, moda - Industria (Confindustria Moda - Federazione Tessile e Moda)',
+    mensilita: 13,
+    periodicitaScattiMesi: 24,
+    maxScatti: 4,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Valori verificati: 13 mensilità, 4 aumenti biennali (art. 46; confermato da sintesi MySolution e documento aziendale Thaler; una sola fonte, leggeinchiaro, riporta 5). In caso di passaggio di livello si mantiene l'importo maturato e si possono maturare ulteriori bienni fino al massimo del nuovo livello. Per gli operai gli scatti non incidono su cottimi e incentivi. Codice D014 confermato dal database CNEL-INPS.",
+  },
+  {
+    codice: 'GOMMA_PLASTICA_INDUSTRIA',
+    descrizione:
+      'Gomma plastica - Industria della gomma, cavi elettrici ed affini e delle materie plastiche (Federazione Gomma Plastica)',
+    mensilita: 13,
+    periodicitaScattiMesi: 24,
+    maxScatti: 5,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Valori verificati: 13 mensilità, massimo 5 aumenti biennali. In caso di passaggio di livello l'importo degli scatti maturati viene riproporzionato sul valore dello scatto del nuovo livello (frazioni di scatto): il numero di scatti in busta può non essere intero. Escluso il testo con 'chimica' per non confondersi con il CCNL Confapi chimica-gomma-plastica e con i contratti artigiani.",
+  },
+  {
+    codice: 'LEGNO_ARREDAMENTO_INDUSTRIA',
+    descrizione:
+      'Legno e arredamento - Industria del legno, sughero, mobile e arredamento e boschiva e forestale (FederlegnoArredo)',
+    mensilita: 13,
+    periodicitaScattiMesi: 24,
+    maxScatti: 5,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Valori verificati: 13 mensilità, massimo 5 aumenti biennali (art. 40). Il CCNL F051 copre anche i settori boschivi e forestali, quindi "boschivi" e "forestali" non escludono il riconoscimento; resta esclusa la sistemazione "idraulico forestale" (contratto agricolo). Alcuni accordi territoriali (es. distretti del mobile di Brianza e Pesaro) prevedono una somma annua aggiuntiva simile a una quattordicesima, non prevista dal CCNL nazionale. Dal 1/1/2027 gli importi degli scatti aumentano di circa il 20%.',
+  },
+  {
+    codice: 'CHIMICO_FARMACEUTICO_INDUSTRIA',
+    descrizione:
+      'Chimici - Industria chimica, chimico-farmaceutica, fibre chimiche, abrasivi, lubrificanti e GPL (Federchimica-Farmindustria)',
+    mensilita: 13,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Mensilità verificate: 13. Gli scatti di anzianità non maturano più: gli importi già maturati sono congelati in un superminimo non assorbibile, quindi nessuna regola sugli scatti. Eccezione: il settore Lubrificanti e GPL (stesso CCNL e stesso codice CNEL) prevede una quattordicesima a fine giugno, che il modello a 13 mensilità non rappresenta: per quei lavoratori una 14ª in busta non è un'anomalia.",
+  },
+  {
+    codice: 'DIRIGENTI_INDUSTRIA',
+    descrizione:
+      'Dirigenti industria - Dirigenti di aziende produttrici di beni e servizi (Confindustria-Federmanager)',
+    mensilita: 13,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Mensilità: 13, ma il CCNL ammette un numero maggiore se previsto in azienda, quindi una 14ª in busta non è per forza un'anomalia. Scatti aboliti dall'accordo 24/11/2004: solo i dirigenti in servizio a quella data maturano ancora 129,11 euro per biennio, fino a 10 aumenti complessivi; il valore dipende dalla data di assunzione e resta non impostato. 'Federmanager' da solo non basta, perché firma anche il CCNL dirigenti PMI Confapi e altri.",
+  },
+  {
+    codice: 'TURISMO',
+    descrizione: 'Turismo - Alberghi e pubblici esercizi (Federalberghi-Faita, Fipe - Confcommercio)',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: 7,
+    noteVerifica:
+      'La voce raggruppa due CCNL con scatti diversi: Turismo Federalberghi-Faita (scatti triennali) e Pubblici esercizi Fipe dal 2018 (sei scatti quadriennali). Periodicità e massimo non impostati. Quattordicesima con la retribuzione di luglio in entrambi. Il codice CNEL H052 riconosce solo il CCNL Federalberghi; il CCNL Fipe (H05Y) si riconosce dalle parole chiave. Un testo con "commercio" o "terziario" (es. "Commercio e turismo") non viene riconosciuto; "Turismo Confcommercio" sì.',
+  },
+  {
+    codice: 'MULTISERVIZI',
+    descrizione: 'Multiservizi - Servizi di pulizia e servizi integrati',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Scatti diversi per categoria: impiegati 8 scatti biennali, operai una sola quota fissa di anzianità dal quinto anno. Periodicità e massimo non impostati. Mese della quattordicesima non impostato: il CCNL prevede il pagamento "entro il 15 luglio", quindi con il cedolino di giugno o di luglio. Codice CNEL non impostato (K511 o K512 secondo la fonte).',
+  },
+  {
+    codice: 'COOPERATIVE_SOCIALI',
+    descrizione:
+      'Cooperative sociali - Settore socio-sanitario, assistenziale, educativo e di inserimento lavorativo',
+    mensilita: 13,
+    periodicitaScattiMesi: 24,
+    maxScatti: 5,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Dal 1° gennaio 2025 il CCNL prevede mezza quattordicesima, pagata con le spettanze di giugno. Il modello prevede solo mensilità intere e non gestisce un istituto che decorre da una data, quindi la voce è impostata a 13 mensilità: la mezza quattordicesima non è controllata e non entra nella RAL. Parola chiave al plurale "cooperative sociali" per non riconoscere il CCNL dal nome di un\'azienda "cooperativa sociale" che applica un altro contratto.',
+  },
+  {
+    codice: 'VIGILANZA_PRIVATA',
+    descrizione: 'Vigilanza privata e servizi fiduciari',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Un unico CCNL con due sezioni. Vigilanza: 6 scatti triennali, quattordicesima entro il 15 luglio (fonte unica). Servizi fiduciari: regole proprie sugli scatti e quattordicesima introdotta in modo progressivo solo dal 2024, quindi per gli anni precedenti le 14 mensilità non valgono. Periodicità, massimo e mese di pagamento della quattordicesima non impostati. Codice CNEL HV17 non accettato dal riconoscitore.',
+  },
+  {
+    codice: 'LOGISTICA_TRASPORTO_MERCI',
+    descrizione: 'Logistica, trasporto merci e spedizione',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Scatti: 5 aumenti biennali (art. 17), ma per i nuovi assunti la maturazione parte dal 4° anno (art. 4 bis) e Magazzini generali e Industria del freddo hanno regole proprie. Periodicità e massimo non impostati. Mese della quattordicesima non impostato: il CCNL fissa il pagamento entro la prima decade di luglio, quindi con il cedolino di giugno o di luglio. La sezione artigiana è esclusa dal riconoscimento.',
+  },
+  {
+    codice: 'IGIENE_AMBIENTALE',
+    descrizione: 'Igiene ambientale - Servizi ambientali (Utilitalia, Cisambiente, Assoambiente)',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Scatti triennali (art. 30) convertibili, su opzione del lavoratore, in previdenza complementare; numero massimo non verificato. Periodicità e massimo non impostati. Mese della quattordicesima non impostato: il CCNL la prevede tra il 15 giugno e il 15 luglio. Codice CNEL non trovato. La sigla Utilitalia non è tra le parole chiave perché firma anche i CCNL gas-acqua ed elettrico.',
+  },
+  {
+    codice: 'AUTOFERROTRANVIERI',
+    descrizione: 'Autoferrotranvieri - Internavigatori (Mobilità/TPL)',
+    mensilita: 14,
+    periodicitaScattiMesi: 24,
+    maxScatti: 6,
+    meseQuattordicesima: 7,
+    noteVerifica: null,
+  },
+  {
+    codice: 'LAVORO_DOMESTICO',
+    descrizione: 'Lavoro domestico - Colf e badanti (Fidaldo-Domina)',
+    mensilita: 13,
+    periodicitaScattiMesi: 24,
+    maxScatti: 7,
     meseQuattordicesima: null,
     noteVerifica: null,
   },
@@ -55,30 +280,92 @@ export const CCNL_MOCK: Ccnl[] = [
     codice: 'STUDI_PROFESSIONALI',
     descrizione: 'Studi professionali (Confprofessioni)',
     mensilita: 14,
+    periodicitaScattiMesi: 36,
+    maxScatti: 8,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Mese della quattordicesima non impostato: il CCNL la prevede in coincidenza con le ferie e non oltre il 30 giugno (di norma giugno, ma il mese non è fissato).',
+  },
+  {
+    codice: 'SANITA_PRIVATA_AIOP',
+    descrizione: 'Sanità privata - Case di cura private, personale non medico (AIOP-ARIS)',
+    mensilita: 13,
     periodicitaScattiMesi: null,
     maxScatti: null,
     meseQuattordicesima: null,
     noteVerifica:
-      'Verificare periodicità e numero massimo scatti di anzianità e mese di pagamento della quattordicesima (non impostato).',
+      'Il CCNL AIOP-ARIS non medici non prevede scatti periodici: l\'anzianità pregressa è in una RIA ad personam (art. 56) e la progressione avviene per posizioni economiche (art. 51). Periodicità e massimo non impostati. Il CCNL AIOP RSA e centri di riabilitazione è distinto ed è escluso. "cisal" non è tra le parole escluse perché Cisal Sanità ha aderito a questo CCNL.',
+  },
+  {
+    codice: 'CREDITO',
+    descrizione: 'Credito - Bancari: aree professionali e quadri direttivi (ABI)',
+    mensilita: 13,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Scatti di anzianità non impostati: il primo matura dopo 4 anni e i successivi ogni 3. Il massimo è 8 per aree professionali e QD 1°-2° livello e 7 per QD 3°-4° livello (12 per chi era in servizio al 19/12/1994). Codice CNEL (probabilmente J241) da verificare sull'archivio CNEL.",
+  },
+  {
+    codice: 'ASSICURAZIONI',
+    descrizione: 'Assicurazioni - Imprese assicuratrici, personale non dirigente (ANIA)',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      "Scatti non impostati: il CCNL ANIA usa classi di anzianità nelle tabelle retributive, non scatti a cadenza fissa. Mese della quattordicesima non impostato: ilccnl.it riporta il 15 giugno dal testo contrattuale, ma manca una seconda fonte indipendente e Money.it indica luglio. Codice CNEL (probabilmente J121) da verificare sull'archivio CNEL. Esclusi i CCNL delle agenzie in gestione libera (SNA, UNAPASS, ANAPA) e dei broker (AIBA).",
+  },
+  {
+    codice: 'ELETTRICO',
+    descrizione:
+      'Elettrici - Settore elettrico (Elettricità Futura, Utilitalia, Enel, Terna, GSE, Sogin, Energia Libera)',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: 6,
+    noteVerifica:
+      "Scatti non impostati. Chi è stato assunto prima del 2020 matura 5 aumenti biennali, il primo al compimento del primo biennio. Per gli assunti dal 1° gennaio 2020 gli scatti sono sostituiti da versamenti periodici al fondo pensione (art. 46), che non compaiono come scatto in busta. Codice CNEL (probabilmente K051) da verificare sull'archivio CNEL.",
+  },
+  {
+    codice: 'GAS_ACQUA',
+    descrizione: 'Gas-acqua (Utilitalia, Anigas, Assogas, Igas, Anfida, Proxigas)',
+    mensilita: 14,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: 6,
+    noteVerifica:
+      "Scatti di anzianità non impostati: sono congelati all'importo maturato al 31/12/2015, pagato come elemento ad personam, e non ne maturano di nuovi. Codice CNEL (probabilmente K321) da verificare sull'archivio CNEL.",
   },
   {
     codice: 'TELECOMUNICAZIONI',
-    descrizione: 'Telecomunicazioni (Asstel)',
-    mensilita: 14,
+    descrizione: 'Telecomunicazioni - Imprese esercenti servizi di telecomunicazione (Asstel)',
+    mensilita: 13,
+    periodicitaScattiMesi: 24,
+    maxScatti: 7,
+    meseQuattordicesima: null,
+    noteVerifica: "Codice CNEL (probabilmente K411) da verificare sull'archivio CNEL.",
+  },
+  {
+    codice: 'EDILIZIA_INDUSTRIA',
+    descrizione: 'Edilizia - Industria (ANCE, Legacoop, Confcooperative, AGCI)',
+    mensilita: 13,
     periodicitaScattiMesi: null,
     maxScatti: null,
     meseQuattordicesima: null,
     noteVerifica:
-      'Verificare periodicità e numero massimo scatti di anzianità e mese di pagamento della quattordicesima (non impostato).',
+      "Le regole dipendono dalla categoria. Impiegati: 14 mensilità (premio annuo entro il 30 giugno) e 5 scatti biennali. Operai: tredicesima e ferie accantonate presso la Cassa Edile e anzianità tramite APE invece degli scatti in busta. Mensilità impostata a 13 e scatti non impostati: le regole su mensilità mancanti vanno applicate con cautela. Il codice F012 copre l'unico CCNL ANCE-Cooperative, ma un cedolino con «cooperative» non viene riconosciuto qui per prudenza.",
   },
   {
-    codice: 'COMMERCIO',
-    descrizione: 'Terziario, distribuzione e servizi (Confcommercio)',
-    mensilita: 14,
-    periodicitaScattiMesi: 36,
-    maxScatti: 10,
-    meseQuattordicesima: 7,
-    noteVerifica: null,
+    codice: 'EDILIZIA_ARTIGIANATO',
+    descrizione:
+      "Edilizia - Artigianato e PMI: imprese artigiane e piccole imprese industriali dell'edilizia (ANAEPA Confartigianato, CNA Costruzioni, Casartigiani, CLAAI)",
+    mensilita: 13,
+    periodicitaScattiMesi: null,
+    maxScatti: null,
+    meseQuattordicesima: null,
+    noteVerifica:
+      'Le regole dipendono dalla categoria. Impiegati: 14 mensilità (premio annuo entro il 30 giugno) e 5 scatti biennali. Operai: tredicesima pagata dalla Cassa Edile e anzianità tramite APE. Mensilità impostata a 13 e scatti non impostati: le regole su mensilità mancanti vanno applicate con cautela. «Edilizia PMI» da solo non è una parola chiave perché è ambiguo con il CCNL Confapi-ANIEM (F018). Esclusi i CCNL edili artigiani e PMI firmati da altre sigle (es. Confinnova-Cisal).',
   },
 ];
 
@@ -816,7 +1103,7 @@ function rapportoMario2(db: MockDb): RapportoDettaglio {
     aziendaId: BETA.id,
     qualifica: 'Impiegato tecnico',
     livello: 'C3',
-    ccnlTesto: 'CONTRATTO DI LAVORO Metalmeccanici imp. (p.ind) CNEL C011',
+    ccnlTesto: 'CONTRATTO DI LAVORO Metalmeccanici imp. CNEL C011',
     dataAssunzione: '2018-09-03',
     dataCessazione: '2022-02-28',
     elementi: () => ({ minimo: 1910.4, contingenza: 0, superminimo: 380, scatti: 26.5 }),

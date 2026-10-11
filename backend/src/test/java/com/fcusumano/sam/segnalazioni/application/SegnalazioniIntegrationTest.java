@@ -171,7 +171,8 @@ class SegnalazioniIntegrationTest {
         assertThat(proprieta.tolleranzaTfr()).isEqualByComparingTo(new BigDecimal("5.00"));
         assertThat(proprieta.tolleranzaImporti()).isEqualByComparingTo(new BigDecimal("1.00"));
         assertThat(proprieta.mesiAttesaFineRapporto()).isEqualTo(2);
-        assertThat(proprieta.ccnlTredicesimaCassaEdile()).containsExactly("EDILIZIA_INDUSTRIA");
+        assertThat(proprieta.ccnlTredicesimaCassaEdile())
+                .containsExactlyInAnyOrder("EDILIZIA_INDUSTRIA", "EDILIZIA_ARTIGIANATO");
     }
 
     // ------------------------------------------------------------------------------------------ supporto

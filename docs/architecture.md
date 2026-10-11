@@ -98,6 +98,7 @@ applicati):
 | `110-azienda-riferimento.sql`     | `azienda.riferimento_dati` (periodo del cedolino da cui vengono gli attributi aggiornabili)    |
 | `230-ccnl-riconoscimento.sql`     | `ccnl.codice_cnel` (univoco, nullable), `ccnl.parole_escluse`; parole chiave per parole intere; quattordicesima non certa a NULL |
 | `240-ccnl-descrizioni.sql`        | (solo dati) descrizioni e note di verifica dei CCNL con le lettere accentate                  |
+| `250-ccnl-ampliamento.sql`       | (solo dati) CCNL piu' diffusi, valori verificati e descrizioni riconoscibili (decisione 156)  |
 | `310-cedolino-tipo-dichiarato.sql`| `cedolino.tipo_dichiarato` (tipo dichiarato dall'estrazione, base della riclassificazione)    |
 | `320-cedolino-avvisi.sql`         | `cedolino.avvisi_estrazione` (avvisi dei controlli e note del modello, separati da a capo)     |
 | `330-caricamenti-in-errore.sql`   | `caricamento.motivo` (solo in ERRORE) e indice `(workspace_id, hash_contenuto, id)`; tabelle `caricamento_pdf` (PDF dei file in errore, chiave workspace + hash) e `caricamento_attribuzione` (mensilita' associata dall'utente, FK verso `rapporto_lavoro` con cascata) |
