@@ -984,7 +984,12 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        sezione, data di assunzione o ha eccezioni che il modello a un solo numero non rappresenta, il valore e' NULL e
        `note_verifica` spiega perche' (un valore sbagliato e' peggio di un NULL: genera falsi allarmi). Un termine di
        pagamento ("entro il 15 luglio", "tra il 15 giugno e il 15 luglio") non fissa il mese del cedolino: NULL. Ogni
-       CCNL con un valore NULL ha una nota di verifica (controllato da `CatalogoCcnlIntegrationTest`).
+       CCNL con regole sugli scatti o mese della quattordicesima NULL ha una nota di verifica (controllato da
+       `CatalogoCcnlIntegrationTest`); un codice CNEL NULL vuol dire solo "non verificato" (decisione 48) e non
+       sempre ha una nota (es. Autoferrotranvieri, con tutti gli altri valori certi). Una nota rende "da verificare"
+       anche il mese della quattordicesima impostato (`RegolaQuattordicesimaMancante`: la quattordicesima mancante si
+       segnala solo ad anno concluso): vale per Distribuzione cooperativa, Dirigenti del terziario, Turismo, Elettrici
+       e Gas-acqua.
      - **Correzioni del seed**: Telecomunicazioni ha 13 mensilita' (non 14) e 7 scatti biennali; Studi professionali
        8 scatti triennali; Metalmeccanici PMI 5 scatti biennali; Turismo quattordicesima con la retribuzione di luglio
        (scatti NULL: la voce raggruppa Federalberghi, triennali, e Fipe, quadriennali). Cooperative sociali a 13
@@ -997,7 +1002,9 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        CCNL: per questo l'edilizia industriale e' "Edilizia - Industria (ANCE, Legacoop, Confcooperative, AGCI)" senza la
        parola "cooperative", che esclude il CCNL per prudenza.
      - **Riconoscimento sempre conservativo tra contratti fratelli**: ogni CCNL esclude le sigle e le parole dei fratelli
-       (artigianato, PMI/Confapi/Confimi, cooperative, dirigenti, contratti di sigle minori). Ora sono riconosciuti testi
+       (artigianato, PMI/Confapi/Confimi, cooperative, dirigenti, contratti di sigle minori). Dove si esclude "pmi" si
+       esclude anche "p m i" (il testo "P.M.I." normalizzato); gli Elettrici escludono "gomma" e "cavi elettrici" (CCNL
+       gomma, cavi elettrici ed affini, anche nelle versioni PMI); il Multiservizi esclude anche "coop sociali". Ora sono riconosciuti testi
        che prima non lo erano perche' il fratello non era in tabella: "Commercio Confesercenti", "Metalmeccanica
        artigianato", "Dirigenti commercio", "Turismo Confcommercio" (il Commercio esclude "turismo", il Turismo esclude
        "commercio" e "terziario", quindi "Commercio e turismo" resta non riconosciuto). "p.ind" (piccola industria)

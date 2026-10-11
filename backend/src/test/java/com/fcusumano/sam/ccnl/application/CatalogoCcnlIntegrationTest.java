@@ -163,6 +163,7 @@ class CatalogoCcnlIntegrationTest {
             "Tessili industria;TESSILE_ABBIGLIAMENTO_MODA_INDUSTRIA",
             "Gomma plastica;GOMMA_PLASTICA_INDUSTRIA",
             "Gomma e cavi elettrici;GOMMA_PLASTICA_INDUSTRIA",
+            "Industria della gomma, cavi elettrici ed affini;GOMMA_PLASTICA_INDUSTRIA",
             "Legno e arredamento industria;LEGNO_ARREDAMENTO_INDUSTRIA",
             "Chimico farmaceutico;CHIMICO_FARMACEUTICO_INDUSTRIA",
             "Chimici industria;CHIMICO_FARMACEUTICO_INDUSTRIA",
@@ -229,6 +230,15 @@ class CatalogoCcnlIntegrationTest {
             "Cooperativa sociale",
             "Multiservizi cooperative sociali",
             "Logistica artigianato trasporti e logistica",
+            // il fratello escluso non lascia come unico candidato un CCNL di un altro settore
+            "Gomma cavi elettrici PMI",
+            "Gomma, cavi elettrici ed affini - Confapi Unionchimica",
+            "Chimica, gomma, cavi elettrici",
+            // sigle puntate: "P.M.I." diventa "p m i" ed esclude come "PMI"
+            "Metalmeccanica P.M.I.",
+            "Commercio P.M.I.",
+            "Alimentari P.M.I.",
+            "Coop sociali multiservizi",
             // codice CNEL in contrasto con le parole chiave, o due codici
             "Commercio CNEL C011",
             "C011 H011",
