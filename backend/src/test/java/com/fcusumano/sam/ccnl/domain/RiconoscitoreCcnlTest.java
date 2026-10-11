@@ -5,26 +5,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class RiconoscitoreCcnlTest {
 
     private static final RiconoscitoreCcnl RICONOSCITORE = new RiconoscitoreCcnl(List.of(
-            RegolaRiconoscimento.daColonne("COMMERCIO", null,
-                    "commercio|terziario|distribuzione e servizi", "confesercenti|dirigenti"),
+            RegolaRiconoscimento.daColonne("COMMERCIO", "H011",
+                    "commercio|terziario|distribuzione e servizi", "confesercenti|dirigenti|turismo"),
+            RegolaRiconoscimento.daColonne("COMMERCIO_CONFESERCENTI", "H012",
+                    "confesercenti|commercio confesercenti", "turismo|dirigenti"),
             RegolaRiconoscimento.daColonne("METALMECCANICO_INDUSTRIA", "C011",
                     "metalmeccanico|metalmeccanici|metalmeccanica|industria metalmeccanica",
-                    "artigianato|pmi|confapi|piccola e media industria"),
-            RegolaRiconoscimento.daColonne("METALMECCANICO_PMI", null,
+                    "artigianato|artigiani|area meccanica|pmi|confapi|piccola e media industria|p ind"),
+            RegolaRiconoscimento.daColonne("METALMECCANICO_PMI", "C018",
                     "unionmeccanica|piccola e media industria metalmeccanica", "artigianato"),
-            RegolaRiconoscimento.daColonne("TURISMO", "H052", "turismo|pubblici esercizi", null),
+            RegolaRiconoscimento.daColonne("METALMECCANICO_ARTIGIANATO", "C030",
+                    "metalmeccanica artigianato|metalmeccanici artigiani|area meccanica", "confapi|unionmeccanica"),
+            RegolaRiconoscimento.daColonne("TURISMO", "H052", "turismo|pubblici esercizi",
+                    "confesercenti|commercio|terziario"),
             RegolaRiconoscimento.daColonne("ALTRO_13", null, null, null)));
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "Metalmeccanici imp. (p.ind)",
-            "CONTRATTO DI LAVORO Metalmeccanici imp. (p.ind)",
+            "Metalmeccanici imp.",
+            "CONTRATTO DI LAVORO Metalmeccanici imp.",
             "C.C.N.L. METALMECCANICO",
             "Industria Metalmeccanica"})
     void riconosceIlMetalmeccanicoIndustriaDaParoleIntere(String testo) {
@@ -46,14 +52,37 @@ class RiconoscitoreCcnlTest {
 
     @Test
     void piuCcnlCandidatiNonDannoRiconoscimento() {
-        assertThat(RICONOSCITORE.riconosci("Commercio e turismo")).isEmpty();
+        var senzaEsclusioni = new RiconoscitoreCcnl(List.of(
+                RegolaRiconoscimento.daColonne("COMMERCIO", null, "commercio", null),
+                RegolaRiconoscimento.daColonne("TURISMO", null, "turismo", null)));
+        assertThat(senzaEsclusioni.riconosci("Commercio e turismo")).isEmpty();
     }
 
     @Test
     void leParoleEscluseEliminanoIlCandidato() {
-        assertThat(RICONOSCITORE.riconosci("Metalmeccanica artigianato")).isEmpty();
-        assertThat(RICONOSCITORE.riconosci("Commercio Confesercenti")).isEmpty();
-        assertThat(RICONOSCITORE.riconosci("Metalmeccanica PMI Unionmeccanica")).contains("METALMECCANICO_PMI");
+        // con entrambi i fratelli esclusi a vicenda non resta nessun candidato
+        assertThat(RICONOSCITORE.riconosci("Commercio e turismo")).isEmpty();
+        assertThat(RICONOSCITORE.riconosci("Turismo Confesercenti")).isEmpty();
+        assertThat(RICONOSCITORE.riconosci("Commercio dirigenti")).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = ';', value = {
+            "Metalmeccanica artigianato;METALMECCANICO_ARTIGIANATO",
+            "Area meccanica;METALMECCANICO_ARTIGIANATO",
+            "Metalmeccanica PMI Unionmeccanica;METALMECCANICO_PMI",
+            "Commercio Confesercenti;COMMERCIO_CONFESERCENTI",
+            "Turismo Confcommercio;TURISMO"})
+    void laParolaEsclusaDiUnCcnlLasciaIlFratelloComeUnicoCandidato(String testo, String atteso) {
+        assertThat(RICONOSCITORE.riconosci(testo)).contains(atteso);
+    }
+
+    @Test
+    void unaSiglaAmbiguaEscludeSenzaRiconoscereIlFratello() {
+        // "p.ind" (piccola industria) esclude l'industria ma non basta per la PMI Confapi (esiste anche Confimi)
+        assertThat(RICONOSCITORE.riconosci("Metalmeccanici imp. (p.ind)")).isEmpty();
+        assertThat(RICONOSCITORE.riconosci("Metalmeccanici imp. (p.ind) CNEL C011")).isEmpty();
+        assertThat(RICONOSCITORE.riconosci("Metalmeccanici imp. (p.ind) CNEL C018")).contains("METALMECCANICO_PMI");
     }
 
     @Test
@@ -77,13 +106,14 @@ class RiconoscitoreCcnlTest {
     @Test
     void codiceCnelInContrastoConLeParoleChiaveNonRiconosceNulla() {
         assertThat(RICONOSCITORE.riconosci("Commercio CNEL C011")).isEmpty();
+        assertThat(RICONOSCITORE.riconosci("Metalmeccanica artigianato CNEL C018")).isEmpty();
         assertThat(RICONOSCITORE.riconosci("C011 H052")).isEmpty();
     }
 
     @Test
     void codiceCnelNonInTabellaNonImpedisceIlRiconoscimentoPerParoleChiave() {
-        assertThat(RICONOSCITORE.riconosci("Metalmeccanici imp. (p.ind) CNEL C018")).contains("METALMECCANICO_INDUSTRIA");
-        assertThat(RICONOSCITORE.riconosci("CNEL C018")).isEmpty();
+        assertThat(RICONOSCITORE.riconosci("Metalmeccanici imp. CNEL C099")).contains("METALMECCANICO_INDUSTRIA");
+        assertThat(RICONOSCITORE.riconosci("CNEL C099")).isEmpty();
     }
 
     @Test

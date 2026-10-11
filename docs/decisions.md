@@ -71,7 +71,7 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     una `note_verifica`. Revisione del seed (`233-ccnl-valori-non-certi`): il mese della quattordicesima di
     Telecomunicazioni, Studi professionali e Turismo non e' noto con certezza ed e' NULL con nota. Le voci
     `ALTRO_13` / `ALTRO_14` coprono i CCNL non in tabella. Con regole scatti ignote non si stimano scatti e non si
-    segnalano scatti mancanti. Riconoscimento dal testo stampato: decisioni 47-48.
+    segnalano scatti mancanti. Riconoscimento dal testo stampato: decisioni 47-48. Elenco ampliato: decisione 156.
 24. **FK `rapporto_lavoro.ccnl_codice -> ccnl.codice`** definita in `220-ccnl-vincoli.sql` perche' la tabella
     `ccnl` (2xx) e' creata dopo `rapporto_lavoro` (1xx).
 25. **Date contrattuali**: data di assunzione/cessazione stampate prevalgono sulle date dedotte dai cedolini
@@ -160,11 +160,12 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     esplicitamente, es. "metalmeccanico|metalmeccanici|metalmeccanica"); le frasi di `parole_escluse` eliminano il
     candidato (es. "artigianato", "confapi", "dirigenti", "confesercenti" per i CCNL industriali/terziario); una
     corrispondenza contenuta in una piu' lunga di un altro CCNL non conta. Risultato solo se il candidato e' unico:
-    "Metalmeccanici imp. (p.ind)" => `METALMECCANICO_INDUSTRIA`; "Commercio e turismo" => nessuno.
+    "Metalmeccanici imp." => `METALMECCANICO_INDUSTRIA`; "Commercio e turismo" => nessuno (esclusioni tra contratti
+    fratelli ed esempi aggiornati: decisione 156).
 48. **Codice CNEL** (`ccnl.codice_cnel`, univoco, nullable): un codice nel testo (lettera + 3 cifre, es. "C018") che
     corrisponde a un CCNL in tabella lo riconosce da solo o se concorda con le parole chiave; in contrasto => nessun
-    riconoscimento; un codice non in tabella e' ignorato. In fase 1 **nessun codice e' valorizzato** (non verificati
-    con certezza): la colonna e il meccanismo sono pronti per quando lo saranno.
+    riconoscimento; un codice non in tabella e' ignorato. In fase 1 **nessun codice era valorizzato** (non verificati
+    con certezza); dalla decisione 156 sono valorizzati quelli verificati.
 49. **Changelog solo additivi**: le modifiche a tabelle e seed gia' rilasciati stanno in nuovi changeset (`110`,
     `230`-`233`, `410`-`413`, `510`) invece di modificare quelli esistenti, per non cambiarne i checksum.
 50. **Codice fiscale della persona**: normalizzato maiuscolo senza spazi; il controllo formale (struttura, omocodie,
@@ -459,7 +460,7 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     `{"tipo":"FINE_RAPPORTO","progressivo":..,"periodo":"AAAA-MM"}` per la competenza).
 98. **Parametri** in `salary-manager.segnalazioni` (`SegnalazioniProperties`): `tolleranza-tfr` (5,00 €: scostamento
     massimo nel controllo di coerenza del fondo TFR), `tolleranza-importi` (1,00 €: calo minimo per fondo TFR, importo
-    scatti e progressivi), `mesi-attesa-fine-rapporto` (2), `ccnl-tredicesima-cassa-edile` (EDILIZIA_INDUSTRIA).
+    scatti e progressivi), `mesi-attesa-fine-rapporto` (2), `ccnl-tredicesima-cassa-edile` (EDILIZIA_INDUSTRIA, EDILIZIA_ARTIGIANATO: decisione 156).
 99. **Mensilita' mancanti**: tra il primo e l'ultimo cedolino ordinario (mai prima: i cedolini precedenti possono non
     essere stati caricati), estese fino al mese di cessazione se successivo (mai oltre il mese precedente a oggi). Un
     mese coperto da un cedolino di fine rapporto o compreso tra una cessazione e una riassunzione stampate non e'
@@ -965,3 +966,50 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      fiscale"; "Verrà creato un nuovo rapporto di lavoro: la persona scelta non ha ancora cedolini con l'azienda
      scelta" solo quando persona e azienda sono gia' in archivio. Eliminato l'avviso sul nome diverso da quello in
      archivio, che non puo' piu' presentarsi.
+
+## Elenco dei CCNL ampliato
+
+156. **Elenco dei CCNL ampliato ai contratti piu' diffusi** (changelog `250-ccnl-ampliamento.sql`: `250` aggiorna i CCNL
+     gia' presenti, `251` inserisce i nuovi). Oltre ai nove CCNL del seed e a `ALTRO_13`/`ALTRO_14` (invariati): Terziario
+     Confesercenti, Distribuzione moderna organizzata, Distribuzione cooperativa, Farmacie private, Dirigenti del
+     terziario, Metalmeccanici artigianato, Alimentari, Tessile-abbigliamento-moda, Gomma-plastica e Legno-arredamento
+     industria, Dirigenti industria, Multiservizi, Cooperative sociali, Vigilanza privata, Logistica e trasporto merci,
+     Igiene ambientale, Autoferrotranvieri, Lavoro domestico, Sanita' privata AIOP, Assicurazioni ANIA, Elettrici,
+     Gas-acqua, Edilizia artigianato e PMI (32 CCNL in tutto). I codici esistenti non cambiano (li referenzia
+     `rapporto_lavoro`); il mock del frontend (`CCNL_MOCK`) rispecchia l'intera tabella.
+     - **Regola della certezza**: un valore (mensilita', periodicita' e massimo degli scatti, mese della quattordicesima,
+       codice CNEL) e' impostato solo se confermato dal testo contrattuale o da una fonte autorevole (archivio CNEL o
+       database CNEL-INPS, parti firmatarie, PDF ufficiale del contratto) oppure da due fonti giuslavoristiche
+       indipendenti e concordi; le fonti sono citate nei commenti del changelog. Quando la regola dipende da categoria,
+       sezione, data di assunzione o ha eccezioni che il modello a un solo numero non rappresenta, il valore e' NULL e
+       `note_verifica` spiega perche' (un valore sbagliato e' peggio di un NULL: genera falsi allarmi). Un termine di
+       pagamento ("entro il 15 luglio", "tra il 15 giugno e il 15 luglio") non fissa il mese del cedolino: NULL. Ogni
+       CCNL con regole sugli scatti o mese della quattordicesima NULL ha una nota di verifica (controllato da
+       `CatalogoCcnlIntegrationTest`); un codice CNEL NULL vuol dire solo "non verificato" (decisione 48) e non
+       sempre ha una nota (es. Autoferrotranvieri, con tutti gli altri valori certi). Una nota rende "da verificare"
+       anche il mese della quattordicesima impostato (`RegolaQuattordicesimaMancante`: la quattordicesima mancante si
+       segnala solo ad anno concluso): vale per Distribuzione cooperativa, Dirigenti del terziario, Turismo, Elettrici
+       e Gas-acqua.
+     - **Correzioni del seed**: Telecomunicazioni ha 13 mensilita' (non 14) e 7 scatti biennali; Studi professionali
+       8 scatti triennali; Metalmeccanici PMI 5 scatti biennali; Turismo quattordicesima con la retribuzione di luglio
+       (scatti NULL: la voce raggruppa Federalberghi, triennali, e Fipe, quadriennali). Cooperative sociali a 13
+       mensilita': la mezza quattordicesima dal 2025 non e' rappresentabile e non viene controllata.
+     - **Codici CNEL** valorizzati solo dove verificati (supera la decisione 48 "nessun codice valorizzato"): un codice
+       che il riconoscitore non accetta (non lettera + 3 cifre, es. H05Y, HV17) o in conflitto tra fonti resta NULL con
+       nota.
+     - **Descrizioni riconoscibili**: "<Settore> - <dettaglio> (<parti firmatarie>)", con le lettere accentate. Ogni
+       descrizione, scritta come testo del CCNL (anche come suggerimento dell'inserimento a mano), riconosce il proprio
+       CCNL: per questo l'edilizia industriale e' "Edilizia - Industria (ANCE, Legacoop, Confcooperative, AGCI)" senza la
+       parola "cooperative", che esclude il CCNL per prudenza.
+     - **Riconoscimento sempre conservativo tra contratti fratelli**: ogni CCNL esclude le sigle e le parole dei fratelli
+       (artigianato, PMI/Confapi/Confimi, cooperative, dirigenti, contratti di sigle minori). Dove si esclude "pmi" si
+       esclude anche "p m i" (il testo "P.M.I." normalizzato); gli Elettrici escludono "gomma" e "cavi elettrici" (CCNL
+       gomma, cavi elettrici ed affini, anche nelle versioni PMI); il Multiservizi esclude anche "coop sociali". Ora sono riconosciuti testi
+       che prima non lo erano perche' il fratello non era in tabella: "Commercio Confesercenti", "Metalmeccanica
+       artigianato", "Dirigenti commercio", "Turismo Confcommercio" (il Commercio esclude "turismo", il Turismo esclude
+       "commercio" e "terziario", quindi "Commercio e turismo" resta non riconosciuto). "p.ind" (piccola industria)
+       esclude il metalmeccanico industria senza bastare per la PMI Confapi (esiste anche Confimi): "Metalmeccanici imp.
+       (p.ind)" non e' piu' riconosciuto (supera l'esempio della decisione 47), con "CNEL C018" diventa
+       `METALMECCANICO_PMI`.
+     - **Cassa Edile**: `ccnl-tredicesima-cassa-edile` comprende anche `EDILIZIA_ARTIGIANATO` (tredicesima degli operai
+       pagata dalla Cassa Edile come nell'industria).

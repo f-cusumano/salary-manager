@@ -171,7 +171,7 @@ salary-manager:
     # Mesi dopo la cessazione prima di segnalare il cedolino di fine rapporto mancante
     mesi-attesa-fine-rapporto: 2
     # CCNL in cui la tredicesima degli operai e' accantonata presso la Cassa Edile (non pagata in busta)
-    ccnl-tredicesima-cassa-edile: EDILIZIA_INDUSTRIA
+    ccnl-tredicesima-cassa-edile: EDILIZIA_INDUSTRIA,EDILIZIA_ARTIGIANATO
 
   web:
     # Origini ammesse per CORS (server di sviluppo Vite)

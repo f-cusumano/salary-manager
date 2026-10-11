@@ -425,7 +425,7 @@ test.describe('Salary Manager in modalità demo', () => {
   test('CCNL scelto una volta e poi modificato con conferma: la RAL viene ricalcolata', async () => {
     await apriAzienda(page, 'Beta Consulting');
     await page.getByRole('combobox', { name: 'Seleziona il CCNL' }).click();
-    await page.getByRole('option', { name: /Terziario, distribuzione e servizi/ }).click();
+    await page.getByRole('option', { name: /Terziario, distribuzione e servizi \(Confcommercio\)/ }).click();
     await expect(page.getByText('CCNL aggiornato: riepilogo e segnalazioni ricalcolati.')).toBeVisible();
     await expect(page.getByText('scelto da te')).toBeVisible();
     await expect(page.getByRole('article', { name: 'CCNL non determinato' })).toHaveCount(0);
@@ -435,7 +435,7 @@ test.describe('Salary Manager in modalità demo', () => {
 
     await page.getByRole('button', { name: 'Modifica il CCNL' }).click();
     await page.getByRole('combobox', { name: 'Seleziona il CCNL' }).click();
-    await page.getByRole('option', { name: /Metalmeccanico industria/ }).click();
+    await page.getByRole('option', { name: /Industria metalmeccanica e installazione di impianti/ }).click();
     await page.getByRole('button', { name: 'Conferma', exact: true }).click();
     const dialogo = page.getByRole('dialog', { name: 'Cambiare il CCNL?' });
     await dialogo.getByRole('button', { name: 'Conferma' }).click();
