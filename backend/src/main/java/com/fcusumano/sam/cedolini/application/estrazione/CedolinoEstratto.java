@@ -44,6 +44,13 @@ public record CedolinoEstratto(
         Confidenza confidenza,
         List<String> campiNonTrovati) {
 
+    /** Lo stesso cedolino con la confidenza indicata (null per i cedolini inseriti a mano: nessuna lettura). */
+    public CedolinoEstratto conConfidenza(Confidenza nuova) {
+        return new CedolinoEstratto(numeroCedoliniNelDocumento, dipendente, datoreLavoro, datiContrattuali, periodo,
+                totali, retribuzione, voci, ratei, tfr, presenze, scatti, buoniPasto, progressivi, contieneTredicesima,
+                contieneQuattordicesima, nuova, campiNonTrovati);
+    }
+
     /** Tipo di cedolino riconosciuto dal modello. */
     public enum TipoCedolinoEstratto {
         /** Mensilita' ordinaria. */

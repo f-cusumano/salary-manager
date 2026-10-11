@@ -5,8 +5,10 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Rete di sicurezza contro i dati bancari sfuggiti al prompt: individua e maschera gli IBAN (ISO 13616) di qualunque
- * paese in un testo libero, anche scritti a gruppi separati da spazi. Una sequenza e' un IBAN solo se ha la lunghezza
+ * Rete di sicurezza contro i dati bancari sfuggiti al prompt (e scritti nei testi liberi dell'inserimento a mano):
+ * individua e maschera gli IBAN (ISO 13616) di qualunque paese in un testo libero, anche scritti a gruppi separati da
+ * spazi di ogni tipo (anche lo spazio non separabile delle pagine web), trattini o punti, o con caratteri invisibili
+ * in mezzo. Una sequenza e' un IBAN solo se ha la lunghezza
  * prevista per il paese e supera la verifica delle cifre di controllo (modulo 97): codici fiscali, matricole e codici
  * voce con una struttura simile non vengono toccati.
  */
@@ -15,8 +17,15 @@ final class DatiBancari {
     /** Testo che sostituisce l'IBAN. */
     static final String MASCHERA = "[dato bancario rimosso]";
 
+    /**
+     * Separatori ammessi tra i caratteri di un IBAN scritto a gruppi: spazi (anche Unicode), trattini, punti e
+     * caratteri invisibili di formattazione.
+     */
+    private static final String SEPARATORE = "[\\s\\p{Z}\\u200B-\\u200D\\u2060\\uFEFF.\\-]";
+
     /** Inizio possibile di un IBAN: codice paese, cifre di controllo e almeno 11 caratteri (anche a gruppi). */
-    private static final Pattern CANDIDATO = Pattern.compile("\\b[A-Za-z]{2}\\d{2}(?:[ ]?[A-Za-z0-9]){11,30}");
+    private static final Pattern CANDIDATO =
+            Pattern.compile("\\b[A-Za-z]{2}\\d{2}(?:" + SEPARATORE + "{0,3}[A-Za-z0-9]){11,30}");
 
     private static final int LUNGHEZZA_MINIMA = 15;
     private static final int LUNGHEZZA_MASSIMA = 34;
@@ -77,7 +86,7 @@ final class DatiBancari {
         var fineCarattere = new int[LUNGHEZZA_MASSIMA];
         for (int i = inizio; i < fineCandidato && compatto.length() < LUNGHEZZA_MASSIMA; i++) {
             char c = testo.charAt(i);
-            if (c != ' ') {
+            if (alfanumerico(c)) {
                 compatto.append(Character.toUpperCase(c));
                 fineCarattere[compatto.length() - 1] = i + 1;
             }
@@ -94,6 +103,11 @@ final class DatiBancari {
             }
         }
         return -1;
+    }
+
+    /** Carattere di un IBAN (il candidato contiene solo questi e separatori). */
+    private static boolean alfanumerico(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
     }
 
     /** Verifica ISO 13616: primi 4 caratteri in fondo, lettere come 10..35, resto modulo 97 uguale a 1. */

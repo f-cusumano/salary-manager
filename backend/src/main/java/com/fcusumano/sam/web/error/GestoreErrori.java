@@ -1,7 +1,9 @@
 package com.fcusumano.sam.web.error;
 
+import com.fcusumano.sam.shared.DatiNonValidiException;
 import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
+import com.fcusumano.sam.web.api.dto.ErroreCampoDto;
 import io.swagger.v3.oas.annotations.Hidden;
 import java.net.URI;
 import java.util.Arrays;
@@ -87,6 +89,19 @@ class GestoreErrori extends ResponseEntityExceptionHandler {
     @ExceptionHandler(RichiestaNonValidaException.class)
     ProblemDetail richiestaNonValida(RichiestaNonValidaException e) {
         return problema(HttpStatus.BAD_REQUEST, "richiesta-non-valida", e.getMessage());
+    }
+
+    /**
+     * Dati non validi campo per campo: 400 con l'elenco {@code errori} (percorso del campo e messaggio, mai i valori
+     * inviati). Il dettaglio e' il messaggio dell'unico errore oppure "N campi da correggere".
+     */
+    @ExceptionHandler(DatiNonValidiException.class)
+    ProblemDetail datiNonValidi(DatiNonValidiException e) {
+        var problema = problema(HttpStatus.BAD_REQUEST, "richiesta-non-valida", e.getMessage());
+        problema.setProperty("errori", e.errori().stream()
+                .map(errore -> new ErroreCampoDto(errore.campo(), errore.messaggio()))
+                .toList());
+        return problema;
     }
 
     @ExceptionHandler(FileTroppoGrandeException.class)

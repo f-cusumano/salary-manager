@@ -85,14 +85,33 @@
   background-color: var(--mantine-color-gray-0);
 }
 
-.mancante {
+.mancante,
+.inErrore {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--mantine-spacing-md);
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-md);
   padding: 10px var(--mantine-spacing-md);
+}
+
+.mancante {
   border: 1.5px solid var(--mantine-color-orange-5);
   background-color: var(--mantine-color-orange-0);
+}
+
+/* file caricato ma non letto associato alla mensilita': rosso come gli errori, distinto dall'arancione */
+.inErrore {
+  border: 1.5px solid var(--mantine-color-red-5);
+  background-color: var(--mantine-color-red-0);
+}
+
+.testoRiga {
+  min-width: 0;
+}
+
+.azioniRiga {
+  margin-left: auto;
 }
 
 .iconaDestra {

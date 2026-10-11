@@ -19,6 +19,7 @@ import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.CedolinoNormalizzato;
 import com.fcusumano.sam.cedolini.CedolinoSintesi;
 import com.fcusumano.sam.cedolini.FileCaricato;
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.FileInCoda;
 import com.fcusumano.sam.cedolini.application.SupportoCaricamenti.LettoreProgrammabile;
@@ -77,6 +78,8 @@ class CaricamentoCedoliniIntegrationTest {
 
     @BeforeEach
     void databaseVuoto() {
+        dsl.execute("DELETE FROM caricamento_attribuzione");
+        dsl.execute("DELETE FROM caricamento_pdf");
         dsl.execute("DELETE FROM caricamento");
         dsl.execute("DELETE FROM cedolino");
         dsl.execute("DELETE FROM rapporto_lavoro");
@@ -412,6 +415,8 @@ class CaricamentoCedoliniIntegrationTest {
 
         assertThat(esito.stato()).isEqualTo(StatoCaricamento.ERRORE);
         assertThat(esito.messaggio()).isEqualTo(PdfNonLeggibileException.MESSAGGIO_PASSWORD);
+        assertThat(esito.motivo()).isEqualTo(MotivoErrore.PDF_PROTETTO);
+        assertThat(esito.pdfDisponibile()).as("PDF originale conservato per inserirlo a mano").isTrue();
         assertThat(lettoreCedolini.estrazioni("rossi-beta-2024-09.pdf")).isZero();
         assertThat(anagrafica.elencoPersone()).isEmpty();
     }
@@ -519,6 +524,9 @@ class CaricamentoCedoliniIntegrationTest {
         assertThat(esiti.get(0).messaggio()).contains("2 cedolini distinti");
         assertThat(esiti.get(1).messaggio()).contains("non sembra un cedolino");
         assertThat(esiti.get(2).messaggio()).isEqualTo("Il file non è un PDF");
+        assertThat(esiti).extracting(Caricamento::motivo).containsExactly(MotivoErrore.PIU_CEDOLINI,
+                MotivoErrore.LETTURA_NON_RIUSCITA, MotivoErrore.PDF_NON_VALIDO);
+        assertThat(esiti).extracting(Caricamento::pdfDisponibile).containsExactly(false, true, false);
         assertThat(anagrafica.elencoPersone()).isEmpty();
     }
 
@@ -534,6 +542,8 @@ class CaricamentoCedoliniIntegrationTest {
         assertThat(esito.stato()).isEqualTo(StatoCaricamento.ERRORE);
         assertThat(esito.messaggio()).isEqualTo(
                 MessaggiCaricamento.nonAcquisibile(MessaggiCaricamento.PERIODO_NON_LEGGIBILE));
+        assertThat(esito.motivo()).isEqualTo(MotivoErrore.DATI_INCOMPLETI);
+        assertThat(esito.pdfDisponibile()).isTrue();
         assertThat(anagrafica.elencoPersone()).isEmpty();
     }
 
@@ -613,6 +623,8 @@ class CaricamentoCedoliniIntegrationTest {
         assertThat(caricamento.statoLotto(lotto)).allSatisfy(c -> {
             assertThat(c.stato()).isEqualTo(StatoCaricamento.ERRORE);
             assertThat(c.messaggio()).isEqualTo(MessaggiCaricamento.INTERROTTO_DAL_RIAVVIO);
+            assertThat(c.motivo()).isEqualTo(MotivoErrore.INTERROTTO);
+            assertThat(c.pdfDisponibile()).as("prima elaborazione: i byte erano solo in memoria").isFalse();
         });
     }
 

@@ -8,6 +8,7 @@ import {
   formatImporto,
   formatMese,
   formatMeseDiData,
+  formatMensilita,
   formatNumero,
   formatPercentuale,
   formatPeriodo,
@@ -67,6 +68,13 @@ describe('mesi e date', () => {
   it('formatta date complete e mese di una data', () => {
     expect(formatData('2024-01-05')).toBe('5 Gennaio 2024');
     expect(formatMeseDiData('2027-03-01')).toBe('Marzo 2027');
+  });
+
+  it('intitola una mensilità indicata come anno e mese 1..14, come il backend', () => {
+    expect(formatMensilita(2023, 5)).toBe('Maggio 2023');
+    expect(formatMensilita(2023, 12)).toBe('Dicembre 2023');
+    expect(formatMensilita(2023, 13)).toBe('Tredicesima 2023');
+    expect(formatMensilita(2023, 14)).toBe('Quattordicesima 2023');
   });
 });
 

@@ -6,7 +6,21 @@ package com.fcusumano.sam.cedolini.application;
  */
 class CedolinoNonAcquisibileException extends RuntimeException {
 
-    CedolinoNonAcquisibileException(String messaggio) {
+    /** Dato indispensabile mancante: l'inserimento a mano lo riporta sul campo corrispondente del modulo. */
+    enum Dato {
+        PERIODO,
+        CODICE_FISCALE,
+        DATORE
+    }
+
+    private final Dato dato;
+
+    CedolinoNonAcquisibileException(Dato dato, String messaggio) {
         super(messaggio);
+        this.dato = dato;
+    }
+
+    Dato dato() {
+        return dato;
     }
 }

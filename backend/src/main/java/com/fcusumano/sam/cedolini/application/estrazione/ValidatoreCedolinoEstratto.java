@@ -208,7 +208,7 @@ public final class ValidatoreCedolinoEstratto {
     }
 
     /** Verifica formale del codice fiscale di una persona fisica (16 caratteri, omocodie ammesse). */
-    static boolean codiceFiscaleValido(String cf) {
+    public static boolean codiceFiscaleValido(String cf) {
         if (cf == null || !CODICE_FISCALE.matcher(cf).matches()) {
             return false;
         }
@@ -222,7 +222,7 @@ public final class ValidatoreCedolinoEstratto {
     }
 
     /** Verifica formale di una partita IVA (o codice fiscale numerico) di 11 cifre. */
-    static boolean partitaIvaValida(String piva) {
+    public static boolean partitaIvaValida(String piva) {
         if (piva == null || !UNDICI_CIFRE.matcher(piva).matches() || piva.equals("00000000000")) {
             return false;
         }

@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.IndicatoriMensilita;
 import com.fcusumano.sam.cedolini.CedolinoId;
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.segnalazioni.Evidenza;
 import com.fcusumano.sam.segnalazioni.Gravita;
 import com.fcusumano.sam.segnalazioni.Segnalazione;
@@ -142,6 +143,41 @@ class RapportiApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.mensilita[6].nomeFile").value(nullValue()))
                 .andExpect(jsonPath("$.mensilita[6].ratei", empty()))
                 .andExpect(jsonPath("$.mensilita[6].scattoInBusta").value(false));
+    }
+
+    @Test
+    void laMensilitaConUnFileInErroreAssociatoERossaMaUnCedolinoPrevale() throws Exception {
+        when(anagrafica.dettaglioRapporto(RAPPORTO))
+                .thenReturn(Optional.of(DatiDiProva.dettaglio("COMMERCIO", DatiDiProva.periodoAttuale())));
+        when(caricamentiInErrore.associatiARapporto(RAPPORTO)).thenReturn(List.of(
+                DatiDiProva.fileInErrore(41, "febbraio.pdf", MotivoErrore.PDF_PROTETTO,
+                        Competenza.Mensilita.ordinaria(YearMonth.of(2024, 2)), false),
+                DatiDiProva.fileInErrore(42, "gennaio.pdf", MotivoErrore.LETTURA_NON_RIUSCITA,
+                        Competenza.Mensilita.ordinaria(YearMonth.of(2024, 1)), true)));
+
+        mvc.perform(get("/api/v1/rapporti/7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mensilita[*].chiave").value(contains("2024.TFR02", "2024.TFR01", "2024.08",
+                        "2024.14", "2024.07", "2024.06", "2024.02", "2024.01", "2023.13", "2023.12", "2023.11")))
+                .andExpect(jsonPath("$.mensilita[*].stato").value(contains("PRESENTE", "PRESENTE", "PRESENTE",
+                        "PRESENTE", "PRESENTE", "PRESENTE", "IN_ERRORE", "PRESENTE", "PRESENTE", "PRESENTE",
+                        "MANCANTE")))
+                // Febbraio 2024: file in errore associato al posto della riga mancante
+                .andExpect(jsonPath("$.mensilita[6].titolo").value("Febbraio 2024"))
+                .andExpect(jsonPath("$.mensilita[6].periodoRetribuzione").value("2024-02"))
+                .andExpect(jsonPath("$.mensilita[6].caricamentoId").value(41))
+                .andExpect(jsonPath("$.mensilita[6].motivoErrore").value("PDF_PROTETTO"))
+                .andExpect(jsonPath("$.mensilita[6].cedolinoId").value(nullValue()))
+                .andExpect(jsonPath("$.mensilita[6].netto").value(nullValue()))
+                .andExpect(jsonPath("$.mensilita[6].nomeFile").value(nullValue()))
+                .andExpect(jsonPath("$.mensilita[6].ratei", empty()))
+                // Gennaio 2024: il cedolino prevale sul file associato
+                .andExpect(jsonPath("$.mensilita[7].cedolinoId").value(16))
+                .andExpect(jsonPath("$.mensilita[7].caricamentoId").value(nullValue()))
+                .andExpect(jsonPath("$.mensilita[7].motivoErrore").value(nullValue()))
+                // Novembre 2023 resta mancante
+                .andExpect(jsonPath("$.mensilita[10].caricamentoId").value(nullValue()))
+                .andExpect(jsonPath("$.mensilita[10].motivoErrore").value(nullValue()));
     }
 
     @Test

@@ -12,6 +12,11 @@ public enum TipoSegnalazione {
     QUATTORDICESIMA_MANCANTE,
     /** Cedolino di fine rapporto mancante pur in presenza di data di cessazione. */
     FINE_RAPPORTO_MANCANTE,
+    /**
+     * Mensilita' con un file caricato ma non letto associato dall'utente (avviso): prende il posto della mensilita'
+     * mancante.
+     */
+    CEDOLINO_IN_ERRORE,
     /** Fondo TFR in calo senza cause note (anticipo, trasferimento a fondo, liquidazione). */
     FONDO_TFR_IN_CALO,
     /** Numero di scatti di anzianita' in calo. */

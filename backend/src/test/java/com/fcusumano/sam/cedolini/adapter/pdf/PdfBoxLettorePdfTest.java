@@ -137,7 +137,7 @@ class PdfBoxLettorePdfTest {
         assertThatThrownBy(() -> lettore(List.of("altra")).apri(protetto, "sbagliata", () -> List.of(CF)))
                 .isInstanceOfSatisfying(PdfNonLeggibileException.class, e -> {
                     assertThat(e.causa()).isEqualTo(Causa.PROTETTO_DA_PASSWORD);
-                    assertThat(e.getMessage()).isEqualTo("PDF protetto da password: indica la password e ricarica");
+                    assertThat(e.getMessage()).isEqualTo("PDF protetto da password: riprova indicando la password");
                 });
         assertThatThrownBy(() -> lettore(List.of()).apri(protetto, null, null))
                 .isInstanceOfSatisfying(PdfNonLeggibileException.class,

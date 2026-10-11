@@ -7,6 +7,7 @@ export type PersonaSintesi = Schemi['PersonaSintesi'];
 export type RapportoSintesi = Schemi['RapportoSintesi'];
 export type RapportoDettaglio = Schemi['RapportoDettaglio'];
 export type AziendaSintesi = Schemi['AziendaSintesi'];
+export type AziendaSelezionabile = Schemi['AziendaSelezionabile'];
 export type Periodo = Schemi['Periodo'];
 export type Ccnl = Schemi['Ccnl'];
 export type Segnalazione = Schemi['Segnalazione'];
@@ -29,6 +30,16 @@ export type UnitaMisura = Schemi['UnitaMisura'];
 export type TipoRateo = Schemi['TipoRateo'];
 export type FonteDato = Schemi['FonteDato'];
 export type Problema = Schemi['Problema'];
+export type ErroreCampo = Schemi['ErroreCampo'];
+export type TipoMensilita = Schemi['TipoMensilita'];
+export type MotivoErrore = Schemi['MotivoErrore'];
+export type CaricamentoInErrore = Schemi['CaricamentoInErrore'];
+export type AttribuzioneCaricamento = Schemi['AttribuzioneCaricamento'];
+export type RichiestaAttribuzione = Schemi['RichiestaAttribuzione'];
+export type CedolinoManuale = Schemi['CedolinoManuale'];
+export type VoceManuale = Schemi['VoceManuale'];
+export type CategoriaVoce = Schemi['CategoriaVoce'];
+export type VerificaCedolinoManuale = Schemi['VerificaCedolinoManuale'];
 
 /** Stati terminali di un caricamento (polling concluso per quel file). */
 export const STATI_TERMINALI: readonly StatoCaricamento[] = [

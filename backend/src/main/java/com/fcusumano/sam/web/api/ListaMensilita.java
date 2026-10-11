@@ -4,6 +4,7 @@ import static com.fcusumano.sam.web.api.Numeri.esatto;
 import static com.fcusumano.sam.web.api.Numeri.euro;
 
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.IndicatoriMensilita;
+import com.fcusumano.sam.cedolini.CaricamentoInErrore;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.CedolinoSintesi;
 import com.fcusumano.sam.shared.Competenza;
@@ -12,6 +13,7 @@ import com.fcusumano.sam.web.api.dto.RigaMensilitaDto;
 import com.fcusumano.sam.web.api.dto.RigaMensilitaDto.SaldoRateoCedolino;
 import com.fcusumano.sam.web.api.dto.RigaMensilitaDto.Stato;
 import java.time.Month;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -19,8 +21,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Lista mensilita' del dettaglio rapporto: unisce i cedolini presenti (sintesi + indicatori del modulo calcoli) e le
- * mensilita' mancanti (modulo segnalazioni) in un'unica lista in ordine cronologico inverso con titoli pronti.
+ * Lista mensilita' del dettaglio rapporto: unisce i cedolini presenti (sintesi + indicatori del modulo calcoli), le
+ * mensilita' a cui l'utente ha associato un file in errore (modulo cedolini) e le mensilita' mancanti (modulo
+ * segnalazioni) in un'unica lista in ordine cronologico inverso con titoli pronti. Per la stessa chiave una sola riga:
+ * PRESENTE prevale su IN_ERRORE, IN_ERRORE su MANCANTE. Una riga IN_ERRORE puo' cadere fuori dal periodo atteso (per
+ * esempio prima del primo cedolino): l'associazione e' una scelta dell'utente.
  * <p>
  * Posizione cronologica di ogni riga:
  * <ul>
@@ -48,19 +53,30 @@ final class ListaMensilita {
 
     /**
      * @param cedolini            cedolini presenti del rapporto (in qualunque ordine)
-     * @param mancanti            mensilita' attese ma assenti; quelle per cui esiste gia' un cedolino sono ignorate
+     * @param mancanti            mensilita' attese ma assenti; quelle per cui esiste gia' un cedolino o un file in errore
+     *                            associato sono ignorate
+     * @param inErrore            file in errore associati a una mensilita' del rapporto; quelli di una mensilita' con
+     *                            un cedolino sono ignorati
      * @param indicatori          indicatori per cedolino (vuota se il riepilogo non e' ancora calcolato)
      * @param meseQuattordicesima mese di pagamento della quattordicesima secondo il CCNL del rapporto; null se non noto
      */
     static List<RigaMensilitaDto> componi(List<CedolinoSintesi> cedolini, List<Competenza.Mensilita> mancanti,
+                                          List<CaricamentoInErrore> inErrore,
                                           Map<CedolinoId, IndicatoriMensilita> indicatori,
                                           Integer meseQuattordicesima) {
-        var righe = new ArrayList<Riga>(cedolini.size() + mancanti.size());
+        var righe = new ArrayList<Riga>(cedolini.size() + inErrore.size() + mancanti.size());
         var chiaviPresenti = new HashSet<String>();
         for (var cedolino : cedolini) {
             chiaviPresenti.add(Titoli.chiave(cedolino.competenza()));
             righe.add(riga(cedolino.competenza(), meseQuattordicesima,
                     presente(cedolino, indicatori.get(cedolino.id()))));
+        }
+        for (var file : inErrore) {
+            var attribuzione = file.attribuzione();
+            if (attribuzione != null && chiaviPresenti.add(Titoli.chiave(attribuzione.competenza()))) {
+                righe.add(riga(attribuzione.competenza(), meseQuattordicesima,
+                        inErrore(attribuzione.competenza(), file)));
+            }
         }
         for (var mancante : mancanti) {
             if (chiaviPresenti.add(Titoli.chiave(mancante))) {
@@ -109,24 +125,54 @@ final class ListaMensilita {
                 ratei,
                 indicatori != null && indicatori.scattoInBusta(),
                 indicatori != null && indicatori.aumentoFuoriScatti(),
-                cedolino.nomeFile());
+                cedolino.nomeFile(),
+                null,
+                null);
     }
 
-    /** Riga "mancante": solo titolo; il periodo e' valorizzato solo per le mensilita' ordinarie. */
-    private static RigaMensilitaDto mancante(Competenza.Mensilita competenza) {
-        var periodo = competenza.tipo() == TipoMensilita.ORDINARIA ? competenza.comeYearMonth() : null;
+    /**
+     * Riga "con cedolino in errore": come la mancante (solo titolo, periodo per le mensilita' ordinarie) con il file
+     * associato e il motivo dell'errore.
+     */
+    private static RigaMensilitaDto inErrore(Competenza.Mensilita competenza, CaricamentoInErrore file) {
         return new RigaMensilitaDto(
                 Titoli.chiave(competenza),
-                Stato.MANCANTE,
+                Stato.IN_ERRORE,
                 Titoli.di(competenza),
                 Mappatura.competenza(competenza),
-                periodo,
+                periodo(competenza),
                 null,
                 null,
                 null,
                 List.of(),
                 false,
                 false,
+                null,
+                file.id().valore(),
+                file.motivo());
+    }
+
+    /** Riga "mancante": solo titolo; il periodo e' valorizzato solo per le mensilita' ordinarie. */
+    private static RigaMensilitaDto mancante(Competenza.Mensilita competenza) {
+        return new RigaMensilitaDto(
+                Titoli.chiave(competenza),
+                Stato.MANCANTE,
+                Titoli.di(competenza),
+                Mappatura.competenza(competenza),
+                periodo(competenza),
+                null,
+                null,
+                null,
+                List.of(),
+                false,
+                false,
+                null,
+                null,
                 null);
+    }
+
+    /** Periodo di retribuzione di una riga senza cedolino: solo per le mensilita' ordinarie. */
+    private static YearMonth periodo(Competenza.Mensilita competenza) {
+        return competenza.tipo() == TipoMensilita.ORDINARIA ? competenza.comeYearMonth() : null;
     }
 }

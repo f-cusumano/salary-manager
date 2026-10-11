@@ -10,6 +10,10 @@ import java.util.UUID;
  *
  * @param lotto               identifica i file caricati insieme (una POST)
  * @param messaggio           motivo per ERRORE / AGGIUNTIVO_NON_GESTITO / DUPLICATO, null altrimenti; mai dati personali
+ * @param motivo              motivo dell'errore (solo ERRORE), null negli altri stati e negli errori registrati prima
+ *                            dell'introduzione del motivo
+ * @param pdfDisponibile      true solo per ERRORE con il PDF originale del file conservato (inseribile a mano e
+ *                            rileggibile)
  * @param cedolinoId          cedolino creato (ACQUISITO), altrimenti null
  * @param cedolinoEsistenteId cedolino gia' presente con cui confligge (DUPLICATO, AGGIUNTIVO_NON_GESTITO), altrimenti null
  * @param personaId           persona a cui e' attribuito il cedolino (creato o esistente), null se non attribuito o se
@@ -23,6 +27,8 @@ public record Caricamento(
         long dimensione,
         StatoCaricamento stato,
         String messaggio,
+        MotivoErrore motivo,
+        boolean pdfDisponibile,
         CedolinoId cedolinoId,
         CedolinoId cedolinoEsistenteId,
         PersonaId personaId,

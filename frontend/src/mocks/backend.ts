@@ -1,20 +1,39 @@
 import type {
   Caricamento,
+  ErroreCampo,
   LottoCaricamento,
+  MotivoErrore,
   RapportoDettaglio,
   RapportoSintesi,
   StatoCaricamento,
 } from '../api/types';
 import { STATI_TERMINALI } from '../api/types';
+import { elencoAziende, elencoPersone } from './anagrafiche';
 import {
   CCNL_MOCK,
-  MESSAGGIO_PDF_PROTETTO,
+  MESSAGGI_ERRORE,
+  PDF_MINIMO,
+  chiaveFile,
   creaDbMock,
   popolaMario,
   rinumeraFineRapporto,
   trovaCcnl,
+  type DatiIniziali,
   type MockDb,
 } from './dati';
+import {
+  MESSAGGI_FILE_IN_ERRORE,
+  RifiutoMock,
+  associa,
+  chiudiTentativo,
+  eliminaAssociazioniDelRapporto,
+  elencoInErrore,
+  fileInErrore,
+  rapportoConFileInErrore,
+  rimuovi,
+  rimuoviAssociazione,
+} from './fileInErrore';
+import { inserisciManuale, verificaManuale } from './inserimentoManuale';
 
 /**
  * Backend simulato in memoria, usato SOLO in sviluppo (`npm run dev:mock`) e nei test: implementa il contratto
@@ -24,13 +43,25 @@ import {
 export interface OpzioniMock {
   /** Ritardo artificiale delle risposte (ms), per vedere gli stati di caricamento. */
   ritardoMs?: number;
-  /** "vuoto" simula il primo avvio, prima di qualsiasi caricamento. */
-  datiIniziali?: 'demo' | 'vuoto';
+  /**
+   * "vuoto" simula il primo avvio, prima di qualsiasi caricamento; "errori" aggiunge ai dati dimostrativi tre cedolini
+   * caricati con errore (uno associato alla mensilita' mancante).
+   */
+  datiIniziali?: DatiIniziali;
+}
+
+interface EsitoFinale {
+  stato: StatoCaricamento;
+  messaggio: string | null;
+  motivo: MotivoErrore | null;
+  cedolinoEsistenteId: number | null;
 }
 
 interface FileInLotto {
   caricamento: Caricamento;
-  esitoFinale: { stato: StatoCaricamento; messaggio: string | null; cedolinoEsistenteId: number | null };
+  /** Contenuto del file, tenuto in memoria fino alla fine dell'elaborazione come nel backend. */
+  contenuto: Blob;
+  esitoFinale: EsitoFinale;
 }
 
 interface LottoMock {
@@ -45,18 +76,57 @@ export interface MockBackend {
   db: MockDb;
 }
 
-const PDF_MINIMO =
-  '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
-  '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n';
-
-function json(corpo: unknown, status = 200): Response {
-  return new Response(JSON.stringify(corpo), { status, headers: { 'Content-Type': 'application/json' } });
+function json(corpo: unknown, status = 200, intestazioni: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(corpo), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...intestazioni },
+  });
 }
 
-function problema(status: number, title: string, detail: string | null = null): Response {
-  return new Response(JSON.stringify({ type: 'about:blank', title, status, detail, instance: null }), {
-    status,
-    headers: { 'Content-Type': 'application/problem+json' },
+function problema(
+  status: number,
+  title: string,
+  detail: string | null = null,
+  errori: ErroreCampo[] | null = null,
+): Response {
+  return new Response(
+    JSON.stringify({
+      type: 'about:blank',
+      title,
+      status,
+      detail,
+      instance: null,
+      ...(errori ? { errori } : {}),
+    }),
+    { status, headers: { 'Content-Type': 'application/problem+json' } },
+  );
+}
+
+const TITOLI_PROBLEMA: Record<number, string> = {
+  400: 'Richiesta non valida',
+  404: 'Risorsa non trovata',
+  409: 'Operazione non consentita',
+};
+
+function rifiuto(errore: RifiutoMock): Response {
+  return problema(
+    errore.status,
+    TITOLI_PROBLEMA[errore.status] ?? 'Errore nella richiesta',
+    errore.message,
+    errore.errori,
+  );
+}
+
+/** PDF come allegato con il nome indicato (forma semplice ASCII e forma estesa RFC 5987, come il backend). */
+async function pdf(contenuto: Blob, nome: string): Promise<Response> {
+  const ascii = nome.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  // i byte e non il Blob: nei test il Blob di jsdom non e' accettato dalla Response di Node
+  return new Response(await contenuto.arrayBuffer(), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(nome)}`,
+    },
   });
 }
 
@@ -80,6 +150,7 @@ function sintesi(rapporto: RapportoDettaglio): RapportoSintesi {
 function rapportiDiPersona(db: MockDb, personaId: number): RapportoSintesi[] {
   return [...db.rapporti.values()]
     .filter((r) => r.persona.id === personaId)
+    .map((r) => rapportoConFileInErrore(db, r))
     .sort(
       (a, b) =>
         Number(b.attuale) - Number(a.attuale) || (b.periodo.da ?? '').localeCompare(a.periodo.da ?? ''),
@@ -87,13 +158,22 @@ function rapportiDiPersona(db: MockDb, personaId: number): RapportoSintesi[] {
     .map(sintesi);
 }
 
-function esitoPerNome(db: MockDb, nome: string, password: string | null): FileInLotto['esitoFinale'] {
+function esitoInErrore(motivo: keyof typeof MESSAGGI_ERRORE): EsitoFinale {
+  return { stato: 'ERRORE', messaggio: MESSAGGI_ERRORE[motivo], motivo, cedolinoEsistenteId: null };
+}
+
+/**
+ * Esito simulato di un file in base al nome: duplicato, aggiuntivo, protetto (senza password), danneggiato,
+ * scansione, ristampa ed errore (piu' cedolini nello stesso PDF); ogni altro file viene acquisito.
+ */
+function esitoPerNome(db: MockDb, nome: string, password: string | null): EsitoFinale {
   const minuscolo = nome.toLowerCase();
   const esistente = [...db.cedolini.keys()][0] ?? null;
   if (minuscolo.includes('duplicato')) {
     return {
       stato: 'DUPLICATO',
       messaggio: 'Cedolino già presente: Gennaio 2024 di Alfa Software S.r.l.',
+      motivo: null,
       cedolinoEsistenteId: esistente,
     };
   }
@@ -102,20 +182,26 @@ function esitoPerNome(db: MockDb, nome: string, password: string | null): FileIn
       stato: 'AGGIUNTIVO_NON_GESTITO',
       messaggio:
         'Esiste già il cedolino di Marzo 2025 con contenuto diverso (possibile aggiuntivo per premi o arretrati).',
+      motivo: null,
       cedolinoEsistenteId: esistente,
     };
   }
   if (minuscolo.includes('protetto') && !password) {
-    return { stato: 'ERRORE', messaggio: MESSAGGIO_PDF_PROTETTO, cedolinoEsistenteId: null };
+    return esitoInErrore('PDF_PROTETTO');
+  }
+  if (minuscolo.includes('danneggiato')) {
+    return esitoInErrore('PDF_NON_VALIDO');
+  }
+  if (minuscolo.includes('scansione')) {
+    return esitoInErrore('PDF_SENZA_TESTO');
+  }
+  if (minuscolo.includes('ristampa')) {
+    return esitoInErrore('LAYOUT_NON_RICONOSCIUTO');
   }
   if (minuscolo.includes('errore')) {
-    return {
-      stato: 'ERRORE',
-      messaggio: 'Il documento contiene più cedolini distinti: caricali come file separati.',
-      cedolinoEsistenteId: null,
-    };
+    return esitoInErrore('PIU_CEDOLINI');
   }
-  return { stato: 'ACQUISITO', messaggio: null, cedolinoEsistenteId: null };
+  return { stato: 'ACQUISITO', messaggio: null, motivo: null, cedolinoEsistenteId: null };
 }
 
 /** Persona e rapporto del cedolino creato o di quello con cui il file confligge, come nel backend. */
@@ -145,6 +231,7 @@ function avanzaLotto(db: MockDb, lotto: LottoMock): LottoCaricamento {
     } else {
       caricamento.stato = voce.esitoFinale.stato;
       caricamento.messaggio = voce.esitoFinale.messaggio;
+      caricamento.motivo = voce.esitoFinale.motivo;
       caricamento.cedolinoEsistenteId = voce.esitoFinale.cedolinoEsistenteId;
       if (caricamento.stato === 'ACQUISITO') {
         popolaMario(db);
@@ -152,6 +239,8 @@ function avanzaLotto(db: MockDb, lotto: LottoMock): LottoCaricamento {
         caricamento.cedolinoId = ultimo?.cedolinoId ?? null;
       }
       Object.assign(caricamento, attribuzione(db, caricamento.cedolinoId ?? caricamento.cedolinoEsistenteId));
+      // PDF conservato (o eliminato) e associazione del file come alla chiusura di un tentativo nel backend
+      chiudiTentativo(db, caricamento, voce.contenuto);
     }
     caricamento.aggiornatoIl = adesso;
   });
@@ -178,6 +267,7 @@ function eliminaCedolino(db: MockDb, cedolinoId: number): boolean {
   if (!rapporto.mensilita.some((r) => r.stato === 'PRESENTE')) {
     // ultimo cedolino: il rapporto sparisce, e con lui la persona se non ha altri rapporti
     db.rapporti.delete(rapporto.id);
+    eliminaAssociazioniDelRapporto(db, rapporto.id);
     const personaId = rapporto.persona.id;
     if (![...db.rapporti.values()].some((r) => r.persona.id === personaId)) {
       db.persone = db.persone.filter((p) => p.id !== personaId);
@@ -207,6 +297,7 @@ function impostaCcnl(rapporto: RapportoDettaglio, codice: string): RapportoDetta
 
 const ROTTE = {
   persone: /^\/api\/v1\/persone$/,
+  aziende: /^\/api\/v1\/aziende$/,
   rapportiPersona: /^\/api\/v1\/persone\/(\d+)\/rapporti$/,
   rapporto: /^\/api\/v1\/rapporti\/(\d+)$/,
   note: /^\/api\/v1\/rapporti\/(\d+)\/note$/,
@@ -215,22 +306,72 @@ const ROTTE = {
   pdf: /^\/api\/v1\/cedolini\/(\d+)\/pdf$/,
   caricamenti: /^\/api\/v1\/caricamenti$/,
   lotto: /^\/api\/v1\/caricamenti\/lotti\/([0-9a-f-]+)$/,
+  inErrore: /^\/api\/v1\/caricamenti\/in-errore$/,
+  fileInErrore: /^\/api\/v1\/caricamenti\/(\d+)$/,
+  pdfCaricamento: /^\/api\/v1\/caricamenti\/(\d+)\/pdf$/,
+  rilettura: /^\/api\/v1\/caricamenti\/(\d+)\/rilettura$/,
+  attribuzione: /^\/api\/v1\/caricamenti\/(\d+)\/attribuzione$/,
+  verificaManuale: /^\/api\/v1\/caricamenti\/(\d+)\/cedolino\/verifica$/,
+  inserimentoManuale: /^\/api\/v1\/caricamenti\/(\d+)\/cedolino$/,
   ccnl: /^\/api\/v1\/ccnl$/,
 };
 
 export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
   const db = creaDbMock(opzioni.datiIniziali ?? 'demo');
   const lotti = new Map<string, LottoMock>();
-  const storico: Caricamento[] = [];
-  let prossimoIdCaricamento = 1;
+
+  /** Registra un nuovo lotto: un caricamento IN_CODA per file, con l'esito deciso dal nome. */
+  function registraLotto(
+    file: { nome: string; contenuto: Blob }[],
+    password: string | null,
+  ): LottoCaricamento {
+    const adesso = new Date().toISOString();
+    const lotto: LottoMock = { id: crypto.randomUUID(), passi: 0, file: [] };
+    for (const { nome, contenuto } of file) {
+      const caricamento: Caricamento = {
+        id: db.contatori.prossimoIdCaricamento++,
+        lotto: lotto.id,
+        nomeFileOriginale: nome,
+        dimensione: contenuto.size,
+        stato: 'IN_CODA',
+        messaggio: null,
+        motivo: null,
+        pdfDisponibile: false,
+        cedolinoId: null,
+        cedolinoEsistenteId: null,
+        personaId: null,
+        rapportoId: null,
+        creatoIl: adesso,
+        aggiornatoIl: adesso,
+      };
+      lotto.file.push({ caricamento, contenuto, esitoFinale: esitoPerNome(db, nome, password) });
+      db.caricamenti.unshift(caricamento);
+    }
+    lotti.set(lotto.id, lotto);
+    return { lotto: lotto.id, completato: false, caricamenti: lotto.file.map((f) => ({ ...f.caricamento })) };
+  }
 
   async function gestisci(request: Request): Promise<Response> {
+    try {
+      return await instrada(request);
+    } catch (errore) {
+      if (errore instanceof RifiutoMock) {
+        return rifiuto(errore);
+      }
+      throw errore;
+    }
+  }
+
+  async function instrada(request: Request): Promise<Response> {
     const { pathname, searchParams } = new URL(request.url);
     const metodo = request.method.toUpperCase();
     let m: RegExpExecArray | null;
 
     if (metodo === 'GET' && ROTTE.persone.test(pathname)) {
-      return json(db.persone);
+      return json(elencoPersone(db));
+    }
+    if (metodo === 'GET' && ROTTE.aziende.test(pathname)) {
+      return json(elencoAziende(db));
     }
     if (metodo === 'GET' && (m = ROTTE.rapportiPersona.exec(pathname))) {
       const personaId = Number(m[1]);
@@ -240,7 +381,7 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
     }
     if (metodo === 'GET' && (m = ROTTE.rapporto.exec(pathname))) {
       const rapporto = db.rapporti.get(Number(m[1]));
-      return rapporto ? json(rapporto) : nonTrovato();
+      return rapporto ? json(rapportoConFileInErrore(db, rapporto)) : nonTrovato();
     }
     if (metodo === 'PUT' && (m = ROTTE.note.exec(pathname))) {
       const rapporto = db.rapporti.get(Number(m[1]));
@@ -263,7 +404,9 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
       const corpo = (await request.json()) as { ccnlCodice?: unknown };
       const aggiornato =
         typeof corpo.ccnlCodice === 'string' ? impostaCcnl(rapporto, corpo.ccnlCodice) : null;
-      return aggiornato ? json(aggiornato) : problema(400, 'Richiesta non valida', 'CCNL sconosciuto.');
+      return aggiornato
+        ? json(rapportoConFileInErrore(db, aggiornato))
+        : problema(400, 'Richiesta non valida', 'CCNL sconosciuto.');
     }
     if (metodo === 'GET' && (m = ROTTE.cedolino.exec(pathname))) {
       const cedolino = db.cedolini.get(Number(m[1]));
@@ -285,6 +428,47 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
         },
       });
     }
+    if (metodo === 'GET' && ROTTE.inErrore.test(pathname)) {
+      return json(elencoInErrore(db));
+    }
+    if (metodo === 'DELETE' && (m = ROTTE.fileInErrore.exec(pathname))) {
+      rimuovi(db, Number(m[1]));
+      return new Response(null, { status: 204 });
+    }
+    if (metodo === 'GET' && (m = ROTTE.pdfCaricamento.exec(pathname))) {
+      const id = Number(m[1]);
+      const caricamento = db.caricamenti.find((c) => c.id === id);
+      const contenuto = caricamento?.stato === 'ERRORE' ? db.pdfFile.get(chiaveFile(caricamento)) : undefined;
+      if (!caricamento || !contenuto) {
+        throw new RifiutoMock(404, `PDF conservato del caricamento inesistente (id ${id}).`);
+      }
+      return await pdf(contenuto, caricamento.nomeFileOriginale);
+    }
+    if (metodo === 'POST' && (m = ROTTE.rilettura.exec(pathname))) {
+      const { caricamento, chiave } = fileInErrore(db, Number(m[1]));
+      const contenuto = db.pdfFile.get(chiave);
+      if (!contenuto) {
+        throw new RifiutoMock(409, MESSAGGI_FILE_IN_ERRORE.pdfNonConservato);
+      }
+      const corpo = (await request.json()) as { password?: unknown };
+      const password =
+        typeof corpo.password === 'string' && corpo.password.length > 0 ? corpo.password : null;
+      const lotto = registraLotto([{ nome: caricamento.nomeFileOriginale, contenuto }], password);
+      return json(lotto, 202, { Location: `/api/v1/caricamenti/lotti/${lotto.lotto}` });
+    }
+    if (metodo === 'PUT' && (m = ROTTE.attribuzione.exec(pathname))) {
+      return json(associa(db, Number(m[1]), await request.json()));
+    }
+    if (metodo === 'DELETE' && (m = ROTTE.attribuzione.exec(pathname))) {
+      return json(rimuoviAssociazione(db, Number(m[1])));
+    }
+    if (metodo === 'POST' && (m = ROTTE.verificaManuale.exec(pathname))) {
+      return json(verificaManuale(db, Number(m[1]), await request.json()));
+    }
+    if (metodo === 'POST' && (m = ROTTE.inserimentoManuale.exec(pathname))) {
+      const caricamento = inserisciManuale(db, Number(m[1]), await request.json());
+      return json(caricamento, 201, { Location: `/api/v1/cedolini/${String(caricamento.cedolinoId)}` });
+    }
     if (metodo === 'POST' && ROTTE.caricamenti.test(pathname)) {
       const formData = await request.formData();
       const files = formData.getAll('files').filter((f): f is File => typeof f !== 'string');
@@ -292,38 +476,15 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
       if (files.length === 0) {
         return problema(400, 'Richiesta non valida', 'Nessun file ricevuto.');
       }
-      const adesso = new Date().toISOString();
-      const lotto: LottoMock = { id: crypto.randomUUID(), passi: 0, file: [] };
-      for (const file of files) {
-        const caricamento: Caricamento = {
-          id: prossimoIdCaricamento++,
-          lotto: lotto.id,
-          nomeFileOriginale: file.name,
-          dimensione: file.size,
-          stato: 'IN_CODA',
-          messaggio: null,
-          cedolinoId: null,
-          cedolinoEsistenteId: null,
-          personaId: null,
-          rapportoId: null,
-          creatoIl: adesso,
-          aggiornatoIl: adesso,
-        };
-        lotto.file.push({
-          caricamento,
-          esitoFinale: esitoPerNome(db, file.name, typeof password === 'string' ? password : null),
-        });
-        storico.unshift(caricamento);
-      }
-      lotti.set(lotto.id, lotto);
-      return json(
-        { lotto: lotto.id, completato: false, caricamenti: lotto.file.map((f) => ({ ...f.caricamento })) },
-        202,
+      const lotto = registraLotto(
+        files.map((f) => ({ nome: f.name, contenuto: f })),
+        typeof password === 'string' ? password : null,
       );
+      return json(lotto, 202);
     }
     if (metodo === 'GET' && ROTTE.caricamenti.test(pathname)) {
       const limite = Number(searchParams.get('limite') ?? '50');
-      return json(storico.slice(0, limite).map((c) => ({ ...c })));
+      return json(db.caricamenti.slice(0, limite).map((c) => ({ ...c })));
     }
     if (metodo === 'GET' && (m = ROTTE.lotto.exec(pathname))) {
       const lotto = lotti.get(m[1] ?? '');

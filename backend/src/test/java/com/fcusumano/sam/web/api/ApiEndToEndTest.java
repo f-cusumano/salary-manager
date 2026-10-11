@@ -106,6 +106,12 @@ class ApiEndToEndTest {
         assertThat(rapporti.<Object>leggi("$[0].periodo.a")).isNull();
         int betaId = rapporti.leggi("$[0].id");
         int alfaId = rapporti.leggi("$[1].id");
+        // aziende da scegliere nell'inserimento a mano: ordinate per ragione sociale, nessun omonimo
+        var aziende = get("/api/v1/aziende");
+        assertThat(aziende.<List<String>>leggi("$[*].etichetta"))
+                .containsExactly("Alfa Software S.r.l.", "Beta Consulting S.p.A.");
+        assertThat(aziende.<List<Integer>>leggi("$[*].id"))
+                .containsExactly(rapporti.<Integer>leggi("$[1].azienda.id"), rapporti.<Integer>leggi("$[0].azienda.id"));
 
         // Dettaglio del rapporto concluso: lista unica in ordine cronologico inverso, mensilita' mancante, niente ratei
         var alfa = get("/api/v1/rapporti/" + alfaId);

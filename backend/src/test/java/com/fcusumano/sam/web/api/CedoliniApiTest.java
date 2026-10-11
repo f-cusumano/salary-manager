@@ -67,6 +67,7 @@ class CedoliniApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.nomeFile").value("2024.01_3_1.pdf"))
                 .andExpect(jsonPath("$.acquisitoIl").value("2025-03-10T09:30:00Z"))
                 .andExpect(jsonPath("$.confidenza").value(0.95))
+                .andExpect(jsonPath("$.inseritoAMano").value(false))
                 .andExpect(jsonPath("$.campiNonTrovati[0]").value("codiceDipendente"))
                 .andExpect(jsonPath("$.avvisiEstrazione[0]").value("Partita IVA dell'azienda formalmente non valida"))
                 .andExpect(jsonPath("$.inquadramento.ccnlTesto").value("CCNL Commercio"))
@@ -231,7 +232,7 @@ class CedoliniApiTest extends ApiWebMvcTest {
                         new BigDecimal("160.00000")),
                 false, false,
                 new ProgressiviAnnui(new BigDecimal("2400.00000"), null, null));
-        return new CedolinoDettaglio(dati, "2024.01_3_1.pdf", DatiDiProva.ISTANTE, new BigDecimal("0.95"),
+        return new CedolinoDettaglio(dati, "2024.01_3_1.pdf", DatiDiProva.ISTANTE, new BigDecimal("0.95"), false,
                 List.of("codiceDipendente"), List.of("Partita IVA dell'azienda formalmente non valida"));
     }
 }

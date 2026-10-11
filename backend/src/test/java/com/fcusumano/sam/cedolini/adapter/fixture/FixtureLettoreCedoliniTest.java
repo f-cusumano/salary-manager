@@ -115,7 +115,7 @@ class FixtureLettoreCedoliniTest {
     void leFixtureDiTestCopronoIDocumentiNonValidiEIncoerenti() throws IOException {
         assertThatThrownBy(() -> lettore.estrai(pdf("test-due-cedolini")))
                 .isInstanceOfSatisfying(EstrazioneCedolinoException.class, e -> {
-                    assertThat(e.motivo()).isEqualTo(Motivo.DOCUMENTO_NON_VALIDO);
+                    assertThat(e.motivo()).isEqualTo(Motivo.PIU_CEDOLINI);
                     assertThat(e.getMessage()).contains("2 cedolini");
                 });
         assertThatThrownBy(() -> lettore.estrai(pdf("test-non-cedolino")))

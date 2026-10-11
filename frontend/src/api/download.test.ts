@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { creaApiClient } from './client';
-import { nomeDaContentDisposition, scaricaPdfCedolino } from './download';
+import {
+  leggiPdfCaricamento,
+  nomeDaContentDisposition,
+  scaricaPdfCaricamento,
+  scaricaPdfCedolino,
+} from './download';
 import { ApiError, messaggioErrore } from './errors';
 
 describe('nomeDaContentDisposition', () => {
@@ -77,5 +82,82 @@ describe('scaricaPdfCedolino', () => {
     await scaricaPdfCedolino(api, 21, '2024.TFR02_1_1.pdf');
 
     expect(nomi).toEqual(['2024.TFR01_1_1.pdf']);
+  });
+});
+
+describe('PDF di un file in errore', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function apiPdf(intestazioni: Record<string, string>, percorsi: string[] = []) {
+    return creaApiClient((request) => {
+      percorsi.push(new URL(request.url).pathname);
+      return Promise.resolve(new Response('%PDF-1.4', { status: 200, headers: intestazioni }));
+    });
+  }
+
+  it('legge contenuto e nome originale per l’anteprima', async () => {
+    const percorsi: string[] = [];
+    const api = apiPdf(
+      {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="busta_.pdf"; filename*=UTF-8''busta%E2%80%93maggio.pdf`,
+      },
+      percorsi,
+    );
+
+    const pdf = await leggiPdfCaricamento(api, 7);
+
+    expect(percorsi).toEqual(['/api/v1/caricamenti/7/pdf']);
+    expect(pdf.nome).toBe('busta–maggio.pdf');
+    expect(pdf.contenuto.type).toBe('application/pdf');
+    expect(await pdf.contenuto.text()).toBe('%PDF-1.4');
+  });
+
+  it('riporta il motivo quando il PDF non è conservato', async () => {
+    const api = creaApiClient(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ title: 'Risorsa non trovata', status: 404, detail: 'PDF non conservato.' }),
+          {
+            status: 404,
+            headers: { 'Content-Type': 'application/problem+json' },
+          },
+        ),
+      ),
+    );
+
+    const errore: unknown = await leggiPdfCaricamento(api, 7).catch((e: unknown) => e);
+
+    expect((errore as ApiError).status).toBe(404);
+    expect(messaggioErrore(errore)).toBe('PDF non conservato.');
+  });
+
+  it('scarica il PDF con il nome originale o, se manca, con quello di riserva', async () => {
+    const nomi: string[] = [];
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static override createObjectURL = vi.fn(() => 'blob:caricamento');
+        static override revokeObjectURL = vi.fn();
+      },
+    );
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      nomi.push(this.download);
+    });
+
+    await scaricaPdfCaricamento(
+      apiPdf({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'attachment; filename="scansione.pdf"',
+      }),
+      3,
+      'riserva.pdf',
+    );
+    await scaricaPdfCaricamento(apiPdf({ 'Content-Type': 'application/pdf' }), 3, 'riserva.pdf');
+
+    expect(nomi).toEqual(['scansione.pdf', 'riserva.pdf']);
   });
 });

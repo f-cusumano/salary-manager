@@ -259,7 +259,8 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     senza password, poi la password del lotto, le password di `salary-manager.pdf.password-candidate` (solo da
     variabile d'ambiente `SAM_PDF_PASSWORD_CANDIDATE`) e infine i codici fiscali delle persone censite in maiuscolo e
     minuscolo (letti solo se servono). Nessuna valida => `PdfNonLeggibileException` (`DOCUMENTO_NON_VALIDO`,
-    causa `PROTETTO_DA_PASSWORD`) con messaggio "PDF protetto da password: indica la password e ricarica". A Claude va
+    causa `PROTETTO_DA_PASSWORD`) con messaggio "PDF protetto da password: riprova indicando la password" (era
+    "indica la password e ricarica": con il PDF conservato si riprova senza ricaricare, decisione 148). A Claude va
     la copia decifrata (`setAllSecurityToBeRemoved`); a DB e per l'hash si usa l'originale. Le password non sono mai
     salvate ne' loggate. PDFBox e' ammesso solo negli adapter `pdf` e `fixture` (regola ArchUnit).
 68. **Limiti dei PDF**: intestazione `%PDF-` nei primi 1024 byte, almeno una pagina, al massimo
@@ -348,7 +349,9 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     lotto; si rilanciano solo gli altri `VirtualMachineError`.
 82. **Riavvio**: i caricamenti IN_CODA/IN_LETTURA vanno in ERRORE ("Elaborazione interrotta dal riavvio
     dell'applicazione: ricarica il file") in `SmartInitializingSingleton`, cioe' prima che il server web accetti
-    richieste. Alla chiusura l'executor viene fermato (attesa massima 30 secondi).
+    richieste, con il motivo `INTERROTTO` (decisione 143; i file gia' archiviati diventano DUPLICATO e quelli con il
+    PDF conservato hanno un messaggio che propone nuova lettura e inserimento a mano). Alla chiusura l'executor viene
+    fermato (attesa massima 30 secondi).
 83. **Campi non trovati e avvisi dell'estrazione** salvati in `cedolino.campi_non_trovati` e
     `cedolino.avvisi_estrazione` (changelog `320`), separati da a capo e troncati a riga intera entro 4000 caratteri;
     esposti nel dettaglio del cedolino (`campiNonTrovati`, `avvisiEstrazione`).
@@ -677,7 +680,7 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        riconosciuto senza periodo, codice fiscale del dipendente o netto nel testo (`LAYOUT_NON_RICONOSCIUTO`) vanno
        in errore con un messaggio in italiano che suggerisce `SAM_LETTORE=claude`; i campi non trovati restano vuoti
        (mai dedotti). I due motivi sono nuovi valori interni di `EstrazioneCedolinoException.Motivo`, non esposti
-       dalle API (il caricamento riporta solo il messaggio).
+       dalle API (il caricamento riporta solo il messaggio; superato dalla decisione 141, che espone `MotivoErrore`).
      - **Confidenza onesta**: base 0,95, ridotta per ogni sezione attesa e non trovata, ogni controllo interno non
        superato (somma delle voci contro i totali stampati, TFR spettante contro fondo piu' quota) e ogni campo
        chiave assente; i controlli non superati diventano avvisi senza valori.
@@ -694,3 +697,271 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        cedolino letto non e' coerente. `SAM_SAMPLES_DIR` accetta piu' cartelle (separatore di percorso del sistema).
      - **Frontend**: i testi che citavano Claude per la lettura parlano del lettore in generale ("Lettura del cedolino
        in corso").
+
+## Cedolini caricati con errore e inserimento a mano
+
+140. **[utente] Mensilita' mancanti e cedolini caricati con errore sono cose diverse**: una mensilita' *mancante* non
+     ha ne' cedolino ne' file associato; un *cedolino caricato con errore* e' un file (workspace + hash SHA-256: stesso
+     contenuto = stesso file) il cui ultimo tentativo concluso e' in ERRORE e che nessun cedolino archiviato ha.
+     - **Area globale** "Cedolini caricati con errore" (`GET /api/v1/caricamenti/in-errore`): rossa, in cima alla
+       pagina anche senza una persona selezionata, ben distinta dall'arancione di "Mensilità mancante", con il
+       contatore nella barra superiore.
+     - **Associazione a un mese** ("Associa a un mese", solo per scelta dell'utente): la mensilita' diventa una riga
+       `IN_ERRORE` (rossa, con "Inserisci a mano") e la segnalazione `CEDOLINO_IN_ERRORE` (AVVISO) prende il posto di
+       "Mensilità mancante" (ANOMALIA). Il file non viene mai associato automaticamente: i file che falliscono non
+       hanno dati leggibili e indovinare il mese violerebbe la decisione 34.
+     - **Lista mensilita'**: per la stessa competenza PRESENTE prevale su IN_ERRORE e IN_ERRORE su MANCANTE; una riga
+       IN_ERRORE puo' cadere fuori dal periodo atteso (per esempio prima del primo cedolino).
+141. **Motivo dell'errore salvato ed esposto**: colonna `caricamento.motivo` (changelog `330`; un CHECK la ammette
+     solo in ERRORE) con l'enum pubblico `cedolini.MotivoErrore`, esposto in `Caricamento.motivo`,
+     `CaricamentoInErrore.motivo` e `RigaMensilita.motivoErrore`, perche' le azioni offerte dipendono dal motivo
+     (password, nuova lettura, inserimento a mano, "dividi il PDF"). Le eccezioni interne si traducono in
+     `MotiviErrore` con `switch` esaustivi (un nuovo motivo interno non compila senza la sua traduzione); un PDF con
+     piu' cedolini ha ora il motivo interno `PIU_CEDOLINI` invece di `DOCUMENTO_NON_VALIDO`. Supera l'ultimo punto
+     della decisione 139 ("non esposti dalle API"). Gli errori registrati prima non vengono ricostruiti dai testi dei
+     messaggi (confronto fragile): restano con motivo `null`, senza PDF e con il loro messaggio, e vanno ricaricati.
+142. **[utente] PDF originale dei file in errore completabili conservato** in `caricamento_pdf` (changelog `331`),
+     uno per file (chiave workspace + hash), come caricato (anche se protetto): serve per l'anteprima, l'inserimento
+     a mano e la nuova lettura.
+     - **Quando**: solo quando un tentativo finisce in ERRORE con un motivo che lo prevede
+       (`MotivoErrore.conservaPdf()`: tutti tranne `PDF_NON_VALIDO`, `PDF_TROPPE_PAGINE` e `PIU_CEDOLINI`) e il file
+       non e' archiviato. Non alla registrazione: dati personali a riposo solo quando servono e nessuna doppia
+       scrittura per i file che si leggono.
+     - **Fino a quando**: si elimina nella stessa transazione che risolve il file: archiviato come cedolino (lettura
+       o inserimento a mano), scartato (DUPLICATO, AGGIUNTIVO_NON_GESTITO), chiuso con un motivo che non lo prevede,
+       rimosso dall'utente. Al riavvio si eliminano quelli dei file non piu' in errore (rete di sicurezza).
+     - **Limite accettato**: un riavvio durante la *prima* elaborazione lascia il file in errore (`INTERROTTO`)
+       senza PDF ("...: ricarica il file"); un riavvio durante una nuova lettura non perde nulla, perche' il PDF e'
+       del file e non del tentativo, e il messaggio lo dice ("...: riprova la lettura o inserisci i dati a mano").
+       Un'elaborazione interrotta senza riavvio ha i byte in memoria e conserva il PDF, con lo stesso messaggio.
+       Quello che conta per le azioni e per i testi e' la presenza del PDF (`pdfDisponibile`), non il solo motivo.
+143. **"File in errore" calcolato, non salvato**: nessun nuovo stato del caricamento.
+     - **Predicato unico** (`JooqCaricamentiRepository`, condizione `fileInErrore`): esiste un tentativo ERRORE del
+       file senza tentativi successivi conclusi e nessun cedolino ha quell'hash; la riga elencata e' l'ultimo
+       tentativo concluso. `inElaborazione` (un tentativo IN_CODA o IN_LETTURA dello stesso file) tiene visibile la
+       riga durante una nuova lettura e blocca le azioni (409).
+     - **Scritture serializzate**: tutto cio' che decide la sorte di un file passa dalla transazione serializzata per
+       workspace (decisione 73) e ricontrolla il predicato: gli esiti conclusivi diversi da ACQUISITO
+       (`ChiusuraCaricamento`), l'acquisizione e le azioni dell'utente. Se la transazione di chiusura fallisce, un
+       aggiornamento semplice registra comunque lo stato: un caricamento non resta mai IN_LETTURA. La chiusura di un
+       errore di lettura avviene dopo aver rilasciato il permesso di lettura, che non resta occupato in attesa del
+       lock.
+     - **Chiusura di un ERRORE**: dopo averlo registrato ricontrolla il predicato sul file, non solo l'assenza del
+       cedolino: se un tentativo successivo dello stesso file si e' gia' concluso (per esempio scartato come
+       DUPLICATO) il file non e' piu' in errore e PDF e associazione si eliminano invece di conservarli.
+     - **Tentativi gemelli**: archiviando un file (lettura o inserimento a mano) i suoi tentativi in ERRORE
+       successivi (per id: lo stesso PDF due volte nello stesso lotto) diventano DUPLICATO del cedolino archiviato;
+       altrimenti, eliminato il cedolino, il file tornerebbe "in errore" senza PDF.
+     - **Ordine nell'acquisizione**: caricamento ACQUISITO, eliminazione di PDF conservato e associazione, poi
+       `CedolinoAcquisito`: i listener sincroni vedono gia' uno stato coerente.
+     - **Modifica la decisione 82**: al riavvio i caricamenti non conclusi di un file gia' archiviato diventano
+       DUPLICATO (la loro elaborazione li avrebbe scartati); gli altri ricevono il motivo `INTERROTTO` e un messaggio
+       che dipende dalla presenza del PDF conservato; poi si eliminano PDF conservati e associazioni dei file non piu'
+       in errore e si ricalcolano le segnalazioni dei rapporti associati ai file coinvolti.
+144. **Associazione a una mensilita'** in `caricamento_attribuzione` (changelog `332`): una per file (chiave
+     workspace + hash, non per tentativo: nessuna eredita' tra tentativi) e una per competenza (UNIQUE rapporto + anno
+     + mese 1..14), FK verso `rapporto_lavoro` con `ON DELETE CASCADE`, come `riepilogo_rapporto` e `segnalazione`:
+     eliminato il rapporto, l'associazione sparisce senza codice applicativo.
+     - Rifiutata (409) se la mensilita' ha gia' un cedolino o un altro file associato; il file si sposta liberamente.
+     - Ogni modifica (associazione creata, spostata o rimossa; file archiviato in un altro rapporto, scartato o
+       rimosso; nuovo tentativo del file associato concluso in ERRORE, che puo' cambiare motivo e PDF disponibile;
+       riavvio che interrompe un tentativo del file associato) pubblica `cedolini.CaricamentiInErroreModificati`,
+       ascoltato solo da segnalazioni: i dati dei cedolini, e quindi i calcoli, non cambiano. La segnalazione
+       riporta motivo e azioni possibili e non deve mai restare indietro.
+     - **Testo della segnalazione** `CEDOLINO_IN_ERRORE`: con il PDF conservato propone l'inserimento a mano
+       dall'elenco o una nuova lettura; senza (motivi che non lo conservano, errori delle versioni precedenti, prima
+       elaborazione interrotta dal riavvio) propone solo un nuovo caricamento: "caricane una copia valida" per un
+       file danneggiato, "dividi il PDF in un file per cedolino" per troppe pagine o piu' cedolini, altrimenti "il PDF
+       non e' stato conservato, caricalo di nuovo". Il contesto delle regole riceve per ogni mensilita' motivo e
+       presenza del PDF (`ContestoRapporto.FileInErrore`). Precisa il testo fisso della specifica, che non
+       considerava i file senza PDF.
+     - **Modifica le decisioni 35, 96, 99 e 100**: le mensilita' con un file associato non sono mancanti (le tre regole
+       "mancante" le ignorano tramite `ContestoRapporto.mensilitaInErrore`) e hanno la loro segnalazione
+       `CEDOLINO_IN_ERRORE` con la competenza; la riga IN_ERRORE della lista mensilita' viene dal modulo cedolini, non
+       dalle segnalazioni.
+     - **Modifica la decisione 124**: la tabella `caricamento` resta senza riferimenti all'anagrafica; il solo legame
+       salvato tra un file in errore e un rapporto e' l'associazione scelta dall'utente, mentre `personaId` e
+       `rapportoId` dei caricamenti restano derivati dal cedolino.
+145. **[utente] L'inserimento a mano e' un lettore in piu'**: il modulo, con gli stessi campi e percorsi dello schema
+     `prompts/cedolino-schema-v1.json` (`CedolinoManuale`), diventa il JSON dello schema (`JsonCedolinoManuale`) e
+     passa da `InterpreteRispostaEstrazione` e `AcquisizioneCedolino` come una lettura: normalizzazione, mascheramento
+     degli IBAN, controlli di coerenza, censimento, competenza, duplicati, riclassificazione, ricalcoli e stato
+     ACQUISITO senza logica duplicata.
+     - Si archivia il PDF originale conservato con il suo hash: un nuovo caricamento dello stesso file e' DUPLICATO.
+     - Modello registrato `inserimento-manuale-1` (`ModelliEstrazione`), confidenza `null` (non c'e' una lettura),
+       nessun campo non trovato (un campo vuoto e' un dato "non stampato"); il dettaglio del cedolino espone
+       `inseritoAMano`, mostrato al posto dell'affidabilita' della lettura. Il JSON salvato resta come traccia di
+       quanto inserito.
+     - Una persona gia' censita non viene modificata: nome e cognome in archivio restano (superato dalla decisione
+       150: la persona in archivio si sceglie dall'elenco e i suoi dati non si riscrivono).
+146. **Verifica = acquisizione annullata**: `POST /api/v1/caricamenti/{id}/cedolino/verifica` esegue la stessa
+     acquisizione dell'inserimento nella transazione serializzata e la annulla sempre (`setRollbackOnly`): competenza
+     definitiva, scarto per duplicato o aggiuntivo, persona e rapporto nuovi sono quelli veri, senza una seconda
+     implementazione. E' sicuro perche' tutti i listener sono `@EventListener` sincroni nella stessa transazione e non
+     c'e' event publication registry (decisione 33): l'annullamento non lascia tracce, nemmeno in riepiloghi e
+     segnalazioni. In prova non si scrive la riga di log dell'acquisizione; l'anagrafica puo' registrare a INFO l'id
+     di una persona poi annullata (accettato: e' solo un id). Un inserimento scartato annulla la transazione allo
+     stesso modo: 409 e il file resta in errore con il suo PDF.
+147. **Errori bloccanti e avvisi dell'inserimento a mano** (`ValidazioneCedolinoManuale`):
+     - **Bloccanti** (400 con `Problema.errori[{campo, messaggio}]`, `campo` = percorso nello schema come
+       `totali.netto` o `voci[3].descrizione`): i dati che servono all'archiviazione e al confronto dei duplicati o
+       che l'interprete scarterebbe in silenzio. Tipo, anno (dal 1900 all'anno prossimo) e mese 1..12 del periodo;
+       codice fiscale, nome e cognome del dipendente; ragione sociale, partita IVA e codice fiscale dell'azienda;
+       totale competenze, totale trattenute e netto; limiti di importi e quantita' (meno di 10^8 in valore assoluto,
+       cioe' al massimo 8 cifre intere, e 5 decimali) e lunghezze dei testi; descrizione e categoria delle voci;
+       ratei univoci per tipo e unita'. Un errore per campo.
+     - **Limite degli importi piu' stretto delle colonne**: `NUMERIC(15,5)` ammette 10 cifre intere, ma
+       l'acquisizione calcola e salva nella stessa transazione dati derivati (RAL = lordo per mensilita', TFR,
+       valore dei ratei = saldo per paga oraria) che con valori di 9-10 cifre uscirebbero dalle colonne; un valore
+       cosi' grande e' quasi sempre un codice incollato nel campo sbagliato. Se un dato calcolato non sta comunque
+       nella colonna (errore SQL di classe 22) verifica e inserimento rispondono 400 con un errore generale ("Alcuni
+       importi o quantità sono troppo grandi: controlla i valori inseriti"), mai 500, e il file resta in errore.
+     - **Testi liberi**: spazi Unicode (anche lo spazio non separabile delle pagine web) resi come spazi semplici e
+       caratteri invisibili tolti prima del mascheramento degli IBAN, che riconosce anche gruppi separati da
+       trattini o punti.
+     - **Codice fiscale del dipendente**: valido, di 11 cifre (provvisorio, con un avviso) oppure uguale a quello di
+       una persona censita; altrimenti errore, perche' il censimento accetta qualunque codice e un refuso creerebbe
+       una persona fantasma. Superato dalle decisioni 151 e 152: con la persona scelta il codice fiscale e' quello in
+       archivio e non si valida, con "Crea nuovo" un codice fiscale censito e' un errore.
+     - **Avvisi** non bloccanti salvati con il cedolino: quelli del validatore comune, le somme delle voci contro i
+       totali stampati (stessa regola e tolleranza del lettore locale) e il codice fiscale provvisorio; la sola
+       verifica aggiunge gli avvisi di contesto (persona o rapporto nuovi, nome diverso da quello in archivio, mese
+       diverso da quello associato; rivisti dalla decisione 155).
+     - I messaggi non ripetono mai i valori inseriti. Il frontend rispecchia le regole, ma l'autorita' e' il server;
+       gli errori campo per campo viaggiano con `shared.DatiNonValidiException`.
+148. **Nuova lettura e rimozione**:
+     - `POST /api/v1/caricamenti/{id}/rilettura` registra un nuovo caricamento dello stesso file (stesso nome e hash)
+       in un nuovo lotto di un solo file e lo elabora dal PDF conservato, con la password facoltativa solo in memoria
+       (mai salvata, mai nei log, nascosta nel `toString` del DTO): e' la via per i PDF protetti senza ricaricarli. Un
+       lotto di un solo file non ha la riprova a fine lotto (decisione 125).
+     - `DELETE /api/v1/caricamenti/{id}` elimina tutti i tentativi in ERRORE del file, il PDF conservato e
+       l'associazione (privacy prima di tutto, nessuno stato in piu'); i tentativi con altri esiti restano.
+149. **Frontend dei file in errore e dell'inserimento a mano**:
+     - **Stato del modulo** con `@mantine/form` 9.7.1 (versione esatta, la stessa di Mantine): percorsi uguali a
+       quelli dello schema, cosi' un errore del server su `voci[3].descrizione` si posa sul campo `voci.3.descrizione`.
+     - **Importi all'italiana** (`CampoNumero`, su `NumberInput`): separatore decimale "," e delle migliaia ".", con
+       `allowedDecimalSeparators={[',']}` perche' con il default di Mantine "1.234,56" diventerebbe 1,23; anno e
+       numero di scatti interi e senza separatore delle migliaia.
+     - **Anteprima del PDF conservato** da un URL `blob:` (scaricato con fetch e revocato alla chiusura: non soggetto
+       a `X-Frame-Options`), con "Apri in una nuova scheda" per i telefoni, che non mostrano i PDF negli iframe.
+     - **Nessuna bozza salvata nel browser**: chiudere un modulo modificato chiede conferma.
+     - **Copia dei dati da un rapporto o da un cedolino esistente** fatta dal client con `GET /api/v1/rapporti/{id}`
+       e `GET /api/v1/cedolini/{id}` (nessuna API nuova), solo nei campi vuoti e mai per la data di cessazione, i
+       totali e le quantita' e gli importi delle voci (valori del singolo mese). Superato dalla decisione 154: la
+       copia avviene alla scelta di persona e azienda, con le stesse fonti e regole.
+     - **Voci e ratei copiati** da un cedolino sono modelli: finche' restano come copiati e senza quantita' ne'
+       importi (per i ratei senza valori del mese) non vengono inviati, validati ne' contati, e una nota offre di
+       toglierli; modificati diventano righe dell'utente.
+     - **Numeri**: le quantita' delle voci e i valori dei ratei accettano 5 decimali come lo schema; maturato e
+       goduto dei ratei possono essere negativi (rettifiche); gli importi delle voci si incollano senza segno (il
+       segno lo da' la categoria), mentre negli altri campi non negativi un valore negativo incollato e' rifiutato con
+       un messaggio. Stesso limite del server (8 cifre intere, 5 decimali); una data che il browser considera
+       incompleta (`validity.badInput`) o con l'anno di piu' di 4 cifre e' un errore, non un campo vuoto.
+     - **Errori sempre attuali**: gli errori di riga e quelli tra campi (cessazione prima dell'assunzione) spariscono
+       quando una modifica a un altro campo li risolve; l'esito della verifica e' annunciato ai lettori di schermo.
+     - **Elenco dei file sempre attuale**: un 404 o 409 sulle azioni di un file in errore (verifica, inserimento,
+       associazione, nuova lettura, rimozione) invalida l'elenco, che mostra subito lo stato vero; "Inserisci a mano"
+       aperto durante un caricamento in corso rilegge l'elenco prima di dire che il file non c'e' piu'.
+     - **Salvataggio** abilitato solo dopo una verifica dei valori correnti con esito `ACQUISIBILE`.
+     - **Nessun router**: le azioni sui file (inserisci, associa, rileggi, rimuovi) sono offerte a tutta la pagina da
+       un contesto React dell'`App`.
+150. **[utente] Persona e azienda dell'inserimento a mano si scelgono dall'elenco**: per evitare refusi che
+     creerebbero anagrafiche fantasma, la sezione Dipendente ha la tendina "Persona in archivio" ("Seleziona
+     persona/dipendente") con accanto "Crea nuovo", la sezione Datore di lavoro la tendina "Azienda in archivio"
+     ("Seleziona azienda") con accanto "Crea nuova".
+     - **Etichette anti-omonimia**: "Nome Cognome", con il codice fiscale solo per gli omonimi; per le aziende la
+       ragione sociale, con la partita IVA solo per le omonime (in mancanza il codice fiscale, poi la posizione INPS).
+     - **Dati anagrafici in sola lettura** con i valori in archivio: codice fiscale, cognome e nome della persona (la
+       data di nascita resta modificabile solo se in archivio manca: completa la persona, come gia' fa il
+       censimento); ragione sociale, partita IVA, codice fiscale e posizione INPS dell'azienda, anche se vuoti
+       (sono chiavi del censimento: un refuso che completa una P.IVA mancante dividerebbe poi l'azienda in due).
+       Matricola, posizione INAIL, indirizzo e codice azienda restano modificabili (attributi del singolo cedolino o
+       aggiornabili).
+     - **Ordine delle aziende**: con una persona scelta prima le sue aziende (stesso ordine dei suoi rapporti), poi
+       le altre per ragione sociale; nessuna scelta automatica dell'azienda quando la persona ha un solo rapporto (il
+       file puo' essere di un nuovo datore di lavoro).
+     - **Ricerca e ritorno all'elenco**: le tendine cercano anche il codice fiscale della persona e la partita IVA o
+       il codice fiscale dell'azienda (senza distinzione di maiuscole e accenti); dopo "Crea nuovo" i dati anagrafici
+       sono modificabili e "Scegli dall'elenco" riporta alla tendina senza cancellarli (nascosti, tornano tornando a
+       "Crea nuovo"): i dati anagrafici cambiano solo da o verso un'anagrafica in archivio. Le tendine sono
+       obbligatorie (asterisco e `aria-required`); cambiando scelta gli errori della scelta precedente e dei suoi dati
+       anagrafici (anche quelli del server) spariscono subito da campo, riepilogo e intestazione della sezione.
+     - **Modifica le decisioni** 145 (ultimo punto: con la persona scelta nome e cognome sono quelli in archivio, con
+       "Crea nuovo" un codice fiscale censito e' un errore), 147 (il codice fiscale non e' piu' accettato perche'
+       censito: vedi la decisione 152) e 149 (la "Copia dei dati" da un rapporto o da un cedolino diventa la
+       precompilazione alla scelta, decisione 154, e c'e' un'API nuova, decisione 153).
+151. **Anagrafiche scelte usate esattamente**: `CedolinoManuale` ha `personaId` e `aziendaId` (`null` = "Crea
+     nuovo"). Con un id il server usa proprio quell'anagrafica, qualunque cosa dicano le regole di riconoscimento:
+     - **Esistenza** controllata per prima (`AnagraficheScelte.risolvi`): un id non positivo o di un'anagrafica non
+       piu' nel workspace e' un 400 sul campo `personaId`/`aziendaId` ("La persona scelta non è più in archivio:
+       scegline un'altra o creane una nuova"), restituito da solo perche' senza l'anagrafica i dati non si possono
+       completare. Un id non positivo non diventa mai "Crea nuovo" in silenzio.
+     - **Dati anagrafici sovrascritti** con quelli in archivio (`AnagraficheScelte.conDatiInArchivio`) prima della
+       validazione: cio' che il client invia per quei campi non conta, e il JSON salvato con il cedolino riporta i
+       dati in archivio. Codice fiscale, nome e cognome della persona scelta, la sua data di nascita se in archivio
+       e i quattro identificativi dell'azienda scelta non vengono validati (sono gia' in archivio): il censimento dei
+       PDF salva la data di nascita come letta, e una data non plausibile (nel futuro, anno fuori intervallo) in sola
+       lettura bloccherebbe per sempre l'inserimento a mano per quella persona. La data inserita per una persona
+       scelta che in archivio non la ha (la completa) si valida come sempre.
+     - **Collegamento**: la persona si ritrova con il normale `trovaOCreaPersona` sul codice fiscale in archivio
+       (univoco nel workspace, `uk_persona_cf`); l'azienda con il nuovo `CensimentoAnagrafica.aggiornaAziendaScelta`,
+       che aggiorna proprio l'azienda scelta senza abbinamento (stessi aggiornamenti per recenza e identificativi
+       completati dell'azienda riconosciuta). Il rapporto risultante deve essere della coppia scelta, altrimenti
+       l'acquisizione si annulla (`IllegalStateException`, mai atteso).
+     - **Ricontrollo nella transazione serializzata** (`AcquisizioneCedolino.acquisisciManuale`, sotto lo stesso
+       lock per workspace dei caricamenti): esistenza delle scelte e regole della decisione 152 sui dati interpretati,
+       contro un caricamento in background che nel frattempo crea la stessa persona o azienda o un'eliminazione
+       dell'anagrafica scelta. Il riconoscimento dell'azienda (`ConsultazioneAnagrafica.aziendaRiconosciuta`) non
+       solleva eccezioni sui dati, cosi' non segna la transazione da annullare.
+     - **Perche' non la sola verifica a posteriori** (scelta confrontata con l'esito del riconoscimento): su archivi
+       con omonime risolte per "prima registrata", spareggi tra CF e P.IVA o righe scritte prima delle regole attuali
+       il riconoscimento puo' scegliere un'altra azienda e l'utente non potrebbe mai salvare. Il collegamento per id
+       non sbaglia azienda e lascia invariata la pipeline (registrazione, censimento, competenza, duplicati).
+     - Ordine dei controlli di verifica e inserimento: forma del corpo (400), esistenza delle scelte (400), campi
+       compresi i "già in archivio" (400), controlli sul file nella transazione (404/409), ricontrollo nella
+       transazione (400), acquisizione.
+152. **"Crea nuovo" non crea doppioni e non unisce in silenzio**: senza `personaId` un codice fiscale (normalizzato)
+     uguale a quello di una persona in archivio e' un 400 su `dipendente.codiceFiscale` ("Questo codice fiscale è già
+     in archivio: seleziona la persona dall'elenco"), prima del controllo di validita'. Senza `aziendaId`, se i dati
+     del datore non hanno altri errori e il censimento riconoscerebbe un'azienda in archivio, 400 sul campo che
+     determina l'abbinamento: `datoreLavoro.partitaIva` se la P.IVA inserita e' tra gli identificativi dell'azienda
+     trovata, altrimenti `datoreLavoro.codiceFiscale` (anche un CF numerico uguale a una P.IVA in archivio),
+     `datoreLavoro.posizioneInps` per la matricola INPS, `datoreLavoro.ragioneSociale` per la ragione sociale
+     normalizzata ("… è già in archivio: seleziona l'azienda dall'elenco").
+     - Le regole sono quelle del censimento: `ConsultazioneAnagrafica.aziendaRiconosciuta` e' una prova a vuoto di
+       `trovaOCreaAzienda` con `AbbinamentoAzienda`, senza una seconda implementazione del riconoscimento.
+     - Il client rispecchia solo codice fiscale della persona e P.IVA/codice fiscale dell'azienda (confronto
+       incrociato): matricola INPS e ragione sociale hanno normalizzazioni troppo ricche da replicare senza falsi
+       allarmi e compaiono dopo la verifica.
+     - Limite accettato: un'azienda davvero diversa che il censimento non distingue da una in archivio (stessa
+       ragione sociale normalizzata, nessun identificativo in contrasto) non si puo' creare a mano, come non si
+       creerebbe leggendo il PDF.
+153. **Elenco aziende ed etichette sull'intero workspace**: `GET /api/v1/aziende` (`AziendaSelezionabile`: dati
+     anagrafici, indirizzo, codice azienda ed etichetta) ordinato per ragione sociale senza distinzione tra maiuscole
+     e minuscole, poi per id; vuoto prima dei caricamenti. L'etichetta usa la stessa regola delle aziende di una
+     persona (`Etichette.aziende`) ma calcolata su tutte le aziende del workspace. Per le regole del censimento due
+     omonime differiscono sempre su almeno uno tra P.IVA, codice fiscale e posizione INPS, quindi le etichette sono
+     distinte; senza alcun identificativo (impossibile passando dal censimento) resta la sola ragione sociale.
+     `PersonaSintesi` ha in piu' `dataNascita` (additivo): l'elenco delle persone gia' caricato basta a precompilare,
+     senza un endpoint di dettaglio.
+154. **Precompilazione alla scelta**: i dati anagrafici vengono dall'archivio; gli attributi dell'azienda scelta
+     (indirizzo, codice azienda) e, con persona e azienda scelte e un rapporto tra loro, i dati del rapporto e del
+     cedolino di riferimento piu' vicino al periodo riempiono i campi successivi, solo se vuoti (prima fonte vince:
+     azienda, rapporto, cedolino). Cambiando una scelta i campi riempiti in automatico dalla scelta precedente si
+     svuotano e si riempiono di nuovo, quelli modificati dall'utente restano; il periodo (anche quello del mese
+     associato) non viene mai ricopiato. L'interruttore dei buoni pasto copiato resta acceso se numero, valore unitario
+     o importo hanno un valore dell'utente (altrimenti quei valori sparirebbero dal modulo e dalla richiesta). Aprendo
+     il modulo da un file associato a un mese persona e azienda sono gia' scelte. Il pannello "Copia dati da…" e'
+     eliminato: il suo compito lo fa la scelta.
+     - **Il riferimento segue il periodo**: indicando o cambiando il periodo dopo la scelta, il cedolino di
+       riferimento si rilegge; se cambia (o cambia il criterio "stesso anno" per residui dei ratei e fondo TFR) i dati
+       copiati si sostituiscono come al cambio di scelta. Il risultato non dipende dall'ordine di compilazione; senza
+       cambio del riferimento nulla si muove (anche digitando l'anno cifra per cifra).
+155. **Esito della verifica**: `VerificaCedolinoManuale` ha in piu' `nuovaAzienda` (`aziendaId` assente: il ricontrollo
+     garantisce che nessuna azienda in archivio venga riconosciuta) e il pannello mostra dipendente, azienda e rapporto
+     presenti o nuovi. Avvisi di contesto, in quest'ordine: periodo diverso dal mese associato; "Persona o azienda
+     diverse da quelle del mese associato al file (…)" quando il cedolino andrebbe a un rapporto diverso da quello del
+     mese associato; nuova persona; "Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice
+     fiscale"; "Verrà creato un nuovo rapporto di lavoro: la persona scelta non ha ancora cedolini con l'azienda
+     scelta" solo quando persona e azienda sono gia' in archivio. Eliminato l'avviso sul nome diverso da quello in
+     archivio, che non puo' piu' presentarsi.

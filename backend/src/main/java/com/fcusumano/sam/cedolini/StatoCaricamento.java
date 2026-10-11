@@ -12,7 +12,7 @@ public enum StatoCaricamento {
     DUPLICATO,
     /** Stessa competenza di un cedolino presente ma contenuto diverso (es. aggiuntivo premi/arretrati): scartato. */
     AGGIUNTIVO_NON_GESTITO,
-    /** Errore (estrazione fallita, PDF con piu' cedolini, dati obbligatori mancanti, ...): vedi messaggio. */
+    /** Errore (estrazione fallita, PDF con piu' cedolini, dati obbligatori mancanti, ...): vedi messaggio e motivo. */
     ERRORE;
 
     public boolean terminale() {

@@ -1,7 +1,9 @@
 package com.fcusumano.sam.cedolini.application;
 
+import com.fcusumano.sam.cedolini.CaricamentiInErroreModificati;
 import com.fcusumano.sam.cedolini.CedolinoAcquisito;
 import com.fcusumano.sam.cedolini.CedolinoEliminato;
+import com.fcusumano.sam.cedolini.application.estrazione.EstrazioneCedolinoException;
 import com.fcusumano.sam.cedolini.application.estrazione.LettoreCedolini;
 import com.fcusumano.sam.cedolini.application.estrazione.InterpreteRispostaEstrazione;
 import java.io.ByteArrayOutputStream;
@@ -60,13 +62,15 @@ final class SupportoCaricamenti {
 
     /**
      * Lettore che, per i nomi file registrati, interpreta un JSON di variante (passando dalla stessa validazione
-     * delle risposte del modello); per gli altri delega all'lettoreCedolini a fixture. Conta le estrazioni per nome file.
+     * delle risposte del modello) o lancia l'errore di lettura registrato; per gli altri delega all'lettoreCedolini a
+     * fixture. Per un nome file vale l'ultima registrazione. Conta le estrazioni per nome file.
      */
     static final class LettoreProgrammabile implements LettoreCedolini {
 
         private final LettoreCedolini fixture;
         private final InterpreteRispostaEstrazione interprete;
         private final Map<String, String> varianti = new ConcurrentHashMap<>();
+        private final Map<String, EstrazioneCedolinoException> errori = new ConcurrentHashMap<>();
         private final Map<String, AtomicInteger> estrazioni = new ConcurrentHashMap<>();
         private final Map<String, Duration> ritardi = new ConcurrentHashMap<>();
 
@@ -91,6 +95,10 @@ final class SupportoCaricamenti {
                     Thread.currentThread().interrupt();
                 }
             }
+            var errore = errori.get(nomeFileOriginale);
+            if (errore != null) {
+                throw errore;
+            }
             var variante = varianti.get(nomeFileOriginale);
             return variante != null ? interprete.interpreta(variante, "test") : fixture.estrai(pdf, nomeFileOriginale);
         }
@@ -99,7 +107,14 @@ final class SupportoCaricamenti {
         void registraVariante(String nomeFile, String fixtureBase, Consumer<ObjectNode> correttore) {
             var radice = (ObjectNode) JSON.readTree(testoRisorsa("/fixtures/cedolini/" + fixtureBase + ".json"));
             correttore.accept(radice);
+            errori.remove(nomeFile);
             varianti.put(nomeFile, JSON.writeValueAsString(radice));
+        }
+
+        /** Registra per il nome file un errore di lettura (es. scansione senza testo, layout non riconosciuto). */
+        void registraErrore(String nomeFile, EstrazioneCedolinoException errore) {
+            varianti.remove(nomeFile);
+            errori.put(nomeFile, errore);
         }
 
         /** Rallenta l'estrazione del file indicato (simula la durata di una lettura reale). */
@@ -114,6 +129,7 @@ final class SupportoCaricamenti {
 
         void azzera() {
             varianti.clear();
+            errori.clear();
             estrazioni.clear();
             ritardi.clear();
         }
@@ -124,6 +140,7 @@ final class SupportoCaricamenti {
 
         final List<CedolinoAcquisito> acquisiti = new CopyOnWriteArrayList<>();
         final List<CedolinoEliminato> eliminati = new CopyOnWriteArrayList<>();
+        final List<CaricamentiInErroreModificati> modificatiInErrore = new CopyOnWriteArrayList<>();
 
         @EventListener
         void on(CedolinoAcquisito evento) {
@@ -135,9 +152,15 @@ final class SupportoCaricamenti {
             eliminati.add(evento);
         }
 
+        @EventListener
+        void on(CaricamentiInErroreModificati evento) {
+            modificatiInErrore.add(evento);
+        }
+
         void azzera() {
             acquisiti.clear();
             eliminati.clear();
+            modificatiInErrore.clear();
         }
     }
 

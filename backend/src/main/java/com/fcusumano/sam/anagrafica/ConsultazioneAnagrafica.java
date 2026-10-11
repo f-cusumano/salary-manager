@@ -11,6 +11,20 @@ public interface ConsultazioneAnagrafica {
     /** Persone del workspace ordinate per cognome e nome, con etichetta anti-omonimia. */
     List<PersonaSintesi> elencoPersone();
 
+    /**
+     * Aziende del workspace ordinate per ragione sociale (senza distinzione tra maiuscole e minuscole), poi per id,
+     * con l'etichetta anti-omonimia calcolata su tutte le aziende del workspace.
+     */
+    List<AziendaSelezionabile> elencoAziende();
+
+    /**
+     * Prova a vuoto del riconoscimento di {@link CensimentoAnagrafica#trovaOCreaAzienda}: l'azienda gia' censita a cui
+     * verrebbero abbinati i dati, con il dato che determina l'abbinamento; vuoto se verrebbe creata una nuova azienda
+     * o se manca la ragione sociale (il censimento rifiuterebbe i dati). Non scrive nulla e non solleva eccezioni sui
+     * dati, cosi' si puo' usare anche dentro una transazione da non annullare.
+     */
+    Optional<AziendaRiconosciuta> aziendaRiconosciuta(DatiAzienda dati);
+
     Optional<Persona> trovaPersona(PersonaId id);
 
     Optional<Azienda> trovaAzienda(AziendaId id);

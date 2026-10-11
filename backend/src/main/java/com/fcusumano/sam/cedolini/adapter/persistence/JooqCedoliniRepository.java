@@ -26,6 +26,7 @@ import com.fcusumano.sam.cedolini.Rateo;
 import com.fcusumano.sam.cedolini.TipoRateo;
 import com.fcusumano.sam.cedolini.Voce;
 import com.fcusumano.sam.cedolini.application.CedoliniRepository;
+import com.fcusumano.sam.cedolini.application.ModelliEstrazione;
 import com.fcusumano.sam.cedolini.domain.ClassificazioneRapporto;
 import com.fcusumano.sam.cedolini.domain.ConfrontoCedolini.ImportiChiave;
 import com.fcusumano.sam.cedolini.domain.EstremiCedolini.PeriodoCedolino;
@@ -358,6 +359,7 @@ class JooqCedoliniRepository implements CedoliniRepository {
                         r.getNomeFile(),
                         r.getAcquisitoIl(),
                         r.getConfidenza(),
+                        ModelliEstrazione.inseritoAMano(r.getModelloEstrazione()),
                         righe(r.getCampiNonTrovati()),
                         righe(r.getAvvisiEstrazione())));
     }

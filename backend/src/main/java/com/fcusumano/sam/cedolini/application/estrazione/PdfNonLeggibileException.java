@@ -8,7 +8,7 @@ package com.fcusumano.sam.cedolini.application.estrazione;
 public class PdfNonLeggibileException extends EstrazioneCedolinoException {
 
     /** Messaggio mostrato quando nessuna password candidata apre il PDF. */
-    public static final String MESSAGGIO_PASSWORD = "PDF protetto da password: indica la password e ricarica";
+    public static final String MESSAGGIO_PASSWORD = "PDF protetto da password: riprova indicando la password";
 
     /** Causa specifica. */
     public enum Causa {

@@ -61,7 +61,8 @@ public final class InterpreteRispostaEstrazione {
      * @param json    testo JSON restituito dal lettore dei cedolini
      * @param modello identificativo del lettore (modello Claude, "lettore-locale-1/<layout>", "fixture")
      * @throws EstrazioneCedolinoException OUTPUT_NON_VALIDO se il JSON non e' valido o non conforme allo schema,
-     *                                     DOCUMENTO_NON_VALIDO se il documento non e' un cedolino o ne contiene piu' di uno
+     *                                     DOCUMENTO_NON_VALIDO se il documento non e' un cedolino, PIU_CEDOLINI se ne
+     *                                     contiene piu' di uno
      */
     public RisultatoEstrazione interpreta(String json, String modello) {
         JsonNode radice;
@@ -103,7 +104,7 @@ public final class InterpreteRispostaEstrazione {
                     "Il documento non sembra un cedolino paga");
         }
         if (numero > 1) {
-            throw new EstrazioneCedolinoException(Motivo.DOCUMENTO_NON_VALIDO,
+            throw new EstrazioneCedolinoException(Motivo.PIU_CEDOLINI,
                     "Il PDF contiene " + numero + " cedolini distinti: carica un file per ogni cedolino");
         }
     }

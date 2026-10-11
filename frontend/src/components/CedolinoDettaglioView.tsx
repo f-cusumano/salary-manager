@@ -234,7 +234,17 @@ function Busta({ cedolino: c }: { cedolino: CedolinoDettaglio }) {
 
       <Text size="xs" c="dimmed">
         {t.acquisitoIl} {formatIstante(c.acquisitoIl)}
-        {c.confidenza !== null && ` · ${t.confidenza}: ${formatPercentuale(c.confidenza)}`}
+        {/* senza lettura l'affidabilita' non ha senso: si dice che i dati sono stati inseriti a mano */}
+        {c.inseritoAMano ? (
+          <>
+            {' · '}
+            <Text span inherit fw={600}>
+              {t.inseritoAMano}
+            </Text>
+          </>
+        ) : (
+          c.confidenza !== null && ` · ${t.confidenza}: ${formatPercentuale(c.confidenza)}`
+        )}
         {c.campiNonTrovati.length > 0 &&
           ` · ${t.campiNonTrovati}: ${c.campiNonTrovati.map(etichettaCampoCedolino).join(', ')}`}
       </Text>

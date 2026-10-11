@@ -27,6 +27,7 @@ import com.fcusumano.sam.cedolini.Caricamento;
 import com.fcusumano.sam.cedolini.CaricamentoId;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.FileCaricato;
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -190,10 +191,11 @@ class CaricamentiApiTest extends ApiWebMvcTest {
     @Test
     void caricamentiRecenti() throws Exception {
         var acquisito = new Caricamento(new CaricamentoId(3), LOTTO, "marzo.pdf", 1234, StatoCaricamento.ACQUISITO,
-                null, new CedolinoId(30), null, new PersonaId(1), new RapportoLavoroId(7), DatiDiProva.ISTANTE,
+                null, null, false, new CedolinoId(30), null, new PersonaId(1), new RapportoLavoroId(7), DatiDiProva.ISTANTE,
                 DatiDiProva.ISTANTE.plusSeconds(20));
         var duplicato = new Caricamento(new CaricamentoId(2), LOTTO, "marzo-copia.pdf", 1234,
-                StatoCaricamento.DUPLICATO, "Lo stesso file è già stato caricato: scartato", null, new CedolinoId(30),
+                StatoCaricamento.DUPLICATO, "Lo stesso file è già stato caricato: scartato", null, false, null,
+                new CedolinoId(30),
                 new PersonaId(1), new RapportoLavoroId(7), DatiDiProva.ISTANTE, DatiDiProva.ISTANTE.plusSeconds(5));
         when(caricamento.recenti(50)).thenReturn(List.of(acquisito, duplicato));
         when(caricamento.recenti(5)).thenReturn(List.of(acquisito));
@@ -232,15 +234,15 @@ class CaricamentiApiTest extends ApiWebMvcTest {
     @Test
     void statoDelLotto() throws Exception {
         var inLettura = new Caricamento(new CaricamentoId(1), LOTTO, "gennaio.pdf", 100, StatoCaricamento.IN_LETTURA,
-                null, null, null, null, null, DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
+                null, null, false, null, null, null, null, DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
         var aggiuntivo = new Caricamento(new CaricamentoId(2), LOTTO, "premio.pdf", 100,
-                StatoCaricamento.AGGIUNTIVO_NON_GESTITO, "Cedolino aggiuntivo di Marzo 2024: non gestito", null,
-                new CedolinoId(18), new PersonaId(2), new RapportoLavoroId(9), DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
+                StatoCaricamento.AGGIUNTIVO_NON_GESTITO, "Cedolino aggiuntivo di Marzo 2024: non gestito", null, false,
+                null, new CedolinoId(18), new PersonaId(2), new RapportoLavoroId(9), DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
         var errore = new Caricamento(new CaricamentoId(3), LOTTO, "protetto.pdf", 100, StatoCaricamento.ERRORE,
-                "PDF protetto da password: indica la password e ricarica", null, null, null, null,
-                DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
+                "PDF protetto da password: riprova indicando la password", MotivoErrore.PDF_PROTETTO, true, null, null,
+                null, null, DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
         var acquisito = new Caricamento(new CaricamentoId(1), LOTTO, "gennaio.pdf", 100, StatoCaricamento.ACQUISITO,
-                null, new CedolinoId(16), null, new PersonaId(2), new RapportoLavoroId(9), DatiDiProva.ISTANTE,
+                null, null, false, new CedolinoId(16), null, new PersonaId(2), new RapportoLavoroId(9), DatiDiProva.ISTANTE,
                 DatiDiProva.ISTANTE);
         when(caricamento.statoLotto(LOTTO))
                 .thenReturn(List.of(inLettura, aggiuntivo, errore))
@@ -256,7 +258,13 @@ class CaricamentiApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.caricamenti[2].personaId").value(nullValue()))
                 .andExpect(jsonPath("$.caricamenti[2].rapportoId").value(nullValue()))
                 .andExpect(jsonPath("$.caricamenti[2].messaggio")
-                        .value("PDF protetto da password: indica la password e ricarica"));
+                        .value("PDF protetto da password: riprova indicando la password"))
+                .andExpect(jsonPath("$.caricamenti[2].motivo").value("PDF_PROTETTO"))
+                .andExpect(jsonPath("$.caricamenti[2].pdfDisponibile").value(true))
+                .andExpect(jsonPath("$.caricamenti[0].motivo").value(nullValue()))
+                .andExpect(jsonPath("$.caricamenti[0].pdfDisponibile").value(false))
+                .andExpect(jsonPath("$.caricamenti[1].motivo").value(nullValue()))
+                .andExpect(jsonPath("$.caricamenti[1].pdfDisponibile").value(false));
         mvc.perform(get("/api/v1/caricamenti/lotti/" + LOTTO))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.completato").value(true))
@@ -282,6 +290,6 @@ class CaricamentiApiTest extends ApiWebMvcTest {
 
     private static Caricamento inCoda(long id, String nome) {
         return new Caricamento(new CaricamentoId(id), LOTTO, nome, PDF.length, StatoCaricamento.IN_CODA, null, null,
-                null, null, null, DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
+                false, null, null, null, null, DatiDiProva.ISTANTE, DatiDiProva.ISTANTE);
     }
 }

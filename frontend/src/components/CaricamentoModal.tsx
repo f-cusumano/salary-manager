@@ -25,6 +25,7 @@ import {
   IconX,
   IconLock,
   IconFilePlus,
+  IconPencil,
 } from '@tabler/icons-react';
 import { useState, type ReactNode } from 'react';
 import { messaggioErrore } from '../api/errors';
@@ -33,6 +34,7 @@ import { STATI_TERMINALI } from '../api/types';
 import { formatDimensione } from '../format/format';
 import { caricamentiInEvidenza, type StatoCaricamentoLotto } from '../hooks/useCaricamento';
 import { testi } from '../i18n';
+import { useAzioniCaricamenti } from './azioniCaricamenti';
 import classes from './CaricamentoModal.module.css';
 
 const t = testi.caricamento;
@@ -278,7 +280,8 @@ function IconaStato({ stato }: { stato: StatoCaricamento }): ReactNode {
   }
 }
 
-function RigaCaricamento({ caricamento: c }: { caricamento: Caricamento }) {
+function RigaCaricamento({ caricamento: c, onChiudi }: { caricamento: Caricamento; onChiudi: () => void }) {
+  const azioni = useAzioniCaricamenti();
   const colore = COLORE_STATO[c.stato];
   return (
     <Paper component="li" withBorder px="sm" py={8} className={classes.riga} data-stato={c.stato}>
@@ -295,6 +298,22 @@ function RigaCaricamento({ caricamento: c }: { caricamento: Caricamento }) {
         <Text size="xs" c={c.messaggio && c.stato !== 'ACQUISITO' ? `${colore}.8` : 'dimmed'} mt={2}>
           {c.messaggio ?? t.statoDescrizione[c.stato]} · {formatDimensione(c.dimensione)}
         </Text>
+        {/* PDF conservato: il cedolino si puo' completare subito a mano (la modale lascia il posto al modulo) */}
+        {c.stato === 'ERRORE' && c.pdfDisponibile && (
+          <Button
+            size="compact-xs"
+            variant="light"
+            color="red"
+            mt={6}
+            leftSection={<IconPencil size={12} aria-hidden />}
+            onClick={() => {
+              onChiudi();
+              azioni.apriInserimento(c.id);
+            }}
+          >
+            {testi.inErrore.azione.INSERISCI_A_MANO}
+          </Button>
+        )}
       </div>
     </Paper>
   );
@@ -344,7 +363,7 @@ function StatoLotto({ caricamento, onChiudi }: { caricamento: StatoCaricamentoLo
       <ScrollArea.Autosize mah={360} type="auto" offsetScrollbars>
         <Stack gap={6} component="ul" className={classes.elenco} aria-label={t.titolo}>
           {caricamentiInEvidenza(lotto).map((c) => (
-            <RigaCaricamento key={c.id} caricamento={c} />
+            <RigaCaricamento key={c.id} caricamento={c} onChiudi={onChiudi} />
           ))}
         </Stack>
       </ScrollArea.Autosize>

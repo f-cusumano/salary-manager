@@ -22,6 +22,7 @@ pubblica le porte solo su `127.0.0.1`.
   - [File `.env`](#file-env)
 - [Dove finiscono dati e PDF](#dove-finiscono-dati-e-pdf)
 - [PDF protetti da password](#pdf-protetti-da-password)
+- [Cedolini caricati con errore](#cedolini-caricati-con-errore)
 - [Cedolini reali: misure e test live](#cedolini-reali-misure-e-test-live)
 - [Test](#test)
 - [Struttura del repository](#struttura-del-repository)
@@ -51,9 +52,10 @@ pubblica le porte solo su `127.0.0.1`.
 | `web`          | controller REST, DTO, errori (Problem Details), sicurezza, OpenAPI      | tutti                              |
 
 Ogni modulo usa solo le proprie tabelle e le API pubbliche degli altri. L'acquisizione o l'eliminazione di un
-cedolino e il cambio di CCNL pubblicano eventi (`CedolinoAcquisito`, `CedolinoEliminato`, `CcnlRapportoModificato`)
-consegnati **in modo sincrono** nella stessa transazione: calcoli e segnalazioni del rapporto vengono ricalcolati da
-zero, tutto o niente. I confini sono verificati in build da `ModularityTests` (Spring Modulith) e
+cedolino, il cambio di CCNL e l'associazione di un file in errore a una mensilità pubblicano eventi
+(`CedolinoAcquisito`, `CedolinoEliminato`, `CcnlRapportoModificato`, `CaricamentiInErroreModificati`) consegnati **in
+modo sincrono** nella stessa transazione: calcoli e segnalazioni del rapporto (per l'associazione solo le
+segnalazioni) vengono ricalcolati da zero, tutto o niente. I confini sono verificati in build da `ModularityTests` (Spring Modulith) e
 `ArchitectureTests` (ArchUnit). Dettagli in [`docs/architecture.md`](docs/architecture.md).
 
 ## Prerequisiti
@@ -166,9 +168,11 @@ Chi interpreta i PDF si sceglie con `SAM_LETTORE` (proprietà `salary-manager.le
 | `fixture`            | modalità demo: a ogni PDF associa un JSON di dati inventati | gratuito, offline | solo i PDF di prova (vedi [Modalità demo](#modalità-demo-dati-inventati)) |
 
 Tutti e tre producono lo stesso JSON, che passa dalla **stessa normalizzazione e validazione** (somme, netto, ratei,
-date, codici fiscali): il resto dell'applicazione non sa quale lettore è stato usato. Il lettore usato resta registrato
-con il cedolino (`cedolino.modello_estrazione`: `lettore-locale-1/<layout>`, il modello Claude o `fixture`). Un valore
-diverso dai tre blocca l'avvio. Cambiare lettore non rilegge i cedolini già caricati: per rileggerne uno si elimina e
+date, codici fiscali): il resto dell'applicazione non sa quale lettore è stato usato. Lo stesso JSON lo produce anche
+l'[inserimento a mano](#cedolini-caricati-con-errore) di un cedolino caricato con errore. Chi ha prodotto i dati resta
+registrato con il cedolino (`cedolino.modello_estrazione`: `lettore-locale-1/<layout>`, il modello Claude, `fixture`
+oppure `inserimento-manuale-1` per i cedolini inseriti a mano). Un valore di `SAM_LETTORE` diverso dai tre blocca
+l'avvio. Cambiare lettore non rilegge i cedolini già caricati: per rileggerne uno si elimina e
 si ricarica.
 
 ### Lettore locale (predefinito)
@@ -401,6 +405,11 @@ Variabili del frontend e di Docker Compose:
   con un nome normalizzato indipendente dal file caricato: `AAAA.MM_<idAzienda>_<idPersona>.pdf` (mese `01`-`12`,
   `13` tredicesima, `14` quattordicesima) oppure `AAAA.TFRnn_<idAzienda>_<idPersona>.pdf` per i cedolini successivi
   alla cessazione. Si scaricano dalla lista mensilità.
+- Il PDF di un **file caricato con errore** che si può ancora completare (inserimento a mano o nuova lettura) resta
+  nella tabella `caricamento_pdf`, così come caricato, uno per file anche se caricato più volte. Viene eliminato
+  appena il file è risolto: inserito a mano o letto (diventa il PDF del cedolino), scartato come duplicato o
+  aggiuntivo, rimosso con "Rimuovi" dall'elenco dei cedolini caricati con errore. I file danneggiati, con troppe
+  pagine o con più cedolini non vengono conservati.
 - Il JSON prodotto dal lettore resta a DB per verifica (`cedolino.estratto_json`), con il lettore usato
   (`cedolino.modello_estrazione`). **Nessun dato bancario** (IBAN, ABI/CAB, conto) viene letto o salvato; le password
   dei PDF non vengono mai salvate né scritte nei log.
@@ -435,12 +444,60 @@ Alcuni cedolini sono protetti da una password di apertura. Nella modale di caric
 Se in un lotto di più file un PDF protetto non si apre, viene **riprovato una volta a fine lotto**: così si apre anche
 quando il codice fiscale che fa da password appartiene a una persona censita da un altro file dello stesso lotto
 (i file sono elaborati in parallelo e l'ordine non conta). Se nessuna password funziona, il file va in errore con il
-messaggio *"PDF protetto da password: indica la password e ricarica"*: basta ricaricarlo indicando la password. Il
-lettore (locale o Claude) riceve una copia decifrata creata solo in memoria; a DB si conserva il PDF originale, su cui
-si calcola anche l'impronta usata per riconoscere i file già caricati.
+messaggio *"PDF protetto da password: riprova indicando la password"* e compare tra i
+[cedolini caricati con errore](#cedolini-caricati-con-errore): con **"Riprova con password"** si indica la password e
+il file viene riletto dal PDF conservato, senza ricaricarlo (la password vale solo per quella lettura e non viene
+salvata). In alternativa si può inserire a mano: l'anteprima del PDF nel modulo chiede la password al visualizzatore
+del browser, che non la salva. Il lettore (locale o Claude) riceve una copia decifrata creata solo in memoria; a DB si
+conserva il PDF originale, su cui si calcola anche l'impronta usata per riconoscere i file già caricati.
 
 I cedolini scansionati (solo immagine, senza testo) si leggono solo con il lettore Claude, che legge il PDF anche
 visivamente; il lettore locale li rifiuta con un messaggio che lo suggerisce.
+
+## Cedolini caricati con errore
+
+Un PDF che il lettore non riesce a leggere (protetto, scansione senza testo, layout non riconosciuto, lettore non
+disponibile, dati essenziali mancanti, ...) diventa un **cedolino caricato con errore**: è stato caricato ma non è
+nell'archivio. È una cosa diversa da una **mensilità mancante**, per cui nessun file è stato caricato.
+
+- **Elenco**: i file in errore compaiono nell'area rossa **"Cedolini caricati con errore"** in cima alla pagina (anche
+  senza una persona selezionata), con il motivo dell'errore; il contatore nella barra superiore porta all'elenco. Lo
+  stesso file caricato più volte compare una volta sola; sparisce quando viene letto, inserito a mano o rimosso.
+- **Azioni** (secondo il motivo): **Inserisci a mano**, **Riprova con password** (PDF protetti), **Riprova** (lettore
+  non disponibile o elaborazione interrotta), **Associa a un mese**, **Scarica PDF**, **Rimuovi** (elimina il file,
+  il PDF conservato e l'associazione). Per un file danneggiato, troppo lungo o con più cedolini l'unica via è caricare
+  un file valido (un PDF per cedolino).
+- **Associa a un mese**: si sceglie persona, rapporto e mensilità (mai dedotti in automatico). La mensilità diventa
+  rossa, *"Caricato con errore"*, e la segnalazione *"Cedolino caricato con errore"* prende il posto di *"Mensilità
+  mancante"*. Una mensilità che ha già un cedolino o un altro file associato non si può scegliere.
+- **Inserisci a mano**: un modulo con tutti i campi che il lettore avrebbe estratto, accanto all'anteprima del PDF.
+  Il dipendente si sceglie da **"Persona in archivio"** ("Seleziona persona/dipendente": nome e cognome, con il
+  codice fiscale solo per gli omonimi) e il datore di lavoro da **"Azienda in archivio"** (ragione sociale, con la
+  partita IVA solo per le omonime, in mancanza il codice fiscale o la posizione INPS; prima le aziende della persona
+  scelta); la ricerca trova anche codice fiscale e partita IVA. I loro dati anagrafici arrivano dall'archivio e
+  restano in sola lettura, così un refuso non crea un doppione; matricola, indirizzo, codice azienda e posizione
+  INAIL restano modificabili. Solo per una persona o un'azienda che non è ancora in archivio si usa **"Crea nuovo"**
+  / **"Crea nuova"** e si scrivono i dati come stampati sul cedolino: il modulo chiede di sceglierla dall'elenco se
+  il codice fiscale della persona è già in archivio, se la partita IVA o il codice fiscale dell'azienda sono già in
+  archivio, o se posizione INPS o ragione sociale coincidono con un'azienda in archivio senza identificativi diversi
+  (un'omonima con un'altra partita IVA è un'azienda diversa e si può creare). "Scegli dall'elenco" riporta alla
+  tendina senza cancellare i dati scritti. Scelti persona e azienda, i campi vuoti si riempiono dal loro rapporto e
+  dal cedolino più vicino al periodo (voci senza importi, ...), anche se il periodo si indica o si cambia dopo la
+  scelta: le voci e i ratei copiati sono modelli e vengono salvati solo se li completi (una nota permette di togliere
+  quelli rimasti vuoti). Aprendo il modulo da un file associato a un mese persona e azienda sono già scelte. Importi
+  e quantità hanno al massimo 8 cifre intere e 5 decimali.
+  **Verifica** prova l'archiviazione senza salvare (mensilità, persona, azienda o rapporto nuovi, conflitti, controlli
+  di coerenza); **Salva cedolino** lo archivia con il PDF originale come se fosse stato letto: riepilogo e
+  segnalazioni si ricalcolano, e nel dettaglio compare "Inserito a mano" al posto dell'affidabilità della lettura.
+  Sono obbligatori periodo, persona e azienda (scelte o nuove), totale competenze, totale trattenute e netto; per
+  una persona nuova codice fiscale, nome e cognome, per un'azienda nuova la ragione sociale.
+- **Errori delle versioni precedenti**: i file andati in errore prima di questa funzione non hanno il PDF conservato
+  né il motivo; compaiono nell'elenco con il loro messaggio e vanno **ricaricati una volta** (oppure rimossi).
+- Un file la cui prima lettura è stata interrotta da un riavvio dell'applicazione non ha il PDF conservato: va
+  ricaricato. Se invece è stata interrotta una nuova lettura, il PDF c'è ancora e il file si rilegge o si inserisce a
+  mano.
+- La segnalazione *"Cedolino caricato con errore"* indica le azioni davvero possibili: inserimento a mano o nuova
+  lettura se il PDF è conservato, altrimenti un nuovo caricamento.
 
 ## Cedolini reali: misure e test live
 
@@ -587,4 +644,6 @@ sviluppo è sufficiente ricaricare la pagina; con Docker va ricostruita l'immagi
 - Con il lettore locale (predefinito) i PDF non lasciano il computer; solo con il lettore Claude vengono inviati
   all'API Anthropic.
 - La chiave API non va mai in file versionati: solo nel `.env` (ignorato da git) o in una variabile d'ambiente.
+- I PDF dei cedolini caricati con errore restano nel database solo finché servono per completarli e si eliminano
+  quando il file è risolto o rimosso; i moduli inseriti a mano non vengono mai salvati come bozza nel browser.
 - I log a livello INFO non contengono codici fiscali, nominativi, importi né password.

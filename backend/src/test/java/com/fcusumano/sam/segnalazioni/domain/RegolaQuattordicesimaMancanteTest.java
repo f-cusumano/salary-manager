@@ -9,6 +9,7 @@ import static com.fcusumano.sam.segnalazioni.domain.ContestoDiProva.TELECOMUNICA
 import static com.fcusumano.sam.segnalazioni.domain.ContestoDiProva.rapporto;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.segnalazioni.Evidenza;
 import com.fcusumano.sam.segnalazioni.Gravita;
 import com.fcusumano.sam.segnalazioni.TipoSegnalazione;
@@ -179,5 +180,13 @@ class RegolaQuattordicesimaMancanteTest {
 
         assertThat(regola.valuta(contesto)).singleElement()
                 .satisfies(s -> assertThat(s.titolo()).isEqualTo("Quattordicesima 2022 mancante"));
+    }
+
+    @Test
+    void quattordicesimaConUnFileInErroreAssociatoNonEMancante() {
+        var contesto = commercioDa2024(YearMonth.of(2024, 8))
+                .inErrore(Competenza.Mensilita.quattordicesima(2024), null).build();
+
+        assertThat(regola.valuta(contesto)).isEmpty();
     }
 }

@@ -468,7 +468,7 @@ describe('caricamento cedolini', () => {
     // a lotto concluso i file da controllare vengono per primi
     const righe = within(modale).getAllByRole('listitem');
     expect(righe[0]).toHaveTextContent('protetto.pdfErrore');
-    expect(righe[0]).toHaveTextContent('PDF protetto da password: indica la password e ricarica');
+    expect(righe[0]).toHaveTextContent('PDF protetto da password: riprova indicando la password');
     expect(righe[1]).toHaveTextContent('Aggiuntivo non gestito');
     expect(righe[2]).toHaveTextContent('Duplicato');
     expect(righe[3]).toHaveTextContent('gennaio.pdfAcquisito');

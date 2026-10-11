@@ -39,6 +39,16 @@ class ResizeObserverFinto {
 }
 window.ResizeObserver = ResizeObserverFinto;
 window.HTMLElement.prototype.scrollIntoView = () => undefined;
+// URL dei Blob (anteprima del PDF nell'inserimento a mano): jsdom non li implementa. I test che ne verificano l'uso
+// li sostituiscono con vi.stubGlobal.
+let ultimoUrlBlob = 0;
+if (typeof URL.createObjectURL !== 'function') {
+  URL.createObjectURL = () => {
+    ultimoUrlBlob += 1;
+    return `blob:test/${String(ultimoUrlBlob)}`;
+  };
+  URL.revokeObjectURL = () => undefined;
+}
 // document.fonts (FontFaceSet) e' usato dalla Textarea autosize
 Object.defineProperty(document, 'fonts', {
   configurable: true,

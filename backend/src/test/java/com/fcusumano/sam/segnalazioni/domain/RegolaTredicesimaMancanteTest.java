@@ -8,6 +8,7 @@ import static com.fcusumano.sam.segnalazioni.domain.ContestoDiProva.rapporto;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fcusumano.sam.cedolini.DatiTfr;
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.segnalazioni.Evidenza;
 import com.fcusumano.sam.segnalazioni.Gravita;
 import com.fcusumano.sam.segnalazioni.TipoSegnalazione;
@@ -174,6 +175,24 @@ class RegolaTredicesimaMancanteTest {
     @Test
     void rapportoProseguitoDopoUnaCessazioneStampataSiValutaNormalmente() {
         var contesto = anno2023ConGennaio2024().cessazione(LocalDate.of(2023, 3, 31)).build();
+
+        assertThat(regola.valuta(contesto)).extracting(SegnalazioneRilevata::competenza)
+                .containsExactly(Competenza.Mensilita.tredicesima(2023));
+    }
+
+    @Test
+    void tredicesimaConUnFileInErroreAssociatoNonEMancante() {
+        var contesto = anno2023ConGennaio2024()
+                .inErrore(Competenza.Mensilita.tredicesima(2023), MotivoErrore.PDF_SENZA_TESTO).build();
+
+        assertThat(regola.valuta(contesto)).isEmpty();
+    }
+
+    @Test
+    void unFileInErroreAssociatoAUnAltroAnnoNonCambiaNulla() {
+        var contesto = anno2023ConGennaio2024()
+                .inErrore(Competenza.Mensilita.tredicesima(2022), MotivoErrore.PDF_SENZA_TESTO)
+                .inErrore(new Competenza.Mensilita(2023, 12), MotivoErrore.PDF_SENZA_TESTO).build();
 
         assertThat(regola.valuta(contesto)).extracting(SegnalazioneRilevata::competenza)
                 .containsExactly(Competenza.Mensilita.tredicesima(2023));

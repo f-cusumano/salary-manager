@@ -23,6 +23,8 @@ import java.util.Set;
  *       nel cedolino mancante (che e' gia' segnalato come mensilita' mancante);</li>
  *   <li>non esiste il cedolino 13 di Y e nessun cedolino di Y (ne' quello di gennaio Y+1, per i pagamenti tardivi)
  *       riporta tredicesima o suoi ratei ({@code contieneTredicesima});</li>
+ *   <li>l'utente non ha associato alla tredicesima di Y un file caricato con errore (lo segnala
+ *       CEDOLINO_IN_ERRORE);</li>
  *   <li>il rapporto non e' cessato in Y;</li>
  *   <li>nell'anno sono maturati ratei: un'assunzione nell'ultima parte di dicembre (meno di 15 giorni) non ne
  *       matura; se la data di assunzione non e' nota e il primo cedolino ordinario e' di dicembre Y, il primo mese
@@ -69,7 +71,7 @@ public final class RegolaTredicesimaMancante implements RegolaSegnalazione {
     }
 
     private Optional<SegnalazioneRilevata> valutaAnno(ContestoRapporto contesto, int anno) {
-        if (contesto.esisteCompetenza(anno, 13) || tredicesimaPagata(contesto, anno)) {
+        if (contesto.esisteCompetenza(anno, 13) || contesto.inErrore(anno, 13) || tredicesimaPagata(contesto, anno)) {
             return Optional.empty();
         }
         var cessazione = contesto.dataCessazione();

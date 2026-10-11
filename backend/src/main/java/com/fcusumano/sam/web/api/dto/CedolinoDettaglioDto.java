@@ -13,7 +13,8 @@ import java.util.List;
  * Dettaglio della busta per aree tematiche.
  *
  * @param meseVariabili   mese a cui si riferiscono le voci variabili, se stampato
- * @param confidenza      confidenza complessiva dell'estrazione (0..1)
+ * @param confidenza      confidenza complessiva dell'estrazione (0..1), null per i cedolini inseriti a mano
+ * @param inseritoAMano   cedolino inserito a mano da un file in errore (nessuna lettura)
  * @param avvisiEstrazione avvisi dell'estrazione (controlli di coerenza non superati, dati bancari rimossi, note)
  * @param vociNonRetributive rimborsi, diarie, buoni pasto (fuori dalla RAL)
  */
@@ -29,6 +30,7 @@ public record CedolinoDettaglioDto(
         String nomeFile,
         OffsetDateTime acquisitoIl,
         BigDecimal confidenza,
+        boolean inseritoAMano,
         List<String> campiNonTrovati,
         List<String> avvisiEstrazione,
         Inquadramento inquadramento,

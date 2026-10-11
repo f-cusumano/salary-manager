@@ -4,25 +4,37 @@ import static com.fcusumano.sam.web.api.Numeri.esatto;
 import static com.fcusumano.sam.web.api.Numeri.euro;
 
 import com.fcusumano.sam.anagrafica.Azienda;
+import com.fcusumano.sam.anagrafica.AziendaSelezionabile;
 import com.fcusumano.sam.anagrafica.PeriodoRapporto;
 import com.fcusumano.sam.anagrafica.PersonaSintesi;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto;
 import com.fcusumano.sam.ccnl.Ccnl;
+import com.fcusumano.sam.cedolini.BuoniPasto;
 import com.fcusumano.sam.cedolini.Caricamento;
+import com.fcusumano.sam.cedolini.CaricamentoInErrore;
 import com.fcusumano.sam.cedolini.CategoriaVoce;
 import com.fcusumano.sam.cedolini.CedolinoDettaglio;
 import com.fcusumano.sam.cedolini.CedolinoId;
+import com.fcusumano.sam.cedolini.CedolinoManuale;
 import com.fcusumano.sam.cedolini.CedolinoNormalizzato;
 import com.fcusumano.sam.cedolini.DatiTfr;
+import com.fcusumano.sam.cedolini.ElementiRetributivi;
+import com.fcusumano.sam.cedolini.Presenze;
+import com.fcusumano.sam.cedolini.ProgressiviAnnui;
 import com.fcusumano.sam.cedolini.Rateo;
+import com.fcusumano.sam.cedolini.VerificaCedolinoManuale;
 import com.fcusumano.sam.cedolini.Voce;
 import com.fcusumano.sam.segnalazioni.Evidenza;
 import com.fcusumano.sam.segnalazioni.Segnalazione;
 import com.fcusumano.sam.shared.Competenza;
+import com.fcusumano.sam.web.api.dto.AttribuzioneCaricamentoDto;
+import com.fcusumano.sam.web.api.dto.AziendaSelezionabileDto;
 import com.fcusumano.sam.web.api.dto.AziendaSintesiDto;
 import com.fcusumano.sam.web.api.dto.CaricamentoDto;
+import com.fcusumano.sam.web.api.dto.CaricamentoInErroreDto;
 import com.fcusumano.sam.web.api.dto.CcnlDto;
 import com.fcusumano.sam.web.api.dto.CedolinoDettaglioDto;
+import com.fcusumano.sam.web.api.dto.CedolinoManualeDto;
 import com.fcusumano.sam.web.api.dto.CompetenzaDto;
 import com.fcusumano.sam.web.api.dto.EvidenzaDto;
 import com.fcusumano.sam.web.api.dto.LottoCaricamentoDto;
@@ -30,9 +42,11 @@ import com.fcusumano.sam.web.api.dto.PeriodoDto;
 import com.fcusumano.sam.web.api.dto.PersonaSintesiDto;
 import com.fcusumano.sam.web.api.dto.RiepilogoDto;
 import com.fcusumano.sam.web.api.dto.SegnalazioneDto;
+import com.fcusumano.sam.web.api.dto.VerificaCedolinoManualeDto;
 import com.fcusumano.sam.web.api.dto.VoceDto;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Conversione delle API pubbliche dei moduli nei DTO REST. Nessuna logica di dominio: solo forma e arrotondamento
@@ -46,7 +60,14 @@ final class Mappatura {
     // ------------------------------------------------------------------------------------------ anagrafica e CCNL
 
     static PersonaSintesiDto persona(PersonaSintesi p) {
-        return new PersonaSintesiDto(p.id().valore(), p.nome(), p.cognome(), p.codiceFiscale(), p.etichetta());
+        return new PersonaSintesiDto(p.id().valore(), p.nome(), p.cognome(), p.codiceFiscale(), p.dataNascita(),
+                p.etichetta());
+    }
+
+    static AziendaSelezionabileDto aziendaSelezionabile(AziendaSelezionabile s) {
+        var a = s.azienda();
+        return new AziendaSelezionabileDto(a.id().valore(), a.ragioneSociale(), a.partitaIva(), a.codiceFiscale(),
+                a.posizioneInps(), a.indirizzo(), a.codiceAzienda(), s.etichetta());
     }
 
     static AziendaSintesiDto azienda(Azienda a) {
@@ -142,6 +163,7 @@ final class Mappatura {
                 dettaglio.nomeFile(),
                 dettaglio.acquisitoIl(),
                 esatto(dettaglio.confidenza()),
+                dettaglio.inseritoAMano(),
                 dettaglio.campiNonTrovati(),
                 dettaglio.avvisiEstrazione(),
                 new CedolinoDettaglioDto.Inquadramento(c.qualifica(), c.livello(), c.codiceDipendente(), c.ccnlTesto(),
@@ -201,7 +223,7 @@ final class Mappatura {
     /** Stato di un file caricato, con persona e rapporto del cedolino acquisito quando noti. */
     static CaricamentoDto caricamento(Caricamento c) {
         return new CaricamentoDto(c.id().valore(), c.lotto(), c.nomeFileOriginale(), c.dimensione(), c.stato(),
-                c.messaggio(), id(c.cedolinoId()), id(c.cedolinoEsistenteId()),
+                c.messaggio(), c.motivo(), c.pdfDisponibile(), id(c.cedolinoId()), id(c.cedolinoEsistenteId()),
                 c.personaId() == null ? null : c.personaId().valore(),
                 c.rapportoId() == null ? null : c.rapportoId().valore(), c.creatoIl(), c.aggiornatoIl());
     }
@@ -210,6 +232,79 @@ final class Mappatura {
     static LottoCaricamentoDto lotto(UUID lotto, List<Caricamento> caricamenti) {
         var completato = caricamenti.stream().allMatch(c -> c.stato().terminale());
         return new LottoCaricamentoDto(lotto, completato, caricamenti.stream().map(Mappatura::caricamento).toList());
+    }
+
+    // ------------------------------------------------------------------------------------------ file in errore
+
+    /**
+     * File in errore con la mensilita' associata gia' composta (etichette di persona e azienda dall'anagrafica).
+     *
+     * @param attribuzione null se il file non e' associato
+     */
+    static CaricamentoInErroreDto caricamentoInErrore(CaricamentoInErrore c, AttribuzioneCaricamentoDto attribuzione) {
+        return new CaricamentoInErroreDto(c.id().valore(), c.lotto(), c.nomeFileOriginale(), c.dimensione(),
+                c.motivo(), c.messaggio(), c.pdfDisponibile(), c.inElaborazione(), attribuzione, c.creatoIl());
+    }
+
+    static VerificaCedolinoManualeDto verifica(VerificaCedolinoManuale v) {
+        return new VerificaCedolinoManualeDto(v.esito(), v.messaggio(), competenza(v.competenza()),
+                v.competenza() == null ? null : Titoli.di(v.competenza()), v.nuovaPersona(), v.nuovaAzienda(),
+                v.nuovoRapporto(),
+                v.rapportoId() == null ? null : v.rapportoId().valore(), id(v.cedolinoEsistenteId()), v.avvisi());
+    }
+
+    /**
+     * Cedolino inserito a mano: solo forma, nessuna normalizzazione (la fa il modulo cedolini, che valida anche i
+     * dati e gli id delle anagrafiche scelte, passati cosi' come sono). Un'area assente resta null, le liste assenti
+     * diventano vuote.
+     */
+    static CedolinoManuale cedolinoManuale(CedolinoManualeDto d) {
+        return new CedolinoManuale(
+                d.personaId(),
+                d.aziendaId(),
+                se(d.dipendente(), p -> new CedolinoManuale.Dipendente(p.codiceFiscale(), p.nome(), p.cognome(),
+                        p.dataNascita(), p.codiceDipendente())),
+                se(d.datoreLavoro(), a -> new CedolinoManuale.DatoreLavoro(a.codiceFiscale(), a.partitaIva(),
+                        a.posizioneInps(), a.posizioneInail(), a.ragioneSociale(), a.indirizzo(), a.codiceAzienda())),
+                se(d.datiContrattuali(), c -> new CedolinoManuale.DatiContrattuali(c.dataAssunzione(),
+                        c.dataCessazione(), c.qualifica(), c.livello(), c.ccnl(), c.codiceCnel())),
+                se(d.periodo(), p -> new CedolinoManuale.Periodo(p.anno(), p.mese(), p.tipo(), p.dataElaborazione(),
+                        p.meseVariabili())),
+                se(d.totali(), t -> new CedolinoManuale.Totali(t.lordo(), t.totaleCompetenze(), t.totaleTrattenute(),
+                        t.arrotondamento(), t.netto())),
+                se(d.retribuzione(), e -> new ElementiRetributivi(e.minimo(), e.contingenza(), e.superminimo(),
+                        e.superminimoAssorbibile(), e.importoScatti(), e.altriElementiFissi(), e.retribuzioneBase(),
+                        e.totale(), e.pagaOraria(), e.pagaGiornaliera(), e.divisoreOrario(), e.divisoreGiornaliero())),
+                lista(d.voci(), v -> new Voce(v.codice(), v.descrizione(), v.categoria(), v.quantita(), v.unita(),
+                        v.base(), v.importoCompetenza(), v.importoTrattenuta())),
+                lista(d.ratei(), r -> new Rateo(r.tipo(), r.unita(), r.residuoAnnoPrecedente(), r.maturato(),
+                        r.goduto(), r.saldo())),
+                se(d.tfr(), t -> new DatiTfr(t.fondo31DicembreAnnoPrecedente(), t.rivalutazione(),
+                        t.impostaSostitutiva(), t.quotaAnno(), t.quotaMese(), t.quotaFondi(), t.quotaBusta(),
+                        t.anticipi(), t.retribuzioneUtile(), t.liquidatoLordo(), t.ritenuta())),
+                se(d.presenze(), p -> new Presenze(p.giorniLavorati(), p.oreLavorate(), p.giorniRetribuiti())),
+                se(d.scatti(), s -> new CedolinoManuale.Scatti(s.numeroScatti(), s.dataProssimoScatto())),
+                se(d.buoniPasto(), b -> new BuoniPasto(b.presenti(), b.numero(), b.valoreUnitario(), b.importo())),
+                se(d.progressivi(), p -> new ProgressiviAnnui(p.imponibilePrevidenziale(), p.imponibileIrpef(),
+                        p.irpefTrattenuta())),
+                d.contieneTredicesima(),
+                d.contieneQuattordicesima());
+    }
+
+    /** Valore convertito, null se assente. */
+    private static <T, R> R se(T valore, Function<T, R> conversione) {
+        return valore == null ? null : conversione.apply(valore);
+    }
+
+    /**
+     * Lista convertita, vuota se assente. Un elemento null resta null: la validazione del modulo cedolini lo segnala
+     * sul suo percorso (es. {@code voci[2].descrizione}).
+     */
+    private static <T, R> List<R> lista(List<T> valori, Function<T, R> conversione) {
+        if (valori == null) {
+            return List.of();
+        }
+        return valori.stream().map(v -> se(v, conversione)).toList();
     }
 
     // ------------------------------------------------------------------------------------------ supporto

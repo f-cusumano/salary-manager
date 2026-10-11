@@ -3,10 +3,14 @@ package com.fcusumano.sam.segnalazioni.domain;
 import com.fcusumano.sam.anagrafica.RapportoLavoro;
 import com.fcusumano.sam.ccnl.Ccnl;
 import com.fcusumano.sam.cedolini.CedolinoNormalizzato;
+import com.fcusumano.sam.cedolini.MotivoErrore;
+import com.fcusumano.sam.shared.Competenza;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Costruttore di contesti per i test delle regole (dati inventati).
@@ -28,6 +32,7 @@ final class ContestoDiProva {
     private Ccnl ccnl;
     private LocalDate oggi = OGGI;
     private final List<CedolinoNormalizzato> cedolini = new ArrayList<>();
+    private final Map<Competenza.Mensilita, ContestoRapporto.FileInErrore> inErrore = new HashMap<>();
 
     static ContestoDiProva rapporto() {
         return new ContestoDiProva();
@@ -70,6 +75,20 @@ final class ContestoDiProva {
         return this;
     }
 
+    /**
+     * Mensilita' a cui l'utente ha associato un file caricato con errore (motivo null = non registrato), con il PDF
+     * conservato se il motivo lo prevede.
+     */
+    ContestoDiProva inErrore(Competenza.Mensilita competenza, MotivoErrore motivo) {
+        return inErrore(competenza, motivo, motivo != null && motivo.conservaPdf());
+    }
+
+    /** Come {@link #inErrore(Competenza.Mensilita, MotivoErrore)}, con la presenza del PDF esplicita. */
+    ContestoDiProva inErrore(Competenza.Mensilita competenza, MotivoErrore motivo, boolean pdfDisponibile) {
+        inErrore.put(competenza, new ContestoRapporto.FileInErrore(motivo, pdfDisponibile));
+        return this;
+    }
+
     /** Sostituisce il cedolino con la stessa competenza (per variare un mese di una serie). */
     ContestoDiProva sostituisci(CedolinoDiProva cedolino) {
         var nuovo = cedolino.build();
@@ -81,6 +100,7 @@ final class ContestoDiProva {
     ContestoRapporto build() {
         var rapporto = new RapportoLavoro(CedolinoDiProva.RAPPORTO, CedolinoDiProva.PERSONA, CedolinoDiProva.AZIENDA,
                 assunzione, cessazione, qualifica, null, null, ccnl == null ? null : ccnl.codice(), false, null, null, null);
-        return new ContestoRapporto(rapporto, ccnl, cedolini, oggi);
+        return inErrore.isEmpty() ? new ContestoRapporto(rapporto, ccnl, cedolini, oggi)
+                : new ContestoRapporto(rapporto, ccnl, cedolini, oggi, inErrore);
     }
 }

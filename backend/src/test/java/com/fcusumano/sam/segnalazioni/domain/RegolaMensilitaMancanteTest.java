@@ -7,6 +7,7 @@ import static com.fcusumano.sam.segnalazioni.domain.CedolinoDiProva.tredicesima;
 import static com.fcusumano.sam.segnalazioni.domain.ContestoDiProva.rapporto;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.segnalazioni.Evidenza;
 import com.fcusumano.sam.segnalazioni.Gravita;
 import com.fcusumano.sam.segnalazioni.TipoSegnalazione;
@@ -122,5 +123,16 @@ class RegolaMensilitaMancanteTest {
         var contesto = rapporto().con(tredicesima(2023)).build();
 
         assertThat(regola.valuta(contesto)).isEmpty();
+    }
+
+    @Test
+    void ilMeseConUnFileInErroreAssociatoNonEMancante() {
+        var contesto = rapporto().con(ordinario(2024, 1), ordinario(2024, 4))
+                .inErrore(new Competenza.Mensilita(2024, 2), MotivoErrore.PDF_PROTETTO)
+                .inErrore(Competenza.Mensilita.tredicesima(2023), null)
+                .build();
+
+        assertThat(regola.valuta(contesto)).extracting(SegnalazioneRilevata::competenza)
+                .containsExactly(new Competenza.Mensilita(2024, 3));
     }
 }

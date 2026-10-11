@@ -13,8 +13,12 @@ import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.calcoli.FonteDato;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto;
 import com.fcusumano.sam.ccnl.Ccnl;
+import com.fcusumano.sam.cedolini.AttribuzioneCaricamento;
+import com.fcusumano.sam.cedolini.CaricamentoId;
+import com.fcusumano.sam.cedolini.CaricamentoInErrore;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.CedolinoSintesi;
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.cedolini.Rateo;
 import com.fcusumano.sam.cedolini.TipoRateo;
 import com.fcusumano.sam.shared.Competenza;
@@ -25,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Dati inventati per i test dello strato REST (nessun dato reale).
@@ -45,7 +50,7 @@ final class DatiDiProva {
     }
 
     static PersonaSintesi personaSintesi(String etichetta) {
-        return new PersonaSintesi(new PersonaId(1), "Mario", "Rossi", CF_ROSSI, etichetta);
+        return new PersonaSintesi(new PersonaId(1), "Mario", "Rossi", CF_ROSSI, LocalDate.of(1980, 1, 1), etichetta);
     }
 
     static Azienda azienda() {
@@ -83,6 +88,23 @@ final class DatiDiProva {
         return new CedolinoSintesi(new CedolinoId(id), new RapportoLavoroId(7), competenza, periodo,
                 periodo.atEndOfMonth(), new BigDecimal(netto).multiply(new BigDecimal("1.3")), new BigDecimal(netto),
                 List.of(ratei), competenza.anno() + "." + competenza.codice() + "_3_1.pdf");
+    }
+
+    /** Lotto dei file in errore di prova. */
+    static final UUID LOTTO_IN_ERRORE = UUID.fromString("7d1e2f3a-4b5c-4d6e-8f90-a1b2c3d4e5f6");
+
+    /**
+     * File in errore di prova del rapporto 7.
+     *
+     * @param competenza mensilita' associata, null se non associato
+     */
+    static CaricamentoInErrore fileInErrore(long id, String nome, MotivoErrore motivo, Competenza.Mensilita competenza,
+                                            boolean competenzaPresente) {
+        var attribuzione = competenza == null ? null
+                : new AttribuzioneCaricamento(new RapportoLavoroId(7), competenza, competenzaPresente);
+        return new CaricamentoInErrore(new CaricamentoId(id), LOTTO_IN_ERRORE, nome, 2048, motivo,
+                "Il lettore non riesce a leggere questo file", motivo != null && motivo.conservaPdf(), false,
+                attribuzione, ISTANTE);
     }
 
     static Rateo ferie(String saldo) {

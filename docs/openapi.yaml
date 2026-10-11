@@ -21,6 +21,8 @@ security: []
 tags:
   - name: persone
     description: Persone e loro rapporti di lavoro
+  - name: aziende
+    description: Aziende (datori di lavoro)
   - name: rapporti
     description: Dettaglio rapporto (segnalazioni, riepilogo, mensilita'), note e CCNL
   - name: cedolini
@@ -36,7 +38,9 @@ paths:
       tags: [persone]
       operationId: elencoPersone
       summary: Elenco persone per la tendina
-      description: Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti.
+      description: |
+        Persone del workspace ordinate per cognome e nome. Lista vuota prima dei caricamenti. Usata anche
+        dall'inserimento a mano per scegliere una persona gia' in archivio.
       responses:
         '200':
           description: Elenco persone
@@ -67,6 +71,24 @@ paths:
         '400': { $ref: '#/components/responses/RichiestaNonValida' }
         '404': { $ref: '#/components/responses/NonTrovato' }
 
+  /api/v1/aziende:
+    get:
+      tags: [aziende]
+      operationId: elencoAziende
+      summary: Elenco aziende per la scelta del datore di lavoro
+      description: |
+        Aziende del workspace ordinate per ragione sociale (senza distinzione tra maiuscole e minuscole), poi per id,
+        con l'etichetta anti-omonimia calcolata su tutte le aziende del workspace. L'inserimento a mano la usa per
+        scegliere un'azienda gia' in archivio invece di riscriverne i dati. Lista vuota prima dei caricamenti.
+      responses:
+        '200':
+          description: Elenco aziende
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AziendaSelezionabile' }
+
   /api/v1/rapporti/{rapportoId}:
     get:
       tags: [rapporti]
@@ -74,7 +96,8 @@ paths:
       summary: Dettaglio di un rapporto (3 aree)
       description: |
         Tutto cio' che serve al dettaglio azienda: segnalazioni, riepilogo, CCNL, note e lista mensilita' gia' unita
-        (cedolini presenti + mensilita' mancanti) e ordinata in ordine cronologico inverso.
+        (cedolini presenti + mensilita' mancanti + mensilita' con un file caricato in errore, IN_ERRORE) e ordinata in
+        ordine cronologico inverso.
       parameters:
         - $ref: '#/components/parameters/RapportoId'
       responses:
@@ -275,6 +298,192 @@ paths:
         '400': { $ref: '#/components/responses/RichiestaNonValida' }
         '404': { $ref: '#/components/responses/NonTrovato' }
 
+  /api/v1/caricamenti/in-errore:
+    get:
+      tags: [caricamenti]
+      operationId: caricamentiInErrore
+      summary: Cedolini caricati con errore ancora da risolvere
+      description: |
+        Un elemento per file (stesso contenuto = stesso file): l'ultimo tentativo concluso del file e' in ERRORE e il
+        file non e' archiviato come cedolino. Dal piu' recente; senza limite.
+      responses:
+        '200':
+          description: File in errore
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CaricamentoInErrore' }
+
+  /api/v1/caricamenti/{caricamentoId}:
+    delete:
+      tags: [caricamenti]
+      operationId: rimuoviCaricamentoInErrore
+      summary: Rimuove un file in errore (tentativi in errore, PDF conservato e associazione)
+      description: |
+        Elimina tutti i caricamenti in ERRORE dello stesso file, il PDF conservato e l'eventuale associazione a una
+        mensilita'. 409 se il file non e' in errore o se un nuovo tentativo e' in corso.
+      parameters:
+        - $ref: '#/components/parameters/CaricamentoId'
+      responses:
+        '204':
+          description: File rimosso
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+
+  /api/v1/caricamenti/{caricamentoId}/pdf:
+    get:
+      tags: [caricamenti]
+      operationId: scaricaPdfCaricamento
+      summary: PDF originale conservato di un file in errore
+      description: |
+        Il PDF come caricato (anche se protetto da password), con il nome originale nell'header Content-Disposition
+        (`filename` e `filename*` RFC 5987, come per i cedolini). 404 se il PDF non e' conservato.
+      parameters:
+        - $ref: '#/components/parameters/CaricamentoId'
+      responses:
+        '200':
+          description: PDF come caricato (anche se protetto), con il nome originale
+          headers:
+            Content-Disposition:
+              description: 'attachment; filename="cedolino.pdf"; filename*=UTF-8''''cedolino.pdf'
+              schema: { type: string }
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+
+  /api/v1/caricamenti/{caricamentoId}/rilettura:
+    post:
+      tags: [caricamenti]
+      operationId: rileggiCaricamento
+      summary: Rilegge il PDF conservato in un nuovo lotto (eventualmente con la password)
+      description: |
+        Registra un nuovo caricamento dello stesso file (stato IN_CODA) in un nuovo lotto, da seguire in polling su
+        `GET /api/v1/caricamenti/lotti/{lotto}`. La password vale solo per questa lettura: mai salvata ne' registrata
+        nei log. 409 se il file non e' in errore, se un nuovo tentativo e' in corso o se il PDF non e' conservato.
+      parameters:
+        - $ref: '#/components/parameters/CaricamentoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RichiestaRilettura' }
+      responses:
+        '202':
+          description: Lotto registrato (polling su /api/v1/caricamenti/lotti/{lotto})
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LottoCaricamento' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+
+  /api/v1/caricamenti/{caricamentoId}/attribuzione:
+    put:
+      tags: [caricamenti]
+      operationId: associaCaricamento
+      summary: Associa un file in errore a una mensilita' di un rapporto
+      description: |
+        La mensilita' (anno + mese 1..14) passa da "mancante" a "con cedolino in errore". Sostituisce l'eventuale
+        associazione precedente del file. 409 se per quella mensilita' esiste gia' un cedolino o un altro file
+        associato.
+      parameters:
+        - $ref: '#/components/parameters/CaricamentoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RichiestaAttribuzione' }
+      responses:
+        '200':
+          description: File aggiornato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaricamentoInErrore' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+    delete:
+      tags: [caricamenti]
+      operationId: rimuoviAssociazioneCaricamento
+      summary: Rimuove l'associazione del file in errore a una mensilita'
+      parameters:
+        - $ref: '#/components/parameters/CaricamentoId'
+      responses:
+        '200':
+          description: File aggiornato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaricamentoInErrore' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+
+  /api/v1/caricamenti/{caricamentoId}/cedolino/verifica:
+    post:
+      tags: [caricamenti]
+      operationId: verificaCedolinoManuale
+      summary: Prova l'inserimento a mano senza salvare (competenza, conflitti, nuove anagrafiche, avvisi)
+      description: |
+        Esegue l'acquisizione vera e propria e la annulla: nessun dato viene salvato. 400 con `errori` (percorsi
+        dello schema CedolinoManuale) se mancano dati obbligatori o ci sono valori non validi (importi e quantita'
+        con al massimo 8 cifre intere e 5 decimali); un errore generale (`campo` null) se un valore calcolato
+        dall'acquisizione supera i limiti dell'archivio. 400 anche sul campo `personaId` o `aziendaId` se
+        l'anagrafica scelta non e' (piu') in archivio, e su `dipendente.codiceFiscale`,
+        `datoreLavoro.partitaIva`, `datoreLavoro.codiceFiscale`, `datoreLavoro.posizioneInps` o
+        `datoreLavoro.ragioneSociale` se una persona o un'azienda "nuova" (id null) e' gia' in archivio: va scelta
+        dall'elenco. 404 se il caricamento non esiste; 409 se il file non e' piu' in errore, il PDF non e'
+        conservato o e' in corso un nuovo tentativo.
+      parameters:
+        - $ref: '#/components/parameters/CaricamentoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CedolinoManuale' }
+      responses:
+        '200':
+          description: Esito della prova
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificaCedolinoManuale' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+
+  /api/v1/caricamenti/{caricamentoId}/cedolino:
+    post:
+      tags: [caricamenti]
+      operationId: inserisciCedolinoManuale
+      summary: Inserisce a mano il cedolino di un file in errore (stesso percorso dei lettori)
+      description: |
+        I dati seguono lo stesso percorso dei cedolini letti dai PDF (censimento, competenza, duplicati, ricalcolo);
+        il PDF conservato diventa il PDF del cedolino. Persona e azienda scelte dall'elenco (`personaId`,
+        `aziendaId`) sono usate esattamente: il cedolino va al loro rapporto (creato se manca). 400 con `errori`
+        come nella verifica; 409 se il cedolino risulta un duplicato o un aggiuntivo non gestito (il file resta in
+        errore).
+      parameters:
+        - $ref: '#/components/parameters/CaricamentoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CedolinoManuale' }
+      responses:
+        '201':
+          description: Cedolino acquisito; il caricamento e' ACQUISITO
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Caricamento' }
+        '400': { $ref: '#/components/responses/RichiestaNonValida' }
+        '404': { $ref: '#/components/responses/NonTrovato' }
+        '409': { $ref: '#/components/responses/Conflitto' }
+
   /api/v1/ccnl:
     get:
       tags: [ccnl]
@@ -304,6 +513,11 @@ components:
       schema: { type: integer, format: int64, minimum: 1 }
     CedolinoId:
       name: cedolinoId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    CaricamentoId:
+      name: caricamentoId
       in: path
       required: true
       schema: { type: integer, format: int64, minimum: 1 }
@@ -358,6 +572,39 @@ components:
     FonteDato:
       type: string
       enum: [DATA_CONTRATTUALE, CEDOLINI, CCNL, NON_DISPONIBILE]
+    CategoriaVoce:
+      description: Categoria di una voce del cedolino (area tematica del dettaglio)
+      type: string
+      enum:
+        - COMPETENZA
+        - TRATTENUTA_PREVIDENZIALE
+        - TRATTENUTA_FISCALE
+        - ALTRA_TRATTENUTA
+        - NON_RETRIBUTIVA
+        - PRESENZA
+        - INFORMATIVA
+    MotivoErrore:
+      description: |
+        Motivo di un caricamento in ERRORE. Inseribili a mano e rileggibili (PDF conservato): PDF_PROTETTO,
+        PDF_SENZA_TESTO, LAYOUT_NON_RICONOSCIUTO, LETTURA_NON_RIUSCITA, DATI_INCOMPLETI, PDF_TROPPO_GRANDE,
+        SERVIZIO_NON_DISPONIBILE, INTERROTTO, ERRORE_IMPREVISTO. Mai conservato: PDF_NON_VALIDO (file danneggiato o
+        non PDF), PDF_TROPPE_PAGINE, PIU_CEDOLINI (piu' cedolini nello stesso PDF). INTERROTTO dal riavvio conserva
+        il PDF solo se un tentativo precedente lo aveva gia' conservato (es. una nuova lettura interrotta): fa fede
+        `pdfDisponibile`.
+      type: string
+      enum:
+        - PDF_PROTETTO
+        - PDF_SENZA_TESTO
+        - LAYOUT_NON_RICONOSCIUTO
+        - LETTURA_NON_RIUSCITA
+        - DATI_INCOMPLETI
+        - PDF_TROPPO_GRANDE
+        - SERVIZIO_NON_DISPONIBILE
+        - INTERROTTO
+        - ERRORE_IMPREVISTO
+        - PDF_NON_VALIDO
+        - PDF_TROPPE_PAGINE
+        - PIU_CEDOLINI
 
     Problema:
       description: Problem Details (RFC 9457)
@@ -369,6 +616,27 @@ components:
         status: { type: integer }
         detail: { type: [string, 'null'] }
         instance: { type: [string, 'null'] }
+        errori:
+          description: |
+            Errori sui singoli campi (solo nelle risposte 400 dell'inserimento a mano, della sua verifica e
+            dell'associazione a una mensilita'); assente negli altri errori
+          oneOf:
+            - type: array
+              items: { $ref: '#/components/schemas/ErroreCampo' }
+            - type: 'null'
+
+    ErroreCampo:
+      type: object
+      required: [campo, messaggio]
+      properties:
+        campo:
+          description: |
+            Percorso nello schema della richiesta (es. totali.netto, voci[2].descrizione, personaId, mese); null per
+            un errore generale
+          type: [string, 'null']
+        messaggio:
+          description: Messaggio per l'utente (non ripete mai i valori inviati)
+          type: string
 
     Competenza:
       description: |
@@ -393,12 +661,16 @@ components:
     # ---------------------------------------------------------------- persone e rapporti
     PersonaSintesi:
       type: object
-      required: [id, nome, cognome, codiceFiscale, etichetta]
+      required: [id, nome, cognome, codiceFiscale, dataNascita, etichetta]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         nome: { type: string }
         cognome: { type: string }
         codiceFiscale: { type: string }
+        dataNascita:
+          description: Data di nascita, se nota (precompila l'inserimento a mano)
+          type: [string, 'null']
+          format: date
         etichetta:
           description: '"Nome Cognome"; in caso di omonimia "Nome Cognome (CODICEFISCALE)"'
           type: string
@@ -432,6 +704,27 @@ components:
         codiceFiscale: { type: [string, 'null'] }
         posizioneInps: { type: [string, 'null'] }
         indirizzo: { type: [string, 'null'] }
+
+    AziendaSelezionabile:
+      description: Voce dell'elenco aziende (scelta del datore di lavoro nell'inserimento a mano)
+      type: object
+      required: [id, ragioneSociale, partitaIva, codiceFiscale, posizioneInps, indirizzo, codiceAzienda, etichetta]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        ragioneSociale: { type: string }
+        partitaIva: { type: [string, 'null'] }
+        codiceFiscale: { type: [string, 'null'] }
+        posizioneInps:
+          description: Matricola INPS come registrata (normalizzata a 10 cifre quando presenti)
+          type: [string, 'null']
+        indirizzo: { type: [string, 'null'] }
+        codiceAzienda: { type: [string, 'null'] }
+        etichetta:
+          description: |
+            Ragione sociale; solo in caso di omonimia tra le aziende del workspace si aggiunge un identificativo:
+            "Ragione sociale (P.IVA 01234567890)", in mancanza di partita IVA "(CF ...)", poi "(Pos. INPS ...)"
+          type: string
+          examples: ['Alfa Software S.r.l.']
 
     RapportoSintesi:
       type: object
@@ -537,7 +830,9 @@ components:
             - $ref: '#/components/schemas/Riepilogo'
             - type: 'null'
         mensilita:
-          description: Cedolini presenti e mensilita' mancanti, in ordine cronologico inverso
+          description: |
+            Cedolini presenti, mensilita' mancanti e mensilita' con un file caricato in errore (IN_ERRORE), in ordine
+            cronologico inverso
           type: array
           items: { $ref: '#/components/schemas/RigaMensilita' }
 
@@ -554,6 +849,7 @@ components:
             - TREDICESIMA_MANCANTE
             - QUATTORDICESIMA_MANCANTE
             - FINE_RAPPORTO_MANCANTE
+            - CEDOLINO_IN_ERRORE
             - FONDO_TFR_IN_CALO
             - SCATTI_IN_CALO
             - PROGRESSIVI_IN_CALO
@@ -814,8 +1110,11 @@ components:
     RigaMensilita:
       description: |
         Riga della lista mensilita'. `stato = PRESENTE`: cedolino caricato, espandibile (dettaglio da
-        `GET /api/v1/cedolini/{cedolinoId}`). `stato = MANCANTE`: mensilita' attesa ma assente, riga con bordo
-        arancione, solo titolo, non espandibile (cedolinoId e importi null).
+        `GET /api/v1/cedolini/{cedolinoId}`). `stato = IN_ERRORE`: nessun cedolino ma un file in errore associato
+        dall'utente (riga rossa, `caricamentoId` del file, cedolinoId e importi null). `stato = MANCANTE`: mensilita'
+        attesa ma assente, nessun cedolino e nessun file associato; riga con bordo arancione, solo titolo, non
+        espandibile (cedolinoId e importi null). Per la stessa chiave: PRESENTE prevale su IN_ERRORE, IN_ERRORE su
+        MANCANTE.
         Ordine cronologico inverso: la tredicesima segue dicembre del suo anno, la quattordicesima segue il mese di
         pagamento del CCNL (giugno se non noto), i cedolini di fine rapporto seguono il loro periodo di retribuzione
         nell'ordine del progressivo.
@@ -833,13 +1132,15 @@ components:
         - scattoInBusta
         - aumentoFuoriScatti
         - nomeFile
+        - caricamentoId
+        - motivoErrore
       properties:
         chiave:
           description: Univoca nella lista (uguale a competenza.chiave)
           type: string
         stato:
           type: string
-          enum: [PRESENTE, MANCANTE]
+          enum: [PRESENTE, MANCANTE, IN_ERRORE]
         titolo:
           description: |
             Pronto per la UI: "Gennaio 2024", "Tredicesima 2024", "Quattordicesima 2024",
@@ -875,6 +1176,16 @@ components:
         nomeFile:
           description: Nome normalizzato del PDF
           type: [string, 'null']
+        caricamentoId:
+          description: File in errore associato alla mensilita' (solo IN_ERRORE)
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        motivoErrore:
+          description: Motivo dell'errore del file associato (solo IN_ERRORE; null anche se non registrato)
+          oneOf:
+            - $ref: '#/components/schemas/MotivoErrore'
+            - type: 'null'
 
     SaldoRateoCedolino:
       type: object
@@ -977,6 +1288,35 @@ components:
         divisoreOrario: { type: [number, 'null'] }
         divisoreGiornaliero: { type: [number, 'null'] }
 
+    TotaliCedolino:
+      type: object
+      required: [lordo, totaleCompetenze, totaleTrattenute, arrotondamento, netto]
+      properties:
+        lordo: { type: [number, 'null'] }
+        totaleCompetenze: { type: [number, 'null'] }
+        totaleTrattenute: { type: [number, 'null'] }
+        arrotondamento:
+          description: Puo' essere negativo
+          type: [number, 'null']
+        netto: { type: [number, 'null'] }
+
+    BuoniPastoCedolino:
+      type: object
+      required: [presenti, numero, valoreUnitario, importo]
+      properties:
+        presenti: { type: boolean }
+        numero: { type: [number, 'null'] }
+        valoreUnitario: { type: [number, 'null'] }
+        importo: { type: [number, 'null'] }
+
+    ProgressiviCedolino:
+      type: object
+      required: [imponibilePrevidenziale, imponibileIrpef, irpefTrattenuta]
+      properties:
+        imponibilePrevidenziale: { type: [number, 'null'] }
+        imponibileIrpef: { type: [number, 'null'] }
+        irpefTrattenuta: { type: [number, 'null'] }
+
     CedolinoDettaglio:
       description: Dettaglio della busta per aree tematiche
       type: object
@@ -991,6 +1331,7 @@ components:
         - nomeFile
         - acquisitoIl
         - confidenza
+        - inseritoAMano
         - campiNonTrovati
         - avvisiEstrazione
         - inquadramento
@@ -1025,8 +1366,11 @@ components:
         nomeFile: { type: string }
         acquisitoIl: { type: string, format: date-time }
         confidenza:
-          description: Confidenza complessiva dell'estrazione (0..1)
+          description: Confidenza complessiva dell'estrazione (0..1); null per i cedolini inseriti a mano
           type: [number, 'null']
+        inseritoAMano:
+          description: Cedolino inserito a mano per un file in errore (nessuna lettura del PDF)
+          type: boolean
         campiNonTrovati:
           type: array
           items: { type: string }
@@ -1046,17 +1390,7 @@ components:
             ccnlTesto: { type: [string, 'null'] }
             dataAssunzione: { type: [string, 'null'], format: date }
             dataCessazione: { type: [string, 'null'], format: date }
-        totali:
-          type: object
-          required: [lordo, totaleCompetenze, totaleTrattenute, arrotondamento, netto]
-          properties:
-            lordo: { type: [number, 'null'] }
-            totaleCompetenze: { type: [number, 'null'] }
-            totaleTrattenute: { type: [number, 'null'] }
-            arrotondamento:
-              description: Puo' essere negativo
-              type: [number, 'null']
-            netto: { type: [number, 'null'] }
+        totali: { $ref: '#/components/schemas/TotaliCedolino' }
         elementiRetributivi: { $ref: '#/components/schemas/ElementiRetributiviCedolino' }
         presenze:
           description: Area presenze (riepilogo + voci di presenza/assenza)
@@ -1101,21 +1435,8 @@ components:
           properties:
             numeroScatti: { type: [integer, 'null'] }
             prossimoScatto: { type: [string, 'null'], format: date }
-        buoniPasto:
-          type: object
-          required: [presenti, numero, valoreUnitario, importo]
-          properties:
-            presenti: { type: boolean }
-            numero: { type: [number, 'null'] }
-            valoreUnitario: { type: [number, 'null'] }
-            importo: { type: [number, 'null'] }
-        progressivi:
-          type: object
-          required: [imponibilePrevidenziale, imponibileIrpef, irpefTrattenuta]
-          properties:
-            imponibilePrevidenziale: { type: [number, 'null'] }
-            imponibileIrpef: { type: [number, 'null'] }
-            irpefTrattenuta: { type: [number, 'null'] }
+        buoniPasto: { $ref: '#/components/schemas/BuoniPastoCedolino' }
+        progressivi: { $ref: '#/components/schemas/ProgressiviCedolino' }
         contieneTredicesima: { type: boolean }
         contieneQuattordicesima: { type: boolean }
 
@@ -1126,11 +1447,11 @@ components:
       description: |
         IN_CODA, IN_LETTURA: in elaborazione. ACQUISITO: salvato. DUPLICATO: scartato perche' gia' presente.
         AGGIUNTIVO_NON_GESTITO: stesso mese di un cedolino presente ma contenuto diverso (premi/arretrati), scartato.
-        ERRORE: vedi messaggio.
+        ERRORE: vedi `messaggio` e `motivo`; i file ancora in errore sono in `GET /api/v1/caricamenti/in-errore`.
 
     Caricamento:
       type: object
-      required: [id, lotto, nomeFileOriginale, dimensione, stato, messaggio, cedolinoId, cedolinoEsistenteId, personaId, rapportoId, creatoIl, aggiornatoIl]
+      required: [id, lotto, nomeFileOriginale, dimensione, stato, messaggio, motivo, pdfDisponibile, cedolinoId, cedolinoEsistenteId, personaId, rapportoId, creatoIl, aggiornatoIl]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         lotto: { type: string, format: uuid }
@@ -1143,6 +1464,14 @@ components:
         messaggio:
           description: Motivo per ERRORE, DUPLICATO, AGGIUNTIVO_NON_GESTITO
           type: [string, 'null']
+        motivo:
+          description: Motivo dell'errore (solo ERRORE; null negli altri stati e negli errori di versioni precedenti)
+          oneOf:
+            - $ref: '#/components/schemas/MotivoErrore'
+            - type: 'null'
+        pdfDisponibile:
+          description: true solo per ERRORE con il PDF originale conservato (file inseribile a mano e rileggibile)
+          type: boolean
         cedolinoId:
           description: Cedolino creato (ACQUISITO)
           oneOf:
@@ -1181,3 +1510,327 @@ components:
         caricamenti:
           type: array
           items: { $ref: '#/components/schemas/Caricamento' }
+
+    # ---------------------------------------------------------------- cedolini caricati con errore
+    CaricamentoInErrore:
+      description: |
+        File in errore (stesso contenuto = stesso file): l'ultimo tentativo concluso del file, in ERRORE, e il file non
+        e' archiviato come cedolino. `id` e' il caricamento da usare nelle azioni su
+        `/api/v1/caricamenti/{caricamentoId}`.
+      type: object
+      required:
+        - id
+        - lotto
+        - nomeFileOriginale
+        - dimensione
+        - motivo
+        - messaggio
+        - pdfDisponibile
+        - inElaborazione
+        - attribuzione
+        - creatoIl
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        lotto: { type: string, format: uuid }
+        nomeFileOriginale: { type: string }
+        dimensione:
+          description: Byte
+          type: integer
+          format: int64
+        motivo:
+          description: null per gli errori delle versioni precedenti (il PDF non e' conservato)
+          oneOf:
+            - $ref: '#/components/schemas/MotivoErrore'
+            - type: 'null'
+        messaggio:
+          description: Messaggio dell'errore per l'utente (mai dati personali)
+          type: string
+        pdfDisponibile:
+          description: PDF conservato, inseribile a mano e rileggibile
+          type: boolean
+        inElaborazione:
+          description: Un nuovo tentativo dello stesso file e' in corso (azioni non disponibili)
+          type: boolean
+        attribuzione:
+          description: Mensilita' a cui l'utente ha associato il file; null se non associato
+          oneOf:
+            - $ref: '#/components/schemas/AttribuzioneCaricamento'
+            - type: 'null'
+        creatoIl: { type: string, format: date-time }
+
+    AttribuzioneCaricamento:
+      type: object
+      required: [rapportoId, personaId, persona, azienda, competenza, titolo, competenzaPresente]
+      properties:
+        rapportoId: { $ref: '#/components/schemas/Id' }
+        personaId: { $ref: '#/components/schemas/Id' }
+        persona:
+          description: Etichetta della persona (come PersonaSintesi.etichetta)
+          type: string
+        azienda:
+          description: Etichetta del rapporto (come RapportoSintesi.etichetta)
+          type: string
+        competenza: { $ref: '#/components/schemas/Competenza' }
+        titolo:
+          description: Titolo della mensilita' pronto per la UI
+          type: string
+          examples: ['Maggio 2023']
+        competenzaPresente:
+          description: Nel frattempo e' stato acquisito un cedolino per questa mensilita'
+          type: boolean
+
+    RichiestaAttribuzione:
+      type: object
+      required: [rapportoId, anno, mese]
+      properties:
+        rapportoId: { $ref: '#/components/schemas/Id' }
+        anno: { type: integer, minimum: 1900, maximum: 2999 }
+        mese:
+          description: 1..12, 13 tredicesima, 14 quattordicesima
+          type: integer
+          minimum: 1
+          maximum: 14
+
+    RichiestaRilettura:
+      type: object
+      required: [password]
+      properties:
+        password:
+          description: |
+            Password di apertura del PDF protetto (null se non serve). Il backend prova questa, poi le password
+            configurate e i codici fiscali delle persone censite. Mai salvata ne' registrata nei log.
+          type: [string, 'null']
+          format: password
+          writeOnly: true
+          maxLength: 200
+
+    VerificaCedolinoManuale:
+      description: |
+        Esito della prova di inserimento a mano. ACQUISIBILE: il cedolino puo' essere salvato con la competenza
+        indicata. DUPLICATO, AGGIUNTIVO_NON_GESTITO: il salvataggio verrebbe rifiutato (vedi `messaggio` e
+        `cedolinoEsistenteId`).
+      type: object
+      required:
+        - esito
+        - messaggio
+        - competenza
+        - titolo
+        - nuovaPersona
+        - nuovaAzienda
+        - nuovoRapporto
+        - rapportoId
+        - cedolinoEsistenteId
+        - avvisi
+      properties:
+        esito:
+          type: string
+          enum: [ACQUISIBILE, DUPLICATO, AGGIUNTIVO_NON_GESTITO]
+        messaggio:
+          description: Motivo per DUPLICATO e AGGIUNTIVO_NON_GESTITO
+          type: [string, 'null']
+        competenza:
+          description: Competenza con cui verrebbe registrato (solo ACQUISIBILE)
+          oneOf:
+            - $ref: '#/components/schemas/Competenza'
+            - type: 'null'
+        titolo:
+          description: Titolo della competenza pronto per la UI (solo ACQUISIBILE)
+          type: [string, 'null']
+          examples: ['Maggio 2023']
+        nuovaPersona:
+          description: Verrebbe creata una nuova persona (non scelta dall'elenco, `personaId` null)
+          type: boolean
+        nuovaAzienda:
+          description: Verrebbe creata una nuova azienda (non scelta dall'elenco, `aziendaId` null)
+          type: boolean
+        nuovoRapporto:
+          description: Verrebbe creato un nuovo rapporto di lavoro (sempre, se la persona o l'azienda sono nuove)
+          type: boolean
+        rapportoId:
+          description: Rapporto esistente a cui andrebbe il cedolino; null se nuovo o non ACQUISIBILE
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        cedolinoEsistenteId:
+          description: Cedolino gia' presente con cui confligge (DUPLICATO, AGGIUNTIVO_NON_GESTITO)
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        avvisi:
+          description: |
+            Controlli di coerenza non superati e avvisi sul contesto (non bloccanti), in quest'ordine: periodo
+            diverso dal mese associato al file, persona o azienda diverse da quelle del mese associato, nuova
+            persona, nuova azienda, nuovo rapporto tra persona e azienda gia' in archivio. Vuoto se nessuno
+          type: array
+          items: { type: string }
+
+    # ---------------------------------------------------------------- inserimento a mano
+    CedolinoManuale:
+      description: |
+        Cedolino inserito a mano per un file in errore: stessi campi e percorsi dello schema di lettura
+        (prompts/cedolino-schema-v1.json) con tipi JSON, piu' la persona e l'azienda scelte dall'elenco
+        (`personaId`, `aziendaId`); null = non stampato; liste mai null. Obbligatori (400 con `errori` se mancanti):
+        periodo.anno/mese/tipo, dipendente.codiceFiscale/nome/cognome (se `personaId` e' null),
+        datoreLavoro.ragioneSociale (se `aziendaId` e' null), totali.totaleCompetenze/totaleTrattenute/netto.
+      type: object
+      required:
+        - personaId
+        - aziendaId
+        - dipendente
+        - datoreLavoro
+        - datiContrattuali
+        - periodo
+        - totali
+        - retribuzione
+        - voci
+        - ratei
+        - tfr
+        - presenze
+        - scatti
+        - buoniPasto
+        - progressivi
+        - contieneTredicesima
+        - contieneQuattordicesima
+      properties:
+        personaId:
+          description: |
+            Persona gia' in archivio scelta dall'elenco (GET /api/v1/persone); null = nuova persona ("Crea nuovo").
+            Se indicata, codice fiscale, nome, cognome e (se nota) data di nascita sono quelli in archivio: i valori
+            inviati in `dipendente` per questi campi sono ignorati. Con null, un codice fiscale gia' in archivio e'
+            un errore: la persona va scelta dall'elenco.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        aziendaId:
+          description: |
+            Azienda gia' in archivio scelta dall'elenco (GET /api/v1/aziende); null = nuova azienda ("Crea nuova"). Se
+            indicata, ragione sociale, partita IVA, codice fiscale e posizione INPS sono quelli in archivio (i valori
+            inviati sono ignorati) e il cedolino va proprio a questa azienda; indirizzo, codice azienda e posizione
+            INAIL restano quelli inviati. Con null, dati che il censimento abbinerebbe a un'azienda gia' in archivio
+            (partita IVA, codice fiscale, posizione INPS o ragione sociale) sono un errore: l'azienda va scelta
+            dall'elenco.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        dipendente: { $ref: '#/components/schemas/DipendenteManuale' }
+        datoreLavoro: { $ref: '#/components/schemas/DatoreLavoroManuale' }
+        datiContrattuali: { $ref: '#/components/schemas/DatiContrattualiManuali' }
+        periodo: { $ref: '#/components/schemas/PeriodoManuale' }
+        totali: { $ref: '#/components/schemas/TotaliCedolino' }
+        retribuzione: { $ref: '#/components/schemas/ElementiRetributiviCedolino' }
+        voci:
+          description: Voci nell'ordine del cedolino
+          type: array
+          items: { $ref: '#/components/schemas/VoceManuale' }
+        ratei:
+          description: Al piu' un rateo per tipo e unita'
+          type: array
+          items: { $ref: '#/components/schemas/RateoCedolino' }
+        tfr:
+          description: null se il cedolino non riporta dati TFR
+          oneOf:
+            - $ref: '#/components/schemas/TfrCedolino'
+            - type: 'null'
+        presenze: { $ref: '#/components/schemas/PresenzeManuali' }
+        scatti: { $ref: '#/components/schemas/ScattiManuali' }
+        buoniPasto: { $ref: '#/components/schemas/BuoniPastoCedolino' }
+        progressivi: { $ref: '#/components/schemas/ProgressiviCedolino' }
+        contieneTredicesima: { type: boolean }
+        contieneQuattordicesima: { type: boolean }
+
+    DipendenteManuale:
+      type: object
+      required: [codiceFiscale, nome, cognome, dataNascita, codiceDipendente]
+      properties:
+        codiceFiscale:
+          description: 16 caratteri, oppure 11 cifre (codice provvisorio, con avviso)
+          type: [string, 'null']
+        nome: { type: [string, 'null'] }
+        cognome: { type: [string, 'null'] }
+        dataNascita: { type: [string, 'null'], format: date }
+        codiceDipendente: { type: [string, 'null'] }
+
+    DatoreLavoroManuale:
+      type: object
+      required: [codiceFiscale, partitaIva, posizioneInps, posizioneInail, ragioneSociale, indirizzo, codiceAzienda]
+      properties:
+        codiceFiscale:
+          description: 11 cifre o 16 caratteri
+          type: [string, 'null']
+        partitaIva:
+          description: 11 cifre (prefisso IT facoltativo)
+          type: [string, 'null']
+        posizioneInps: { type: [string, 'null'] }
+        posizioneInail: { type: [string, 'null'] }
+        ragioneSociale: { type: [string, 'null'] }
+        indirizzo: { type: [string, 'null'] }
+        codiceAzienda: { type: [string, 'null'] }
+
+    DatiContrattualiManuali:
+      type: object
+      required: [dataAssunzione, dataCessazione, qualifica, livello, ccnl, codiceCnel]
+      properties:
+        dataAssunzione: { type: [string, 'null'], format: date }
+        dataCessazione: { type: [string, 'null'], format: date }
+        qualifica: { type: [string, 'null'] }
+        livello: { type: [string, 'null'] }
+        ccnl:
+          description: CCNL come stampato sul cedolino (testo libero)
+          type: [string, 'null']
+        codiceCnel: { type: [string, 'null'] }
+
+    PeriodoManuale:
+      type: object
+      required: [anno, mese, tipo, dataElaborazione, meseVariabili]
+      properties:
+        anno: { type: [integer, 'null'] }
+        mese:
+          description: Mese di riferimento 1..12 (tredicesima e quattordicesima si indicano con `tipo`)
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 12
+        tipo:
+          oneOf:
+            - $ref: '#/components/schemas/TipoMensilita'
+            - type: 'null'
+        dataElaborazione: { type: [string, 'null'], format: date }
+        meseVariabili:
+          description: Mese a cui si riferiscono le voci variabili, se stampato
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+
+    VoceManuale:
+      type: object
+      required: [codice, descrizione, categoria, quantita, unita, base, importoCompetenza, importoTrattenuta]
+      properties:
+        codice: { type: [string, 'null'] }
+        descrizione: { type: [string, 'null'] }
+        categoria:
+          oneOf:
+            - $ref: '#/components/schemas/CategoriaVoce'
+            - type: 'null'
+        quantita: { type: [number, 'null'] }
+        unita:
+          description: Unita' della quantita' come stampata (ore, giorni, km, %...)
+          type: [string, 'null']
+        base:
+          description: Base o tariffa unitaria
+          type: [number, 'null']
+        importoCompetenza: { type: [number, 'null'] }
+        importoTrattenuta: { type: [number, 'null'] }
+
+    PresenzeManuali:
+      type: object
+      required: [giorniLavorati, oreLavorate, giorniRetribuiti]
+      properties:
+        giorniLavorati: { type: [number, 'null'] }
+        oreLavorate: { type: [number, 'null'] }
+        giorniRetribuiti: { type: [number, 'null'] }
+
+    ScattiManuali:
+      type: object
+      required: [numeroScatti, dataProssimoScatto]
+      properties:
+        numeroScatti: { type: [integer, 'null'] }
+        dataProssimoScatto: { type: [string, 'null'], format: date }

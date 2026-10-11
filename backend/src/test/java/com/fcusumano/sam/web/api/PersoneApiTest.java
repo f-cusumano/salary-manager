@@ -1,6 +1,7 @@
 package com.fcusumano.sam.web.api;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -18,6 +19,7 @@ import com.fcusumano.sam.anagrafica.PersonaSintesi;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.anagrafica.RapportoSintesi;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -38,10 +40,11 @@ class PersoneApiTest extends ApiWebMvcTest {
     @Test
     void etichetteDellePersoneConCodiceFiscaleSoloPerGliOmonimi() throws Exception {
         when(anagrafica.elencoPersone()).thenReturn(List.of(
-                new PersonaSintesi(new PersonaId(4), "Laura", "Bianchi", "BNCLRA85M41F205X", "Laura Bianchi"),
-                new PersonaSintesi(new PersonaId(1), "Mario", "Rossi", "RSSMRA80A01H501U",
+                new PersonaSintesi(new PersonaId(4), "Laura", "Bianchi", "BNCLRA85M41F205X", LocalDate.of(1985, 8, 1),
+                        "Laura Bianchi"),
+                new PersonaSintesi(new PersonaId(1), "Mario", "Rossi", "RSSMRA80A01H501U", null,
                         "Mario Rossi (RSSMRA80A01H501U)"),
-                new PersonaSintesi(new PersonaId(2), "Mario", "Rossi", "RSSMRA85C12F205M",
+                new PersonaSintesi(new PersonaId(2), "Mario", "Rossi", "RSSMRA85C12F205M", LocalDate.of(1985, 3, 12),
                         "Mario Rossi (RSSMRA85C12F205M)")));
 
         mvc.perform(get("/api/v1/persone"))
@@ -51,7 +54,10 @@ class PersoneApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$[0].id").value(4))
                 .andExpect(jsonPath("$[0].nome").value("Laura"))
                 .andExpect(jsonPath("$[0].cognome").value("Bianchi"))
-                .andExpect(jsonPath("$[0].codiceFiscale").value("BNCLRA85M41F205X"));
+                .andExpect(jsonPath("$[0].codiceFiscale").value("BNCLRA85M41F205X"))
+                .andExpect(jsonPath("$[0].dataNascita").value("1985-08-01"))
+                .andExpect(jsonPath("$[1]").value(hasKey("dataNascita")))
+                .andExpect(jsonPath("$[1].dataNascita").value(nullValue()));
     }
 
     @Test

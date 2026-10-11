@@ -11,6 +11,7 @@ import com.fcusumano.sam.calcoli.RiepilogoRapporto.IndicatoriMensilita;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
 import com.fcusumano.sam.ccnl.Ccnl;
 import com.fcusumano.sam.cedolini.ArchivioCedolini;
+import com.fcusumano.sam.cedolini.CaricamentiInErrore;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.segnalazioni.SegnalazioniRapporto;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
@@ -27,7 +28,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Compone le viste dei rapporti a partire dalle API pubbliche di anagrafica, CCNL, cedolini, calcoli e segnalazioni.
+ * Compone le viste dei rapporti a partire dalle API pubbliche di anagrafica, CCNL, cedolini (anche i file in errore
+ * associati alle mensilita'), calcoli e segnalazioni.
  * Se calcoli e segnalazioni non hanno ancora dati per il rapporto, il dettaglio ha riepilogo null e liste vuote.
  * Le letture avvengono in un'unica transazione di sola lettura, per una vista coerente.
  */
@@ -40,14 +42,17 @@ class ComposizioneRapporti {
     private final ConsultazioneAnagrafica anagrafica;
     private final CatalogoCcnl catalogoCcnl;
     private final ArchivioCedolini archivio;
+    private final CaricamentiInErrore caricamentiInErrore;
     private final CalcoliRapporto calcoli;
     private final SegnalazioniRapporto segnalazioni;
 
     ComposizioneRapporti(ConsultazioneAnagrafica anagrafica, CatalogoCcnl catalogoCcnl, ArchivioCedolini archivio,
-                         CalcoliRapporto calcoli, SegnalazioniRapporto segnalazioni) {
+                         CaricamentiInErrore caricamentiInErrore, CalcoliRapporto calcoli,
+                         SegnalazioniRapporto segnalazioni) {
         this.anagrafica = anagrafica;
         this.catalogoCcnl = catalogoCcnl;
         this.archivio = archivio;
+        this.caricamentiInErrore = caricamentiInErrore;
         this.calcoli = calcoli;
         this.segnalazioni = segnalazioni;
     }
@@ -85,6 +90,7 @@ class ComposizioneRapporti {
         var ccnl = Optional.ofNullable(rapporto.ccnlCodice()).flatMap(catalogoCcnl::trova);
         var riepilogo = calcoli.riepilogo(id);
         var mensilita = ListaMensilita.componi(archivio.sintesiDiRapporto(id), segnalazioni.mensilitaMancanti(id),
+                caricamentiInErrore.associatiARapporto(id),
                 riepilogo.map(ComposizioneRapporti::indicatoriPerCedolino).orElse(Map.of()),
                 ccnl.map(Ccnl::meseQuattordicesima).orElse(null));
         return new RapportoDettaglioDto(
@@ -114,7 +120,7 @@ class ComposizioneRapporti {
                 .findFirst()
                 .map(Mappatura::persona)
                 .orElseGet(() -> new PersonaSintesiDto(persona.id().valore(), persona.nome(), persona.cognome(),
-                        persona.codiceFiscale(), persona.nomeCompleto()));
+                        persona.codiceFiscale(), persona.dataNascita(), persona.nomeCompleto()));
     }
 
     private static Map<CedolinoId, IndicatoriMensilita> indicatoriPerCedolino(RiepilogoRapporto riepilogo) {
