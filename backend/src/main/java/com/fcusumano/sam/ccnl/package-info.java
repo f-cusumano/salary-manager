@@ -3,7 +3,7 @@
  * e riconoscimento del CCNL dal testo stampato sul cedolino.
  * <p>
  * API pubblica: {@link com.fcusumano.sam.ccnl.CatalogoCcnl}, {@link com.fcusumano.sam.ccnl.Ccnl}.
- * Tabelle proprie: {@code ccnl}.
+ * Tabelle proprie: {@code ccnl}, {@code ccnl_preavviso}.
  */
 @ApplicationModule(displayName = "CCNL", allowedDependencies = "shared")
 package com.fcusumano.sam.ccnl;

@@ -426,6 +426,17 @@ export interface components {
       | 'BANCA_ORE'
       | 'RATEI_TREDICESIMA'
       | 'RATEI_QUATTORDICESIMA';
+    /**
+     * @description VERIFICATO = termini trovati tra quelli verificati del CCNL; gli altri valori spiegano perche' il preavviso non e' determinabile
+     * @enum {string}
+     */
+    StatoPreavviso:
+      | 'VERIFICATO'
+      | 'CCNL_DA_INDICARE'
+      | 'CCNL_NON_VERIFICATO'
+      | 'LIVELLO_NON_INDICATO'
+      | 'LIVELLO_NON_RICONOSCIUTO'
+      | 'ANZIANITA_NON_DETERMINABILE';
     /** @enum {string} */
     FontePeriodo: 'DATA_CONTRATTUALE' | 'CEDOLINI' | 'NON_DISPONIBILE';
     /** @enum {string} */
@@ -659,6 +670,8 @@ export interface components {
       tfr: components['schemas']['TfrRiepilogo'];
       /** @description Stima "Se andassi via oggi": solo per il rapporto attuale o per l'ultimo rapporto della persona finche' il TFR non e' liquidato; null altrimenti */
       liquidazione: components['schemas']['Liquidazione'] | null;
+      /** @description Termini di preavviso del CCNL, solo per il rapporto attuale in corso; null altrimenti */
+      preavviso: components['schemas']['Preavviso'] | null;
     };
     Anzianita: {
       dal: components['schemas']['Mese'] | null;
@@ -780,6 +793,35 @@ export interface components {
       netto: components['schemas']['Importo'] | null;
       /** @description Base del calcolo o motivo per cui l'importo non e' stimabile */
       nota: string | null;
+    };
+    /** @description Preavviso dal CCNL per livello e anzianita' all'ultimo cedolino, con l'indennita' sostitutiva stimata (lorda) se il preavviso non e' lavorato. Con stato diverso da VERIFICATO termini e indennita' sono null. */
+    Preavviso: {
+      stato: components['schemas']['StatoPreavviso'];
+      /** @description Livello come stampato sui cedolini */
+      livello: string | null;
+      /** @description Gruppo di livelli del CCNL che comprende il livello */
+      gruppoLivelli: string | null;
+      /** @description Fascia di anzianita' applicata (es. "fino a 5 anni") */
+      fascia: string | null;
+      /** @description Mese da cui si applica la fascia successiva; null se ultima o non determinabile */
+      prossimaFascia: components['schemas']['Mese'] | null;
+      /** @description Preavviso dovuto dal lavoratore che si dimette */
+      dimissioni: components['schemas']['DurataPreavviso'] | null;
+      /** @description Preavviso dovuto dall'azienda che licenzia */
+      licenziamento: components['schemas']['DurataPreavviso'] | null;
+      /** @description Stima lorda trattenuta se ti dimetti senza lavorare il preavviso */
+      indennitaDimissioni: components['schemas']['Importo'] | null;
+      /** @description Stima lorda pagata dall'azienda se licenzia senza far lavorare il preavviso */
+      indennitaLicenziamento: components['schemas']['Importo'] | null;
+      /** @description Articolo del CCNL */
+      riferimento: string | null;
+      /** @description Base del calcolo o motivo per cui il preavviso non e' determinabile */
+      nota: string | null;
+    };
+    /** @description Durata del preavviso in mesi e giorni di calendario (es. 1 mese e 15 giorni) */
+    DurataPreavviso: {
+      mesi: number;
+      giorni: number;
     };
     /**
      * @description Riga della lista mensilita'. `stato = PRESENTE`: cedolino caricato, espandibile (dettaglio da

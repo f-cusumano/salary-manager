@@ -8,11 +8,14 @@ import {
   IconCash,
   IconFileText,
   IconNotes,
+  IconHourglass,
   IconPigMoney,
 } from '@tabler/icons-react';
 import { useId, type ReactNode } from 'react';
 import type {
+  DurataPreavviso,
   Liquidazione,
+  Preavviso,
   RapportoDettaglio,
   Riepilogo,
   RigaMensilita,
@@ -22,6 +25,7 @@ import type {
 import {
   formatAnzianita,
   formatData,
+  formatDurataPreavviso,
   formatImporto,
   formatIstante,
   formatMese,
@@ -43,8 +47,9 @@ interface Props {
 }
 
 /**
- * Area riepilogo: anzianità e scatti, retribuzione, contratto, note, ferie/permessi (solo azienda attuale), TFR e
- * stima della liquidazione (azienda attuale o ultima azienda finché il TFR non è liquidato).
+ * Area riepilogo: anzianità e scatti, retribuzione, contratto, note, ferie/permessi (solo azienda attuale), TFR,
+ * preavviso (solo azienda attuale in corso) e stima della liquidazione (azienda attuale o ultima azienda finché il TFR
+ * non è liquidato).
  */
 export function RiepilogoArea({ rapporto }: Props) {
   const idTitolo = useId();
@@ -94,6 +99,7 @@ export function RiepilogoArea({ rapporto }: Props) {
         </Blocco>
         {riepilogo && rapporto.attuale && <BloccoFerie saldi={riepilogo.ratei.saldi} />}
         {riepilogo && <BloccoTfr riepilogo={riepilogo} attuale={rapporto.attuale} />}
+        {riepilogo?.preavviso && <BloccoPreavviso preavviso={riepilogo.preavviso} />}
         {riepilogo?.liquidazione && <BloccoLiquidazione liquidazione={riepilogo.liquidazione} />}
       </SimpleGrid>
     </section>
@@ -518,6 +524,73 @@ function BloccoLiquidazione({ liquidazione }: { liquidazione: Liquidazione }) {
             {liquidazione.nota}
           </Text>
         </>
+      )}
+    </Blocco>
+  );
+}
+
+function durata(d: DurataPreavviso | null): string {
+  return d ? formatDurataPreavviso(d.mesi, d.giorni) : testi.comune.nonDisponibile;
+}
+
+/** Termini di preavviso del CCNL per livello e anzianità, con l'indennità sostitutiva se non lavorato. */
+function BloccoPreavviso({ preavviso: p }: { preavviso: Preavviso }) {
+  const verificato = p.stato === 'VERIFICATO';
+  return (
+    <Blocco titolo={t.preavviso} icona={<IconHourglass size={18} aria-hidden />}>
+      {verificato ? (
+        <>
+          <Text size="sm" c="dimmed">
+            {[p.gruppoLivelli, p.fascia && `${t.preavvisoAnzianita} ${p.fascia}`].filter(Boolean).join(' · ')}
+          </Text>
+          <ElencoValori
+            righe={[
+              { etichetta: t.preavvisoDimissioni, valore: durata(p.dimissioni), enfasi: true },
+              { etichetta: t.preavvisoLicenziamento, valore: durata(p.licenziamento), enfasi: true },
+            ]}
+          />
+          {(p.indennitaDimissioni !== null || p.indennitaLicenziamento !== null) && (
+            <>
+              <Title order={5} size="sm" mt="md" mb={4} c="dimmed" fw={600}>
+                {t.preavvisoNonLavorato}
+              </Title>
+              <ElencoValori
+                righe={[
+                  p.indennitaDimissioni !== null && {
+                    etichetta: t.preavvisoTrattenuta,
+                    valore: (
+                      <Stima spiegazione={p.nota ?? t.preavvisoIndennitaTooltip}>
+                        {formatImporto(p.indennitaDimissioni)}
+                      </Stima>
+                    ),
+                  },
+                  p.indennitaLicenziamento !== null && {
+                    etichetta: t.preavvisoIndennita,
+                    valore: (
+                      <Stima spiegazione={p.nota ?? t.preavvisoIndennitaTooltip}>
+                        {formatImporto(p.indennitaLicenziamento)}
+                      </Stima>
+                    ),
+                  },
+                ]}
+              />
+            </>
+          )}
+          <Text size="xs" c="dimmed" mt="xs">
+            {[
+              p.prossimaFascia && `${t.preavvisoProssimaFascia} ${formatMese(p.prossimaFascia)}.`,
+              p.riferimento && `${t.preavvisoCcnl}: ${p.riferimento}.`,
+              t.preavvisoEsclusioni,
+              p.indennitaDimissioni === null && p.nota,
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          </Text>
+        </>
+      ) : (
+        <Text size="sm" c="dimmed">
+          {p.nota}
+        </Text>
       )}
     </Blocco>
   );

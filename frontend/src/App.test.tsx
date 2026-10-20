@@ -172,6 +172,34 @@ describe('barra superiore e selezione persona', () => {
     expect(screen.queryByRole('region', { name: 'Se andassi via oggi' })).not.toBeInTheDocument();
   });
 
+  it('mostra il preavviso del CCNL per livello e anzianità, con l’indennità se non lavorato', async () => {
+    const { user } = renderConMock(<App />);
+    await selezionaPersona(user, 'Mario Rossi');
+
+    const sezione = await screen.findByRole('region', { name: 'Preavviso' });
+    expect(within(sezione).getByText('Quadri e 1° livello · anzianità fino a 5 anni')).toBeInTheDocument();
+    expect(within(sezione).getByText('Se ti dimetti').nextElementSibling).toHaveTextContent('45 giorni');
+    expect(within(sezione).getByText('Se l’azienda ti licenzia').nextElementSibling).toHaveTextContent(
+      '60 giorni',
+    );
+    expect(within(sezione).getByText('5.010,22 €')).toBeInTheDocument();
+    expect(within(sezione).getByText('6.680,29 €')).toBeInTheDocument();
+    expect(
+      within(sezione).getByText(/^Fascia successiva da Marzo 2027\. CCNL: Art\. 247/),
+    ).toBeInTheDocument();
+
+    await selezionaPersona(user, 'Laura Bianchi');
+    const daIndicare = await screen.findByRole('region', { name: 'Preavviso' });
+    expect(
+      within(daIndicare).getByText('Indica il CCNL del rapporto per conoscere il preavviso.'),
+    ).toBeInTheDocument();
+
+    await selezionaPersona(user, 'Mario Rossi');
+    await user.click(await screen.findByRole('button', { name: /Beta Consulting/ }));
+    expect(await screen.findByText('3 anni e 6 mesi')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Preavviso' })).not.toBeInTheDocument();
+  });
+
   it('marca come stime scatti e quota TFR non stampati, con la spiegazione nel tooltip', async () => {
     const { user } = renderConMock(<App />);
     await selezionaPersona(user, 'Laura Bianchi');

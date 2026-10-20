@@ -1,6 +1,7 @@
 package com.fcusumano.sam.ccnl.application;
 
 import com.fcusumano.sam.ccnl.Ccnl;
+import com.fcusumano.sam.ccnl.RegolaPreavviso;
 import com.fcusumano.sam.ccnl.domain.RegolaRiconoscimento;
 import java.util.List;
 import java.util.Optional;
@@ -18,4 +19,7 @@ public interface ArchivioCcnl {
 
     /** Regole di riconoscimento dei CCNL attivi. */
     List<RegolaRiconoscimento> regoleRiconoscimento();
+
+    /** Termini di preavviso del CCNL (tabella {@code ccnl_preavviso}). */
+    List<RegolaPreavviso> regolePreavviso(String codice);
 }

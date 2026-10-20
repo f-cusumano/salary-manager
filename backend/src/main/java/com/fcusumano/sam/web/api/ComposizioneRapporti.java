@@ -110,7 +110,8 @@ class ComposizioneRapporti {
                 rapporto.ccnlSceltoDaUtente(),
                 rapporto.note(),
                 segnalazioni.segnalazioni(id).stream().map(Mappatura::segnalazione).toList(),
-                riepilogo.map(r -> Mappatura.riepilogo(r, attuale, attuale || ultimoDellaPersona(dettaglio)))
+                riepilogo.map(r -> Mappatura.riepilogo(r, attuale, attuale || ultimoDellaPersona(dettaglio),
+                                calcoli.preavviso(id)))
                         .orElse(null),
                 mensilita);
     }

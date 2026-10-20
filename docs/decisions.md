@@ -1048,4 +1048,27 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      conta se lavorato per almeno 15 giorni. Ratei di quattordicesima solo per i CCNL a 14 mensilita': periodo di 12
      mesi che inizia nel mese di pagamento del CCNL (luglio: da luglio a giugno, come nel Commercio), pagamenti
      considerati solo se successivi all'inizio del periodo; mese ignoto = voce non stimabile. Preavviso considerato
-     lavorato: nessuna indennita' ne' trattenuta (il preavviso sara' esposto nel riepilogo dell'azienda, a parte).
+     lavorato: nessuna indennita' ne' trattenuta (il preavviso e' esposto nel riepilogo dell'azienda, a parte: 162-165).
+
+## Preavviso nel riepilogo dell'azienda
+
+162. **[utente] Preavviso nel riepilogo, non nella liquidazione**: blocco "Preavviso" del riepilogo, solo per il
+     rapporto attuale in corso (nessuna cessazione, TFR non liquidato), con i termini per dimissioni e licenziamento e
+     l'indennita' sostitutiva se il preavviso non e' lavorato (entrambe le versioni richieste dall'utente). La stima
+     "Se andassi via oggi" resta con il preavviso lavorato (161).
+163. **Termini solo se verificati su due fonti**: tabella `ccnl_preavviso` (changelog `260-ccnl-preavviso.sql`, fonti in
+     commento) per CCNL, gruppo di livelli e fascia di anzianita' (`oltre_anni` 0, 5, 10), in mesi e giorni di
+     calendario. Verificati: Commercio (artt. 247 e 254), Metalmeccanico industria (classificazione 2021 e vecchie
+     categorie), Studi professionali (art. 146), Turismo. Gli altri CCNL non hanno righe e il blocco dice "non ancora
+     verificati" (es. Telecomunicazioni: una sola fonte dopo il rinnovo 2025; Logistica: termini diversi per impiegati,
+     operai e viaggianti, non distinguibili dal livello; Commercio Confesercenti: nessuna fonte). Come per i parametri
+     CCNL (decisioni precedenti), un valore non verificato non e' inserito.
+164. **Livello e fascia**: il livello del rapporto (stampato sui cedolini) e' normalizzato (maiuscole, "quadro" = Q,
+     "super" = S, numeri romani in cifre, senza "livello"/"categoria") e cercato nei gruppi del CCNL; non trovato =
+     "livello non riconosciuto". Fascia = la soglia piu' alta superata dall'anzianita' all'ultimo cedolino (stessa
+     anzianita' del riepilogo, nessuna proiezione come per 158): "oltre 5 anni" vale da 5 anni e 1 mese. Il blocco
+     indica da quale mese si passa alla fascia successiva.
+165. **Indennita' sostitutiva stimata e lorda**: lordo mensile x mensilita' / 12 (ratei delle mensilita' aggiuntive) per
+     ogni mese di preavviso, / 30 per ogni giorno di calendario. Contributi e imposte (tassazione separata) non sono
+     stimati; voci variabili escluse. Calcolata in lettura (`CalcoloPreavviso`, da CCNL, livello e riepilogo salvato),
+     senza colonne nuove nel riepilogo: segue subito la tabella dei termini.

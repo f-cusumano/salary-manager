@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   etichettaCampoCedolino,
   formatAnzianita,
+  formatDurataPreavviso,
   formatData,
   formatDimensione,
   formatEtichettaRapporto,
@@ -106,6 +107,15 @@ describe('formatAnzianita', () => {
     expect(formatAnzianita(1, 1)).toBe('1 anno e 1 mese');
     expect(formatAnzianita(0, 5)).toBe('5 mesi');
     expect(formatAnzianita(0, 0)).toBe('meno di un mese');
+  });
+});
+
+describe('formatDurataPreavviso', () => {
+  it('compone mesi e giorni di calendario', () => {
+    expect(formatDurataPreavviso(0, 45)).toBe('45 giorni');
+    expect(formatDurataPreavviso(2, 0)).toBe('2 mesi');
+    expect(formatDurataPreavviso(1, 15)).toBe('1 mese e 15 giorni');
+    expect(formatDurataPreavviso(0, 1)).toBe('1 giorno');
   });
 });
 

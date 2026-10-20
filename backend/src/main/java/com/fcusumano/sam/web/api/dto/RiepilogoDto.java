@@ -1,6 +1,7 @@
 package com.fcusumano.sam.web.api.dto;
 
 import com.fcusumano.sam.calcoli.FonteDato;
+import com.fcusumano.sam.calcoli.StatoPreavviso;
 import com.fcusumano.sam.calcoli.TipoVoceLiquidazione;
 import com.fcusumano.sam.cedolini.TipoRateo;
 import com.fcusumano.sam.shared.UnitaMisura;
@@ -18,6 +19,7 @@ import java.util.List;
  * @param ratei      residui di ferie/permessi: esposti solo per il rapporto attuale (saldi vuoti altrimenti)
  * @param liquidazione stima "Se andassi via oggi": solo per il rapporto attuale o per l'ultimo rapporto della persona
  *                     finche' il TFR non e' liquidato; null altrimenti
+ * @param preavviso  termini di preavviso del CCNL: solo per il rapporto attuale in corso; null altrimenti
  */
 @Schema(name = "Riepilogo")
 public record RiepilogoDto(
@@ -28,7 +30,8 @@ public record RiepilogoDto(
         boolean buoniPasto,
         RateiRiepilogo ratei,
         TfrRiepilogo tfr,
-        Liquidazione liquidazione) {
+        Liquidazione liquidazione,
+        Preavviso preavviso) {
 
     @Schema(name = "Anzianita")
     public record Anzianita(
@@ -161,5 +164,36 @@ public record RiepilogoDto(
             BigDecimal imposte,
             BigDecimal netto,
             String nota) {
+    }
+
+    /**
+     * Preavviso dal CCNL per livello e anzianita' all'ultimo cedolino. Con stato diverso da VERIFICATO termini e
+     * indennita' sono null e la nota spiega il motivo.
+     *
+     * @param gruppoLivelli          gruppo di livelli del CCNL che comprende il livello
+     * @param fascia                 fascia di anzianita' applicata (es. "fino a 5 anni")
+     * @param prossimaFascia         mese da cui si applica la fascia successiva; null se ultima o non determinabile
+     * @param indennitaDimissioni    stima lorda trattenuta se ti dimetti senza lavorare il preavviso
+     * @param indennitaLicenziamento stima lorda pagata dall'azienda se licenzia senza far lavorare il preavviso
+     * @param riferimento            articolo del CCNL
+     */
+    @Schema(name = "Preavviso")
+    public record Preavviso(
+            StatoPreavviso stato,
+            String livello,
+            String gruppoLivelli,
+            String fascia,
+            YearMonth prossimaFascia,
+            DurataPreavviso dimissioni,
+            DurataPreavviso licenziamento,
+            BigDecimal indennitaDimissioni,
+            BigDecimal indennitaLicenziamento,
+            String riferimento,
+            String nota) {
+    }
+
+    /** Durata del preavviso in mesi e giorni di calendario (es. 1 mese e 15 giorni). */
+    @Schema(name = "DurataPreavviso")
+    public record DurataPreavviso(int mesi, int giorni) {
     }
 }

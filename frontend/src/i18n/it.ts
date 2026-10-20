@@ -34,6 +34,8 @@ export const it = {
     anni: 'anni',
     mese: 'mese',
     mesi: 'mesi',
+    giorno: 'giorno',
+    giorni: 'giorni',
     congiunzione: 'e',
     menoDiUnMese: 'meno di un mese',
   },
@@ -184,6 +186,19 @@ export const it = {
     liquidazioneMese: 'mese',
     liquidazioneMesi: 'mesi',
     liquidazioneDebito: 'da restituire',
+    preavviso: 'Preavviso',
+    preavvisoDimissioni: 'Se ti dimetti',
+    preavvisoLicenziamento: 'Se l’azienda ti licenzia',
+    preavvisoNonLavorato: 'Se il preavviso non è lavorato',
+    preavvisoTrattenuta: 'Ti dimetti senza preavviso: l’azienda trattiene',
+    preavvisoIndennita: 'Ti licenzia senza preavviso: l’azienda ti paga',
+    preavvisoIndennitaTooltip:
+      'Indennità sostitutiva del preavviso: la retribuzione del periodo di preavviso, al lordo di contributi e imposte.',
+    preavvisoAnzianita: 'anzianità',
+    preavvisoProssimaFascia: 'Fascia successiva da',
+    preavvisoEsclusioni:
+      'Non si applica durante il periodo di prova né in caso di giusta causa. Termini in giorni di calendario.',
+    preavvisoCcnl: 'CCNL',
     voceLiquidazione: {
       TFR: 'TFR in azienda',
       FERIE: 'Ferie',

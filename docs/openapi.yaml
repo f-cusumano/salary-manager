@@ -569,6 +569,18 @@ components:
     TipoVoceLiquidazione:
       type: string
       enum: [TFR, FERIE, PERMESSI, ROL, EX_FESTIVITA, BANCA_ORE, RATEI_TREDICESIMA, RATEI_QUATTORDICESIMA]
+    StatoPreavviso:
+      description: >-
+        VERIFICATO = termini trovati tra quelli verificati del CCNL; gli altri valori spiegano perche' il preavviso non
+        e' determinabile
+      type: string
+      enum:
+        - VERIFICATO
+        - CCNL_DA_INDICARE
+        - CCNL_NON_VERIFICATO
+        - LIVELLO_NON_INDICATO
+        - LIVELLO_NON_RICONOSCIUTO
+        - ANZIANITA_NON_DETERMINABILE
     FontePeriodo:
       type: string
       enum: [DATA_CONTRATTUALE, CEDOLINI, NON_DISPONIBILE]
@@ -897,7 +909,7 @@ components:
     # ---------------------------------------------------------------- riepilogo
     Riepilogo:
       type: object
-      required: [calcolatoIl, anzianita, scatti, retribuzione, buoniPasto, ratei, tfr, liquidazione]
+      required: [calcolatoIl, anzianita, scatti, retribuzione, buoniPasto, ratei, tfr, liquidazione, preavviso]
       properties:
         calcolatoIl: { type: string, format: date-time }
         anzianita: { $ref: '#/components/schemas/Anzianita' }
@@ -916,6 +928,11 @@ components:
             TFR non e' liquidato; null altrimenti
           oneOf:
             - $ref: '#/components/schemas/Liquidazione'
+            - type: 'null'
+        preavviso:
+          description: Termini di preavviso del CCNL, solo per il rapporto attuale in corso; null altrimenti
+          oneOf:
+            - $ref: '#/components/schemas/Preavviso'
             - type: 'null'
 
     Anzianita:
@@ -1199,6 +1216,74 @@ components:
         nota:
           description: Base del calcolo o motivo per cui l'importo non e' stimabile
           type: [string, 'null']
+
+    Preavviso:
+      description: >-
+        Preavviso dal CCNL per livello e anzianita' all'ultimo cedolino, con l'indennita' sostitutiva stimata (lorda)
+        se il preavviso non e' lavorato. Con stato diverso da VERIFICATO termini e indennita' sono null.
+      type: object
+      required:
+        - stato
+        - livello
+        - gruppoLivelli
+        - fascia
+        - prossimaFascia
+        - dimissioni
+        - licenziamento
+        - indennitaDimissioni
+        - indennitaLicenziamento
+        - riferimento
+        - nota
+      properties:
+        stato: { $ref: '#/components/schemas/StatoPreavviso' }
+        livello:
+          description: Livello come stampato sui cedolini
+          type: [string, 'null']
+        gruppoLivelli:
+          description: Gruppo di livelli del CCNL che comprende il livello
+          type: [string, 'null']
+        fascia:
+          description: Fascia di anzianita' applicata (es. "fino a 5 anni")
+          type: [string, 'null']
+        prossimaFascia:
+          description: Mese da cui si applica la fascia successiva; null se ultima o non determinabile
+          oneOf:
+            - $ref: '#/components/schemas/Mese'
+            - type: 'null'
+        dimissioni:
+          description: Preavviso dovuto dal lavoratore che si dimette
+          oneOf:
+            - $ref: '#/components/schemas/DurataPreavviso'
+            - type: 'null'
+        licenziamento:
+          description: Preavviso dovuto dall'azienda che licenzia
+          oneOf:
+            - $ref: '#/components/schemas/DurataPreavviso'
+            - type: 'null'
+        indennitaDimissioni:
+          description: Stima lorda trattenuta se ti dimetti senza lavorare il preavviso
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        indennitaLicenziamento:
+          description: Stima lorda pagata dall'azienda se licenzia senza far lavorare il preavviso
+          oneOf:
+            - $ref: '#/components/schemas/Importo'
+            - type: 'null'
+        riferimento:
+          description: Articolo del CCNL
+          type: [string, 'null']
+        nota:
+          description: Base del calcolo o motivo per cui il preavviso non e' determinabile
+          type: [string, 'null']
+
+    DurataPreavviso:
+      description: Durata del preavviso in mesi e giorni di calendario (es. 1 mese e 15 giorni)
+      type: object
+      required: [mesi, giorni]
+      properties:
+        mesi: { type: integer, minimum: 0 }
+        giorni: { type: integer, minimum: 0 }
 
     # ---------------------------------------------------------------- mensilita'
     RigaMensilita:

@@ -2,7 +2,7 @@
 
 Portale web per ricostruire e monitorare la situazione retributiva di più persone a partire dai loro **cedolini
 PDF**. I cedolini vengono letti, normalizzati, salvati a database e usati per calcolare riepiloghi (anzianità, scatti,
-RAL, TFR, ferie e permessi con stima del valore, stima della liquidazione "Se andassi via oggi") e per segnalare anomalie (mensilità mancanti, valori in calo senza
+RAL, TFR, ferie e permessi con stima del valore, stima della liquidazione "Se andassi via oggi", preavviso per CCNL, livello e anzianità) e per segnalare anomalie (mensilità mancanti, valori in calo senza
 causa nota, fondo TFR incoerente, ...). La lettura è fatta di default dal **lettore locale**, gratuito e offline, che
 interpreta il testo dei PDF dei layout supportati; per scansioni e layout sconosciuti si può usare **Claude** (API
 Anthropic, a pagamento). Vedi [Lettori dei cedolini](#lettori-dei-cedolini).

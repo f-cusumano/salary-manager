@@ -1132,6 +1132,21 @@ function rapportoMario1(db: MockDb): RapportoDettaglio {
         'all’aliquota marginale del 33% stimata sulla RAL al netto dei contributi, senza addizionali, detrazioni ' +
         'e conguaglio di fine anno.',
     },
+    preavviso: {
+      stato: 'VERIFICATO',
+      livello: '1',
+      gruppoLivelli: 'Quadri e 1° livello',
+      fascia: 'fino a 5 anni',
+      prossimaFascia: '2027-03',
+      dimissioni: { mesi: 0, giorni: 45 },
+      licenziamento: { mesi: 0, giorni: 60 },
+      indennitaDimissioni: 5010.22,
+      indennitaLicenziamento: 6680.29,
+      riferimento: 'Art. 247 (licenziamento) e 254 (dimissioni)',
+      nota:
+        'Indennità stimata sul lordo mensile di 2.862,98 € con i ratei delle mensilità aggiuntive (x 14 / 12), ' +
+        'al lordo di contributi e imposte. Anzianità all’ultimo cedolino.',
+    },
   };
 
   const mancante = righe.find((r) => r.stato === 'MANCANTE');
@@ -1302,6 +1317,7 @@ function rapportoMario2(db: MockDb): RapportoDettaglio {
         nettoLiquidato: 7699.6,
       },
       liquidazione: null,
+      preavviso: null,
     },
     mensilita: righe,
   };
@@ -1491,6 +1507,19 @@ function rapportoLaura(db: MockDb): RapportoDettaglio {
           'straordinari, premi e altre voci variabili. Contributi INPS al 9,19% (aliquota non stampata sul ' +
           'cedolino). IRPEF all’aliquota marginale del 23% stimata sulla RAL al netto dei contributi, senza ' +
           'addizionali, detrazioni e conguaglio di fine anno.',
+      },
+      preavviso: {
+        stato: 'CCNL_DA_INDICARE',
+        livello: '3',
+        gruppoLivelli: null,
+        fascia: null,
+        prossimaFascia: null,
+        dimissioni: null,
+        licenziamento: null,
+        indennitaDimissioni: null,
+        indennitaLicenziamento: null,
+        riferimento: null,
+        nota: 'Indica il CCNL del rapporto per conoscere il preavviso.',
       },
     },
     mensilita: righe,

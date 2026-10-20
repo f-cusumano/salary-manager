@@ -1,14 +1,18 @@
 package com.fcusumano.sam.calcoli.application;
 
 import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
+import com.fcusumano.sam.anagrafica.RapportoLavoroDettaglio;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.calcoli.CalcoliRapporto;
+import com.fcusumano.sam.calcoli.Preavviso;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto;
 import com.fcusumano.sam.calcoli.domain.CalcolatoreRiepilogo;
+import com.fcusumano.sam.calcoli.domain.CalcoloPreavviso;
 import com.fcusumano.sam.calcoli.domain.ContestoRapporto;
 import com.fcusumano.sam.calcoli.domain.ParametriCalcolo;
 import com.fcusumano.sam.calcoli.domain.ProiezioneTfr;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
+import com.fcusumano.sam.ccnl.RegolaPreavviso;
 import com.fcusumano.sam.cedolini.ArchivioCedolini;
 import com.fcusumano.sam.shared.CurrentWorkspaceProvider;
 import java.time.Clock;
@@ -58,6 +62,25 @@ class CalcoliRapportoService implements CalcoliRapporto {
     @Transactional(readOnly = true)
     public Optional<RiepilogoRapporto> riepilogo(RapportoLavoroId rapportoId) {
         return repository.trova(workspaceProvider.corrente(), rapportoId).map(this::conTfrAdOggi);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Preavviso> preavviso(RapportoLavoroId rapportoId) {
+        var rapporto = anagrafica.dettaglioRapporto(rapportoId)
+                .filter(d -> d.periodo().attuale() && d.rapporto().dataCessazione() == null)
+                .map(RapportoLavoroDettaglio::rapporto);
+        var riepilogo = repository.trova(workspaceProvider.corrente(), rapportoId)
+                .filter(r -> r.anzianita() == null || r.anzianita().inCorso())
+                .filter(r -> !r.tfr().liquidato());
+        if (rapporto.isEmpty() || riepilogo.isEmpty()) {
+            return Optional.empty();
+        }
+        var r = rapporto.get();
+        var ccnl = Optional.ofNullable(r.ccnlCodice()).flatMap(catalogo::trova).orElse(null);
+        var regole = ccnl == null ? List.<RegolaPreavviso>of() : catalogo.preavviso(ccnl.codice());
+        return Optional.of(CalcoloPreavviso.calcola(ccnl, r.livello(), riepilogo.get().anzianita(),
+                riepilogo.get().retribuzione(), regole));
     }
 
     /** Il riepilogo con il TFR proiettato al mese corrente, se il rapporto e' attuale (in corso, ultimo della persona). */

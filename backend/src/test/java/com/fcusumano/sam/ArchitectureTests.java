@@ -32,7 +32,7 @@ class ArchitectureTests {
     static final Map<String, Set<String>> TABELLE_PER_MODULO = Map.of(
             "shared", Set.of("Workspace"),
             "anagrafica", Set.of("Persona", "Azienda", "RapportoLavoro"),
-            "ccnl", Set.of("Ccnl"),
+            "ccnl", Set.of("Ccnl", "CcnlPreavviso"),
             "cedolini", Set.of("Cedolino", "CedolinoPdf", "CedolinoVoce", "CedolinoElementoRetributivo",
                     "CedolinoRateo", "CedolinoTfr", "CedolinoDati", "Caricamento", "CaricamentoPdf",
                     "CaricamentoAttribuzione"),

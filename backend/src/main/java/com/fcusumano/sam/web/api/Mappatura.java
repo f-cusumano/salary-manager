@@ -7,8 +7,10 @@ import com.fcusumano.sam.anagrafica.Azienda;
 import com.fcusumano.sam.anagrafica.AziendaSelezionabile;
 import com.fcusumano.sam.anagrafica.PeriodoRapporto;
 import com.fcusumano.sam.anagrafica.PersonaSintesi;
+import com.fcusumano.sam.calcoli.Preavviso;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto;
 import com.fcusumano.sam.ccnl.Ccnl;
+import com.fcusumano.sam.ccnl.DurataPreavviso;
 import com.fcusumano.sam.cedolini.BuoniPasto;
 import com.fcusumano.sam.cedolini.Caricamento;
 import com.fcusumano.sam.cedolini.CaricamentoInErrore;
@@ -47,6 +49,7 @@ import com.fcusumano.sam.web.api.dto.VoceDto;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -114,9 +117,11 @@ final class Mappatura {
     /**
      * Riepilogo per la UI. I residui di ferie/permessi sono esposti solo per il rapporto attuale: per gli altri la
      * lista dei saldi e' vuota (e il cedolino di riferimento null), come previsto dal contratto. La liquidazione stimata
-     * e' esposta solo se richiesto (rapporto attuale o ultimo della persona) e se si applica.
+     * e' esposta solo se richiesto (rapporto attuale o ultimo della persona) e se si applica; il preavviso solo se
+     * presente (rapporto attuale in corso).
      */
-    static RiepilogoDto riepilogo(RiepilogoRapporto r, boolean rapportoAttuale, boolean conLiquidazione) {
+    static RiepilogoDto riepilogo(RiepilogoRapporto r, boolean rapportoAttuale, boolean conLiquidazione,
+                                  Optional<Preavviso> preavviso) {
         var a = r.anzianita();
         var s = r.scatti();
         var rt = r.retribuzione();
@@ -141,7 +146,18 @@ final class Mappatura {
                         euro(t.quotaInAzienda()), euro(t.quotaFondi()), euro(t.quotaBusta()), euro(t.anticipi()),
                         euro(t.stimaNetto()), esatto(t.aliquotaStimata()), t.stimato(), t.riferimento(), t.nota(),
                         t.quotaMensileStimata(), t.liquidato(), euro(t.importoLiquidato()), euro(t.nettoLiquidato())),
-                conLiquidazione && r.liquidazione().presente() ? liquidazione(r.liquidazione()) : null);
+                conLiquidazione && r.liquidazione().presente() ? liquidazione(r.liquidazione()) : null,
+                preavviso.map(Mappatura::preavviso).orElse(null));
+    }
+
+    private static RiepilogoDto.Preavviso preavviso(Preavviso p) {
+        return new RiepilogoDto.Preavviso(p.stato(), p.livello(), p.gruppoLivelli(), p.fascia(), p.prossimaFascia(),
+                durata(p.dimissioni()), durata(p.licenziamento()), euro(p.indennitaDimissioni()),
+                euro(p.indennitaLicenziamento()), p.riferimento(), p.nota());
+    }
+
+    private static RiepilogoDto.DurataPreavviso durata(DurataPreavviso d) {
+        return d == null ? null : new RiepilogoDto.DurataPreavviso(d.mesi(), d.giorni());
     }
 
     private static RiepilogoDto.Liquidazione liquidazione(RiepilogoRapporto.Liquidazione l) {
