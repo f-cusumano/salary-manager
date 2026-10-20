@@ -129,6 +129,17 @@ salary-manager:
     # decompressione): oltre, il PDF e' trattato come danneggiato
     limite-decompressione: 100MB
 
+  # Password dei PDF protetti indicate dall'utente: quelle che aprono un PDF vengono ricordate, cifrate con AES-256-GCM,
+  # e provate sui PDF protetti caricati in seguito (dopo password-candidate, prima dei codici fiscali)
+  password-pdf:
+    # Chiave di cifratura (base64 di 32 byte, es. "openssl rand -base64 32"). Solo da variabile d'ambiente o file .env,
+    # mai in file versionati. Se vuota si usa il file qui sotto
+    chiave: ${SAM_PASSWORD_PDF_CHIAVE:}
+    # File della chiave, creato al primo uso con una chiave casuale se non esiste: di default accanto al database (nel
+    # volume con Docker). Se si perde o cambia la chiave, le password ricordate non sono piu' leggibili e vanno
+    # indicate di nuovo (i PDF gia' sbloccati restano sbloccati)
+    file-chiave: ${SAM_PASSWORD_PDF_FILE_CHIAVE:${salary-manager.database.path}-chiave-password-pdf.key}
+
   storage:
     # Segnaposto: {anno}, {mese} (01..14 oppure TFR01, TFR02, ...), {idAzienda}, {idPersona}
     nome-file-pattern: "{anno}.{mese}_{idAzienda}_{idPersona}.pdf"

@@ -13,8 +13,8 @@ public record RichiestaRiletturaDto(
         @Schema(type = "string", format = "password", maxLength = LUNGHEZZA_MASSIMA_PASSWORD,
                 accessMode = Schema.AccessMode.WRITE_ONLY,
                 description = "Password di apertura del PDF protetto (null se non serve). Il backend prova questa, "
-                        + "poi le password configurate e i codici fiscali delle persone censite. Mai salvata ne' "
-                        + "registrata nei log.")
+                        + "poi le password configurate, quelle ricordate e i codici fiscali delle persone censite. Se "
+                        + "apre il PDF viene ricordata cifrata; mai registrata nei log.")
         String password) {
 
     /** Come la password del caricamento (validata con le stesse regole). */

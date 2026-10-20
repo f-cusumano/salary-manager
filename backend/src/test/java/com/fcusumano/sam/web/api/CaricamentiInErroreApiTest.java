@@ -324,6 +324,22 @@ class CaricamentiInErroreApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.detail").value("Corpo della richiesta mancante o non valido (JSON atteso)."));
     }
 
+    @Test
+    void riletturaDeiFileProtettiInUnNuovoLottoO204SeNonCeNe() throws Exception {
+        when(caricamentiInErrore.rileggiProtetti()).thenReturn(List.of(inCoda(50), inCoda(51)));
+
+        mvc.perform(post("/api/v1/caricamenti/in-errore/rilettura-protetti"))
+                .andExpect(status().isAccepted())
+                .andExpect(header().string(HttpHeaders.LOCATION, endsWith("/api/v1/caricamenti/lotti/" + NUOVO_LOTTO)))
+                .andExpect(jsonPath("$.lotto").value(NUOVO_LOTTO.toString()))
+                .andExpect(jsonPath("$.caricamenti.length()").value(2));
+
+        when(caricamentiInErrore.rileggiProtetti()).thenReturn(List.of());
+        mvc.perform(post("/api/v1/caricamenti/in-errore/rilettura-protetti"))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+    }
+
     // ------------------------------------------------------------------------------------------ associazione
 
     @Test

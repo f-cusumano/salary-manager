@@ -211,6 +211,70 @@ describe('elenco dei cedolini caricati con errore', () => {
     expect(screen.getByRole('button', { name: `${TITOLO_AREA_IN_ERRORE} (2)` })).toBeInTheDocument();
   });
 
+  it('dopo la password giusta propone di provarla sugli altri cedolini protetti', async () => {
+    const { user } = renderConMock(<App intervalloPollingMs={POLLING_TEST_MS} />, { datiIniziali: 'errori' });
+    const caricati = await caricaFile(user, 'protetto-febbraio.pdf');
+    await user.click(within(caricati).getByRole('button', { name: 'Chiudi' }));
+    const area = await areaInErrore();
+    await waitFor(() => expect(rigaInErrore(area, 'protetto-febbraio.pdf')).toBeInTheDocument());
+
+    await user.click(
+      within(rigaInErrore(area, 'cedolino-protetto.pdf')).getByRole('button', {
+        name: 'Riprova con password',
+      }),
+    );
+    const rilettura = await screen.findByRole('dialog', {
+      name: 'Riprova con password · cedolino-protetto.pdf',
+    });
+    await user.type(within(rilettura).getByLabelText('Password del PDF'), 'segreta');
+    await user.click(within(rilettura).getByRole('button', { name: 'Rileggi' }));
+
+    const domanda = await screen.findByRole('dialog', { name: 'Password corretta' }, { timeout: 3000 });
+    expect(
+      within(domanda).getByText(
+        /C’è un altro cedolino protetto da password: vuoi provarla anche su quello\?/,
+      ),
+    ).toBeInTheDocument();
+    expect(within(domanda).getByText(/resta ricordata \(cifrata\)/)).toBeInTheDocument();
+    await user.click(within(domanda).getByRole('button', { name: 'Prova anche sugli altri' }));
+
+    const modale = await screen.findByRole('dialog', { name: 'Carica cedolini' });
+    await waitFor(
+      () => expect(within(modale).getByRole('listitem')).toHaveTextContent(/protetto-febbraio\.pdfAcquisito/),
+      { timeout: 3000 },
+    );
+    await waitFor(() =>
+      expect(within(area).queryByRole('listitem', { name: /protetto/ })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('con «Solo questo» gli altri cedolini protetti restano in errore', async () => {
+    const { user } = renderConMock(<App intervalloPollingMs={POLLING_TEST_MS} />, { datiIniziali: 'errori' });
+    const caricati = await caricaFile(user, 'protetto-febbraio.pdf');
+    await user.click(within(caricati).getByRole('button', { name: 'Chiudi' }));
+    const area = await areaInErrore();
+    await waitFor(() => expect(rigaInErrore(area, 'protetto-febbraio.pdf')).toBeInTheDocument());
+
+    await user.click(
+      within(rigaInErrore(area, 'cedolino-protetto.pdf')).getByRole('button', {
+        name: 'Riprova con password',
+      }),
+    );
+    const rilettura = await screen.findByRole('dialog', {
+      name: 'Riprova con password · cedolino-protetto.pdf',
+    });
+    await user.type(within(rilettura).getByLabelText('Password del PDF'), 'segreta');
+    await user.click(within(rilettura).getByRole('button', { name: 'Rileggi' }));
+    const domanda = await screen.findByRole('dialog', { name: 'Password corretta' }, { timeout: 3000 });
+    await user.click(within(domanda).getByRole('button', { name: 'Solo questo' }));
+
+    await waitFor(() => expect(domanda).not.toBeInTheDocument());
+    expect(rigaInErrore(area, 'protetto-febbraio.pdf')).toBeInTheDocument();
+    expect(
+      within(area).queryByRole('listitem', { name: 'cedolino-protetto.pdf: Caricato con errore' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('durante la rilettura il file resta in elenco con le azioni disabilitate', async () => {
     // polling lento: il nuovo tentativo resta in lettura per tutto il test
     const { user } = renderConMock(<App intervalloPollingMs={60_000} />, { datiIniziali: 'errori' });

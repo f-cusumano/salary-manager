@@ -6,7 +6,7 @@ import { useApiClient } from '../api/context';
 import { messaggioErrore } from '../api/errors';
 import { invalidaSeFileInErroreCambiato } from '../api/invalidazioni';
 import { chiavi, rileggiCaricamento, useCaricamentiInErrore } from '../api/queries';
-import type { CaricamentoInErrore } from '../api/types';
+import type { CaricamentoInErrore, LottoCaricamento } from '../api/types';
 import type { StatoCaricamentoLotto } from '../hooks/useCaricamento';
 import { testi } from '../i18n';
 import { MotivoErroreBadge } from './MotivoErroreBadge';
@@ -19,8 +19,12 @@ interface Props {
   /** Caricamento della radice: la rilettura e' un nuovo lotto, seguito come un invio. */
   caricamento: StatoCaricamentoLotto;
   onChiudi: () => void;
-  /** Lotto registrato: la radice mostra la modale di caricamento con lo stato del file. */
-  onAvviata: () => void;
+  /**
+   * Lotto registrato: la radice mostra la modale di caricamento con lo stato del file.
+   *
+   * @param conPassword il file era protetto da password e ne e' stata indicata una
+   */
+  onAvviata: (lotto: LottoCaricamento, conPassword: boolean) => void;
 }
 
 /** Nuova lettura del PDF conservato di un file in errore, con la password se il PDF è protetto. */
@@ -79,7 +83,7 @@ function ContenutoRilettura({ caricamentoId, elemento, caricamento, onChiudi, on
       segui(lotto);
       // il file risulta subito "in elaborazione" nell'elenco; alla fine del lotto viene riletto con il resto
       void queryClient.invalidateQueries({ queryKey: chiavi.caricamentiInErrore });
-      onAvviata();
+      onAvviata(lotto, protetto && password.length > 0);
     },
     // file inserito, rimosso o gia' in rilettura nel frattempo: l'elenco mostrato e' superato
     onError: (errore) => void invalidaSeFileInErroreCambiato(queryClient, errore),
