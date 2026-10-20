@@ -13,6 +13,8 @@
 #   ANTHROPIC_API_KEY            chiave API Anthropic (solo con SAM_LETTORE=claude)
 #   SAM_AI_MODEL, SAM_AI_EFFORT  modello ed effort di Claude (default dell'applicazione se non indicati)
 #   SAM_PDF_PASSWORD_CANDIDATE   password da provare sui PDF protetti, separate da virgola
+#   SAM_PASSWORD_PDF_CHIAVE      chiave (base64 di 32 byte) delle password dei PDF ricordate; senza, la chiave viene
+#                                creata nel volume accanto al database
 #   SAM_JAVA_OPTS                opzioni della JVM del backend
 #   SAM_FRONTEND_PORT            porta dell'applicazione sull'host (default 8081)
 #   SAM_BACKEND_PORT             porta delle API e di Swagger UI sull'host (default 8080)
@@ -41,6 +43,7 @@ services:
       SAM_LETTORE: ${SAM_LETTORE:-locale}
       # Letta dal segnaposto di salary-manager.pdf.password-candidate in application.yml (lista separata da virgole)
       SAM_PDF_PASSWORD_CANDIDATE: ${SAM_PDF_PASSWORD_CANDIDATE:-}
+      SAM_PASSWORD_PDF_CHIAVE: ${SAM_PASSWORD_PDF_CHIAVE:-}
       # Nomi host ammessi nell'header Host (protezione dal DNS rebinding); nginx inoltra l'Host del browser
       SAM_ALLOWED_HOSTS: ${SAM_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1],::1}
       # Database H2 nel volume (file /data/salary-manager.mv.db)

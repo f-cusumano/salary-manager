@@ -307,6 +307,7 @@ const ROTTE = {
   caricamenti: /^\/api\/v1\/caricamenti$/,
   lotto: /^\/api\/v1\/caricamenti\/lotti\/([0-9a-f-]+)$/,
   inErrore: /^\/api\/v1\/caricamenti\/in-errore$/,
+  riletturaProtetti: /^\/api\/v1\/caricamenti\/in-errore\/rilettura-protetti$/,
   fileInErrore: /^\/api\/v1\/caricamenti\/(\d+)$/,
   pdfCaricamento: /^\/api\/v1\/caricamenti\/(\d+)\/pdf$/,
   rilettura: /^\/api\/v1\/caricamenti\/(\d+)\/rilettura$/,
@@ -319,12 +320,19 @@ const ROTTE = {
 export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
   const db = creaDbMock(opzioni.datiIniziali ?? 'demo');
   const lotti = new Map<string, LottoMock>();
+  // come il backend: la password indicata per un PDF protetto viene ricordata e provata sui successivi (nel mock ogni
+  // password apre i PDF "protetti")
+  let passwordRicordata: string | null = null;
 
   /** Registra un nuovo lotto: un caricamento IN_CODA per file, con l'esito deciso dal nome. */
   function registraLotto(
     file: { nome: string; contenuto: Blob }[],
     password: string | null,
   ): LottoCaricamento {
+    const efficace = password ?? passwordRicordata;
+    if (password !== null && file.some(({ nome }) => nome.toLowerCase().includes('protetto'))) {
+      passwordRicordata = password;
+    }
     const adesso = new Date().toISOString();
     const lotto: LottoMock = { id: crypto.randomUUID(), passi: 0, file: [] };
     for (const { nome, contenuto } of file) {
@@ -344,7 +352,7 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
         creatoIl: adesso,
         aggiornatoIl: adesso,
       };
-      lotto.file.push({ caricamento, contenuto, esitoFinale: esitoPerNome(db, nome, password) });
+      lotto.file.push({ caricamento, contenuto, esitoFinale: esitoPerNome(db, nome, efficace) });
       db.caricamenti.unshift(caricamento);
     }
     lotti.set(lotto.id, lotto);
@@ -430,6 +438,20 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
     }
     if (metodo === 'GET' && ROTTE.inErrore.test(pathname)) {
       return json(elencoInErrore(db));
+    }
+    if (metodo === 'POST' && ROTTE.riletturaProtetti.test(pathname)) {
+      const daRileggere = elencoInErrore(db)
+        .filter((e) => e.motivo === 'PDF_PROTETTO' && e.pdfDisponibile && !e.inElaborazione)
+        .flatMap((e) => {
+          const { caricamento, chiave } = fileInErrore(db, e.id);
+          const contenuto = db.pdfFile.get(chiave);
+          return contenuto ? [{ nome: caricamento.nomeFileOriginale, contenuto }] : [];
+        });
+      if (daRileggere.length === 0) {
+        return new Response(null, { status: 204 });
+      }
+      const lotto = registraLotto(daRileggere, null);
+      return json(lotto, 202, { Location: `/api/v1/caricamenti/lotti/${lotto.lotto}` });
     }
     if (metodo === 'DELETE' && (m = ROTTE.fileInErrore.exec(pathname))) {
       rimuovi(db, Number(m[1]));

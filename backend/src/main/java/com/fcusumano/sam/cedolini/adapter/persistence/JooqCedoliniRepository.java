@@ -159,7 +159,7 @@ class JooqCedoliniRepository implements CedoliniRepository {
         record.store();
         long id = record.getId();
 
-        inserisciPdf(workspace, id, nuovo.pdfOriginale());
+        inserisciPdf(workspace, id, nuovo.pdf(), nuovo.pdfProtetto());
         inserisciDati(workspace, id, d);
         inserisciElementi(workspace, id, d.elementiRetributivi());
         if (d.tfr() != null) {
@@ -170,13 +170,44 @@ class JooqCedoliniRepository implements CedoliniRepository {
         return new CedolinoId(id);
     }
 
-    private void inserisciPdf(WorkspaceId workspace, long id, byte[] pdf) {
+    private void inserisciPdf(WorkspaceId workspace, long id, byte[] pdf, Boolean protetto) {
         dsl.insertInto(CEDOLINO_PDF)
                 .set(CEDOLINO_PDF.CEDOLINO_ID, id)
                 .set(CEDOLINO_PDF.WORKSPACE_ID, workspace.valore())
                 .set(CEDOLINO_PDF.CONTENT_TYPE, "application/pdf")
                 .set(CEDOLINO_PDF.DIMENSIONE, (long) pdf.length)
                 .set(CEDOLINO_PDF.CONTENUTO, pdf)
+                .set(CEDOLINO_PDF.PROTETTO, protetto)
+                .execute();
+    }
+
+    @Override
+    public List<PdfDaSbloccare> pdfDaSbloccare() {
+        return dsl.select(CEDOLINO_PDF.WORKSPACE_ID, CEDOLINO_PDF.CEDOLINO_ID)
+                .from(CEDOLINO_PDF)
+                .where(CEDOLINO_PDF.PROTETTO.isNull().or(CEDOLINO_PDF.PROTETTO.isTrue()))
+                .orderBy(CEDOLINO_PDF.WORKSPACE_ID, CEDOLINO_PDF.CEDOLINO_ID)
+                .fetch(r -> new PdfDaSbloccare(new WorkspaceId(r.value1()), new CedolinoId(r.value2())));
+    }
+
+    @Override
+    public List<CedolinoId> pdfDaSbloccare(WorkspaceId workspace) {
+        return dsl.select(CEDOLINO_PDF.CEDOLINO_ID)
+                .from(CEDOLINO_PDF)
+                .where(CEDOLINO_PDF.WORKSPACE_ID.eq(workspace.valore()),
+                        CEDOLINO_PDF.PROTETTO.isNull().or(CEDOLINO_PDF.PROTETTO.isTrue()))
+                .orderBy(CEDOLINO_PDF.CEDOLINO_ID)
+                .fetch(r -> new CedolinoId(r.value1()));
+    }
+
+    @Override
+    public void aggiornaPdf(WorkspaceId workspace, CedolinoId id, byte[] contenuto, boolean protetto) {
+        var aggiornamento = dsl.update(CEDOLINO_PDF).set(CEDOLINO_PDF.PROTETTO, protetto);
+        if (contenuto != null) {
+            aggiornamento = aggiornamento.set(CEDOLINO_PDF.CONTENUTO, contenuto)
+                    .set(CEDOLINO_PDF.DIMENSIONE, (long) contenuto.length);
+        }
+        aggiornamento.where(CEDOLINO_PDF.WORKSPACE_ID.eq(workspace.valore()), CEDOLINO_PDF.CEDOLINO_ID.eq(id.valore()))
                 .execute();
     }
 

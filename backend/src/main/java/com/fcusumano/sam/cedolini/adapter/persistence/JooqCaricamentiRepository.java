@@ -230,6 +230,20 @@ class JooqCaricamentiRepository implements CaricamentiRepository {
     }
 
     @Override
+    public void salvaPdfSbloccato(WorkspaceId workspace, String hash, byte[] contenuto) {
+        dsl.insertInto(CARICAMENTO_PDF)
+                .set(CARICAMENTO_PDF.WORKSPACE_ID, workspace.valore())
+                .set(CARICAMENTO_PDF.HASH_CONTENUTO, hash)
+                .set(CARICAMENTO_PDF.DIMENSIONE, (long) contenuto.length)
+                .set(CARICAMENTO_PDF.CONTENUTO, contenuto)
+                .set(CARICAMENTO_PDF.CREATO_IL, OffsetDateTime.now(clock))
+                .onDuplicateKeyUpdate()
+                .set(CARICAMENTO_PDF.DIMENSIONE, (long) contenuto.length)
+                .set(CARICAMENTO_PDF.CONTENUTO, contenuto)
+                .execute();
+    }
+
+    @Override
     public void eliminaPdf(WorkspaceId workspace, String hash) {
         dsl.deleteFrom(CARICAMENTO_PDF)
                 .where(CARICAMENTO_PDF.WORKSPACE_ID.eq(workspace.valore()), CARICAMENTO_PDF.HASH_CONTENUTO.eq(hash))

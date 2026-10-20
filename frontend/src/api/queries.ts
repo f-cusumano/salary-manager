@@ -237,17 +237,40 @@ export async function leggiLotto(api: ApiClient, lotto: string, signal?: AbortSi
 // ------------------------------------------------------------------ cedolini caricati con errore
 
 /** File caricati ma non letti, ancora da risolvere: uno per file, dal piu' recente. */
+async function leggiCaricamentiInErrore(api: ApiClient, signal?: AbortSignal) {
+  return esito(await api.GET('/api/v1/caricamenti/in-errore', { signal }));
+}
+
 export function useCaricamentiInErrore() {
   const api = useApiClient();
   return useQuery({
     queryKey: chiavi.caricamentiInErrore,
-    queryFn: async ({ signal }) => esito(await api.GET('/api/v1/caricamenti/in-errore', { signal })),
+    queryFn: ({ signal }) => leggiCaricamentiInErrore(api, signal),
   });
 }
 
 /**
- * Rilegge il PDF conservato di un file in errore in un nuovo lotto di un solo file (eventualmente con la password,
- * mai salvata). Il lotto restituito si segue con `useCaricamento().segui`; alla fine del lotto l'elenco dei file in
+ * File in errore protetti da password che una nuova lettura puo' aprire con le password ricordate: PDF conservato e
+ * nessun tentativo in corso. Elenco aggiornato (letto di nuovo se superato), cosi' alla fine di un lotto conta anche i
+ * file appena usciti o rientrati in errore.
+ */
+export async function caricamentiProtettiDaRileggere(
+  api: ApiClient,
+  queryClient: QueryClient,
+): Promise<number[]> {
+  const elenco = await queryClient.query({
+    queryKey: chiavi.caricamentiInErrore,
+    queryFn: ({ signal }) => leggiCaricamentiInErrore(api, signal),
+    staleTime: 0,
+  });
+  return elenco
+    .filter((e) => e.motivo === 'PDF_PROTETTO' && e.pdfDisponibile && !e.inElaborazione)
+    .map((e) => e.id);
+}
+
+/**
+ * Rilegge il PDF conservato di un file in errore in un nuovo lotto di un solo file (eventualmente con la password, che
+ * il backend ricorda cifrata se apre il PDF). Il lotto restituito si segue con `useCaricamento().segui`; alla fine del lotto l'elenco dei file in
  * errore viene riletto con le altre invalidazioni.
  */
 export async function rileggiCaricamento(
@@ -261,6 +284,18 @@ export async function rileggiCaricamento(
       body: { password: password !== null && password.length > 0 ? password : null },
     }),
   );
+}
+
+/**
+ * Rilegge in un nuovo lotto tutti i file in errore protetti da password, con le password ricordate (anche quella appena
+ * indicata, se ha aperto un PDF). Null se non c'e' nulla da rileggere (204).
+ */
+export async function rileggiCaricamentiProtetti(api: ApiClient): Promise<LottoCaricamento | null> {
+  const risposta = await api.POST('/api/v1/caricamenti/in-errore/rilettura-protetti');
+  if (risposta.response.status === 204) {
+    return null;
+  }
+  return esito(risposta);
 }
 
 export interface RichiestaCedolinoManuale {

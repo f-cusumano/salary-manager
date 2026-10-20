@@ -429,7 +429,7 @@ export const it = {
     password: 'Password dei PDF (facoltativa)',
     mostraPassword: 'Mostra o nascondi la password',
     passwordDescrizione:
-      'Per i PDF protetti da password. Se non la indichi, vengono provate le password note e i codici fiscali delle persone già presenti.',
+      'Per i PDF protetti da password. Se non la indichi, vengono provate le password note e i codici fiscali delle persone già presenti. Quella che apre un PDF viene ricordata (cifrata) e i PDF si archiviano senza protezione.',
     avvia: 'Avvia caricamento',
     invioInCorso: 'Invio dei file…',
     elaborazione: 'Lettura dei cedolini in corso: puoi chiudere questa finestra, il caricamento prosegue.',
@@ -556,14 +556,26 @@ export const it = {
     spiegazione:
       'Il PDF conservato viene letto di nuovo: puoi seguirne lo stato nella finestra dei caricamenti, che si apre da sola.',
     spiegazionePassword:
-      'Indica la password di apertura del PDF: viene usata solo per questa lettura e non viene salvata.',
+      'Indica la password di apertura del PDF: se è giusta, il PDF viene conservato senza protezione e la password viene ricordata (cifrata) per i prossimi cedolini protetti.',
     password: 'Password del PDF',
     passwordFacoltativa: 'Password del PDF (facoltativa)',
-    passwordDescrizione: 'Solo se il PDF è protetto: non viene salvata.',
+    passwordDescrizione: 'Solo se il PDF è protetto: se lo apre viene ricordata (cifrata).',
     mostraPassword: 'Mostra o nascondi la password',
     rileggi: 'Rileggi',
     attendiCaricamento: 'Attendi la fine del caricamento in corso.',
     errore: 'Impossibile avviare la lettura',
+  },
+  // Dopo una password che ha aperto un PDF protetto: nuova lettura degli altri file protetti in errore
+  altriProtetti: {
+    titolo: 'Password corretta',
+    testoUno:
+      'La password ha aperto il cedolino. C’è un altro cedolino protetto da password: vuoi provarla anche su quello?',
+    testoAltri:
+      'La password ha aperto il cedolino. Ci sono altri {numero} cedolini protetti da password: vuoi provarla anche su quelli?',
+    nota: 'In ogni caso la password resta ricordata (cifrata) e verrà provata sui prossimi caricamenti.',
+    conferma: 'Prova anche sugli altri',
+    soloQuesto: 'Solo questo',
+    errore: 'Impossibile avviare la nuova lettura',
   },
   // Inserimento a mano del cedolino di un file in errore
   manuale: {

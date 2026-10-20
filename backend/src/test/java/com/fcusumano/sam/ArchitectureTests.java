@@ -35,7 +35,7 @@ class ArchitectureTests {
             "ccnl", Set.of("Ccnl", "CcnlPreavviso"),
             "cedolini", Set.of("Cedolino", "CedolinoPdf", "CedolinoVoce", "CedolinoElementoRetributivo",
                     "CedolinoRateo", "CedolinoTfr", "CedolinoDati", "Caricamento", "CaricamentoPdf",
-                    "CaricamentoAttribuzione"),
+                    "CaricamentoAttribuzione", "PasswordPdf"),
             "calcoli", Set.of("RiepilogoRapporto", "RiepilogoRateo", "IndicatoreMensilita",
                     "RiepilogoLiquidazioneVoce"),
             "segnalazioni", Set.of("Segnalazione"));

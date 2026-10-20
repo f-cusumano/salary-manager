@@ -1,11 +1,13 @@
 package com.fcusumano.sam.cedolini.adapter.pdf;
 
 import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf;
+import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf.Sblocco;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException.Causa;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -23,7 +25,7 @@ import org.springframework.stereotype.Component;
  * {@link LettorePdf} basato su Apache PDFBox 3: verifica l'intestazione e l'assenza di flussi compressi abnormi
  * ({@link ControlloDecompressione}), apre il documento (anche protetto, provando le password candidate), conta le
  * pagine, controlla i limiti dell'API e, se il PDF e' cifrato, ne produce una copia senza protezione da inviare al
- * modello. Errori di memoria o di annidamento di un PDF costruito ad arte diventano "PDF danneggiato". Non logga mai
+ * lettore e da archiviare. Sblocca anche i PDF gia' archiviati ({@link #sblocca}). Errori di memoria o di annidamento di un PDF costruito ad arte diventano "PDF danneggiato". Non logga mai
  * password ne' contenuti.
  */
 @Component
@@ -45,12 +47,12 @@ class PdfBoxLettorePdf implements LettorePdf {
 
     @Override
     public DocumentoPdf apri(byte[] contenuto, String passwordUtente,
+                             Supplier<? extends Collection<String>> passwordRicordate,
                              Supplier<? extends Collection<String>> codiciFiscaliCensiti) {
-        if (contenuto == null || contenuto.length == 0 || !haIntestazionePdf(contenuto)) {
-            throw new PdfNonLeggibileException(Causa.NON_PDF, "Il file non è un PDF");
-        }
-        ControlloDecompressione.verifica(contenuto, properties.limiteDecompressione().toBytes());
-        try (var documento = apriConPassword(contenuto, passwordUtente, codiciFiscaliCensiti)) {
+        verificaFile(contenuto);
+        var utente = candidate(passwordUtente);
+        try (var documento = apriConPassword(contenuto, List.of(utente, properties.passwordCandidate()),
+                Arrays.asList(passwordRicordate, codiciFiscaliCensiti))) {
             int pagine = documento.documento().getNumberOfPages();
             if (pagine == 0) {
                 throw new PdfNonLeggibileException(Causa.DANNEGGIATO, "Il PDF non contiene pagine");
@@ -59,9 +61,12 @@ class PdfBoxLettorePdf implements LettorePdf {
                 throw new PdfNonLeggibileException(Causa.TROPPE_PAGINE, "Il PDF ha " + pagine
                         + " pagine: il massimo per l'estrazione è " + properties.pagineMassime());
             }
-            var perEstrazione = documento.documento().isEncrypted() ? senzaProtezione(documento.documento()) : contenuto;
+            boolean cifrato = documento.documento().isEncrypted();
+            var perEstrazione = cifrato ? senzaProtezione(documento.documento()) : contenuto;
             verificaDimensione(perEstrazione);
-            return new DocumentoPdf(perEstrazione, pagine, documento.conPassword());
+            var passwordValida = documento.password() != null && utente.contains(documento.password())
+                    ? documento.password() : null;
+            return new DocumentoPdf(perEstrazione, pagine, documento.password() != null, cifrato, passwordValida);
         } catch (IOException e) {
             throw new PdfNonLeggibileException(Causa.DANNEGGIATO, "Il PDF è danneggiato o non leggibile", e);
         } catch (OutOfMemoryError | StackOverflowError e) {
@@ -71,29 +76,71 @@ class PdfBoxLettorePdf implements LettorePdf {
         }
     }
 
-    /** Documento aperto e se e' servita una password di apertura. */
-    private record Aperto(PDDocument documento, boolean conPassword) implements AutoCloseable {
+    @Override
+    public Sblocco sblocca(byte[] contenuto, Supplier<? extends Collection<String>> password) {
+        try {
+            verificaFile(contenuto);
+            try (var documento = apriConPassword(contenuto, List.of(properties.passwordCandidate()),
+                    Arrays.asList(password))) {
+                if (!documento.documento().isEncrypted()) {
+                    return new Sblocco.NonProtetto();
+                }
+                return new Sblocco.Sbloccato(senzaProtezione(documento.documento()));
+            }
+        } catch (PdfNonLeggibileException e) {
+            return e.causa() == Causa.PROTETTO_DA_PASSWORD ? new Sblocco.Protetto() : new Sblocco.NonLeggibile();
+        } catch (IOException e) {
+            return new Sblocco.NonLeggibile();
+        } catch (OutOfMemoryError | StackOverflowError e) {
+            log.warn("PDF archiviato non sbloccabile: {}", e.getClass().getName());
+            return new Sblocco.NonLeggibile();
+        }
+    }
+
+    private void verificaFile(byte[] contenuto) {
+        if (contenuto == null || contenuto.length == 0 || !haIntestazionePdf(contenuto)) {
+            throw new PdfNonLeggibileException(Causa.NON_PDF, "Il file non è un PDF");
+        }
+        ControlloDecompressione.verifica(contenuto, properties.limiteDecompressione().toBytes());
+    }
+
+    /** Documento aperto e la password di apertura che e' servita (null se nessuna). */
+    private record Aperto(PDDocument documento, String password) implements AutoCloseable {
 
         @Override
         public void close() throws IOException {
             documento.close();
         }
+
+        @Override
+        public String toString() {
+            return "Aperto[conPassword=" + (password != null) + "]";
+        }
     }
 
-    private Aperto apriConPassword(byte[] contenuto, String passwordUtente,
-                                   Supplier<? extends Collection<String>> codiciFiscaliCensiti) {
+    /**
+     * Apre il PDF senza password o con la prima password valida: prima gli elenchi gia' noti, poi quelli dei fornitori
+     * (invocati solo se servono), nell'ordine dato.
+     */
+    private Aperto apriConPassword(byte[] contenuto, List<List<String>> note,
+                                   List<Supplier<? extends Collection<String>>> fornitori) {
         try {
-            return new Aperto(Loader.loadPDF(contenuto), false);
+            return new Aperto(Loader.loadPDF(contenuto), null);
         } catch (InvalidPasswordException e) {
             log.debug("PDF protetto da password di apertura: provo le password candidate");
         } catch (IOException | RuntimeException e) {
             throw new PdfNonLeggibileException(Causa.DANNEGGIATO, "Il PDF è danneggiato o non leggibile", e);
         }
         var provate = new LinkedHashSet<String>();
-        var aperto = prova(contenuto, candidate(passwordUtente, properties.passwordCandidate()), provate);
-        if (aperto == null && codiciFiscaliCensiti != null) {
-            var codici = codiciFiscaliCensiti.get();
-            aperto = prova(contenuto, varianti(codici == null ? List.of() : codici), provate);
+        Aperto aperto = null;
+        for (var elenco : note) {
+            aperto = aperto != null ? aperto : prova(contenuto, elenco, provate);
+        }
+        for (var fornitore : fornitori) {
+            if (aperto == null && fornitore != null) {
+                var password = fornitore.get();
+                aperto = prova(contenuto, varianti(password == null ? List.of() : password), provate);
+            }
         }
         if (aperto == null) {
             log.info("PDF protetto: nessuna delle {} password candidate e' valida", provate.size());
@@ -108,7 +155,7 @@ class PdfBoxLettorePdf implements LettorePdf {
                 continue;
             }
             try {
-                return new Aperto(Loader.loadPDF(contenuto, p), true);
+                return new Aperto(Loader.loadPDF(contenuto, p), p);
             } catch (InvalidPasswordException e) {
                 // password errata: si prova la successiva
             } catch (IOException | RuntimeException e) {
@@ -118,7 +165,8 @@ class PdfBoxLettorePdf implements LettorePdf {
         return null;
     }
 
-    private static List<String> candidate(String passwordUtente, List<String> configurate) {
+    /** Password indicata dall'utente e, se ha spazi ai lati, la sua versione senza. */
+    private static List<String> candidate(String passwordUtente) {
         var candidate = new LinkedHashSet<String>();
         if (passwordUtente != null && !passwordUtente.isEmpty()) {
             candidate.add(passwordUtente);
@@ -126,19 +174,25 @@ class PdfBoxLettorePdf implements LettorePdf {
                 candidate.add(passwordUtente.strip());
             }
         }
-        candidate.addAll(configurate);
         return List.copyOf(candidate);
     }
 
-    /** Codici fiscali in maiuscolo e in minuscolo (le password dei cedolini sono spesso il CF del dipendente). */
-    private static List<String> varianti(Collection<String> codiciFiscali) {
+    /**
+     * Password dei fornitori: se sono codici fiscali (16 lettere e cifre) in maiuscolo e in minuscolo (le password dei
+     * cedolini sono spesso il CF del dipendente), poi ciascuna com'e'.
+     */
+    private static List<String> varianti(Collection<String> password) {
         var varianti = new LinkedHashSet<String>();
-        for (var cf : codiciFiscali) {
-            if (cf != null && !cf.isBlank()) {
-                var pulito = cf.strip();
+        for (var p : password) {
+            if (p == null || p.isEmpty()) {
+                continue;
+            }
+            var pulito = p.strip();
+            if (pulito.matches("[A-Za-z0-9]{16}")) {
                 varianti.add(pulito.toUpperCase(Locale.ROOT));
                 varianti.add(pulito.toLowerCase(Locale.ROOT));
             }
+            varianti.add(p);
         }
         return List.copyOf(varianti);
     }

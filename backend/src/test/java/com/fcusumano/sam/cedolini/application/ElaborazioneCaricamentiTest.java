@@ -30,17 +30,20 @@ import com.fcusumano.sam.cedolini.application.estrazione.LettoreCedolini;
 import com.fcusumano.sam.cedolini.application.estrazione.LettoreCedolini.RisultatoEstrazione;
 import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf;
 import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf.DocumentoPdf;
+import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf.Sblocco;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException.Causa;
 import com.fcusumano.sam.cedolini.config.LettoreProperties;
 import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.WorkspaceId;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +73,8 @@ class ElaborazioneCaricamentiTest {
     private final ConsultazioneAnagrafica consultazione = mock(ConsultazioneAnagrafica.class);
     private final ApplicationEventPublisher eventi = mock(ApplicationEventPublisher.class);
     private final PlatformTransactionManager transazioni = mock(PlatformTransactionManager.class);
+    private final PasswordPdfRicordate ricordate = mock(PasswordPdfRicordate.class);
+    private final SbloccoPdfArchiviati sbloccoArchiviati = mock(SbloccoPdfArchiviati.class);
     private ElaborazioneCaricamenti elaborazione;
 
     @BeforeEach
@@ -88,16 +93,40 @@ class ElaborazioneCaricamentiTest {
         }
     }
 
-    private ElaborazioneCaricamenti elaborazione(LettorePdf lettore) {
+    /** Apertura simulata del PDF (le password ricordate non servono: sono simulate vuote). */
+    @FunctionalInterface
+    interface AperturaPdf {
+
+        DocumentoPdf apri(byte[] contenuto, String password, Supplier<? extends Collection<String>> codici);
+    }
+
+    private static LettorePdf lettorePdf(AperturaPdf apertura) {
+        return new LettorePdf() {
+            @Override
+            public DocumentoPdf apri(byte[] contenuto, String password,
+                                     Supplier<? extends Collection<String>> ricordate,
+                                     Supplier<? extends Collection<String>> codici) {
+                return apertura.apri(contenuto, password, codici);
+            }
+
+            @Override
+            public Sblocco sblocca(byte[] contenuto, Supplier<? extends Collection<String>> password) {
+                return new Sblocco.NonProtetto();
+            }
+        };
+    }
+
+    private ElaborazioneCaricamenti elaborazione(AperturaPdf lettore) {
         return elaborazione(lettore, 1);
     }
 
-    private ElaborazioneCaricamenti elaborazione(LettorePdf lettore, int lettureContemporanee) {
+    private ElaborazioneCaricamenti elaborazione(AperturaPdf apertura, int lettureContemporanee) {
+        var lettore = lettorePdf(apertura);
         var properties = new LettoreProperties(LettoreProperties.Lettore.FIXTURE, lettureContemporanee,
                 "classpath:fixtures/cedolini/");
         var chiusura = new ChiusuraCaricamento(new ScrittureSerializzate(transazioni), caricamenti, eventi);
         elaborazione = new ElaborazioneCaricamenti(caricamenti, cedolini, lettore, lettoreCedolini, acquisizione,
-                chiusura, consultazione, properties);
+                chiusura, consultazione, ricordate, sbloccoArchiviati, properties);
         return elaborazione;
     }
 

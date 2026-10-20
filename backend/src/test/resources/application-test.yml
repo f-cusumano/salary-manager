@@ -8,3 +8,6 @@ salary-manager:
   lettore: fixture
   fixture-dir: classpath:fixtures/cedolini/
   samples-dir: ${SAM_SAMPLES_DIR:../samples}
+  # chiave fissa dei test (nessun file della chiave creato durante i test)
+  password-pdf:
+    chiave: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=

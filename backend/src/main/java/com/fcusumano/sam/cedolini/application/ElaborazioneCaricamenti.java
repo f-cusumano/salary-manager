@@ -12,6 +12,7 @@ import com.fcusumano.sam.cedolini.application.estrazione.LettoreCedolini;
 import com.fcusumano.sam.cedolini.application.estrazione.LettoreCedolini.RisultatoEstrazione;
 import com.fcusumano.sam.cedolini.application.estrazione.EstrazioneCedolinoException;
 import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf;
+import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf.DocumentoPdf;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException.Causa;
 import com.fcusumano.sam.cedolini.config.LettoreProperties;
@@ -40,11 +41,14 @@ import org.springframework.stereotype.Component;
  * Elaborazione asincrona dei file caricati, uno per thread virtuale:
  * <ol>
  *   <li>file identico (hash SHA-256 del PDF originale) gia' archiviato: DUPLICATO, senza leggerlo di nuovo;</li>
- *   <li>IN_LETTURA: apertura del PDF (decifratura se protetto: password del lotto, password configurate, codici
- *       fiscali delle persone censite) e lettura con il {@link LettoreCedolini} configurato, con al massimo
- *       {@code salary-manager.letture-contemporanee} letture contemporanee;</li>
- *   <li>persistenza serializzata per workspace ({@link AcquisizioneCedolino}).</li>
+ *   <li>IN_LETTURA: apertura del PDF (decifratura se protetto: password del lotto, password configurate, password
+ *       ricordate, codici fiscali delle persone censite) e lettura con il {@link LettoreCedolini} configurato, con al
+ *       massimo {@code salary-manager.letture-contemporanee} letture contemporanee;</li>
+ *   <li>persistenza serializzata per workspace ({@link AcquisizioneCedolino}) del PDF senza protezione: quello
+ *       caricato o, se era cifrato, la sua copia decifrata.</li>
  * </ol>
+ * La password del lotto che apre un PDF viene ricordata ({@link PasswordPdfRicordate}); se e' nuova parte lo sblocco
+ * dei PDF archiviati ancora protetti ({@link SbloccoPdfArchiviati}).
  * Ogni cambio di stato e' committato subito, cosi' il polling della UI vede l'avanzamento. File identici nello stesso
  * lotto sono elaborati uno dopo l'altro: il secondo risulta DUPLICATO senza una seconda estrazione.
  * Un PDF protetto che nessuna password candidata apre torna IN_CODA e viene riprovato una volta a fine lotto: gli altri
@@ -67,6 +71,8 @@ class ElaborazioneCaricamenti implements DisposableBean {
     private final AcquisizioneCedolino acquisizione;
     private final ChiusuraCaricamento chiusura;
     private final ConsultazioneAnagrafica consultazione;
+    private final PasswordPdfRicordate ricordate;
+    private final SbloccoPdfArchiviati sbloccoArchiviati;
     private final Semaphore estrazioni;
     private final ExecutorService esecutore =
             Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("caricamento-", 1).factory());
@@ -74,7 +80,8 @@ class ElaborazioneCaricamenti implements DisposableBean {
 
     ElaborazioneCaricamenti(CaricamentiRepository caricamenti, CedoliniRepository cedolini, LettorePdf lettorePdf,
                             LettoreCedolini lettore, AcquisizioneCedolino acquisizione, ChiusuraCaricamento chiusura,
-                            ConsultazioneAnagrafica consultazione, LettoreProperties lettoreProperties) {
+                            ConsultazioneAnagrafica consultazione, PasswordPdfRicordate ricordate,
+                            SbloccoPdfArchiviati sbloccoArchiviati, LettoreProperties lettoreProperties) {
         this.caricamenti = caricamenti;
         this.cedolini = cedolini;
         this.lettorePdf = lettorePdf;
@@ -82,6 +89,8 @@ class ElaborazioneCaricamenti implements DisposableBean {
         this.acquisizione = acquisizione;
         this.chiusura = chiusura;
         this.consultazione = consultazione;
+        this.ricordate = ricordate;
+        this.sbloccoArchiviati = sbloccoArchiviati;
         this.estrazioni = new Semaphore(Math.max(1, lettoreProperties.lettureContemporanee()), true);
     }
 
@@ -180,10 +189,12 @@ class ElaborazioneCaricamenti implements DisposableBean {
         }
         RisultatoEstrazione estrazione = null;
         EstrazioneCedolinoException errore = null;
+        DocumentoPdf documento = null;
         estrazioni.acquire();
         try {
             caricamenti.aggiorna(ws, lavoro.caricamentoId(), StatoCaricamento.IN_LETTURA, null, null, null);
-            var documento = lettorePdf.apri(lavoro.contenuto(), lavoro.password(), this::codiciFiscaliCensiti);
+            documento = lettorePdf.apri(lavoro.contenuto(), lavoro.password(), () -> ricordate.elenco(ws),
+                    this::codiciFiscaliCensiti);
             estrazione = lettore.estrai(documento.contenutoPerEstrazione(), lavoro.nomeFileOriginale());
         } catch (EstrazioneCedolinoException e) {
             if (e instanceof PdfNonLeggibileException pdf && pdf.causa() == Causa.PROTETTO_DA_PASSWORD
@@ -198,27 +209,51 @@ class ElaborazioneCaricamenti implements DisposableBean {
         } finally {
             estrazioni.release();
         }
+        if (documento != null && documento.passwordUtenteValida() != null) {
+            ricordaPassword(ws, documento.passwordUtenteValida());
+        }
+        var sbloccato = documento != null && documento.decifrato() ? documento.contenutoPerEstrazione() : null;
         if (errore != null) {
             var motivo = MotiviErrore.di(errore);
             log.info("Lettura non riuscita (caricamento {}, motivo {}: {})", lavoro.caricamentoId().valore(),
                     errore.motivo(), motivo);
-            chiusura.errore(lavoro, motivo, errore.getMessage());
+            chiusura.errore(lavoro, motivo, errore.getMessage(), sbloccato);
             return;
         }
-        acquisisci(lavoro, estrazione);
+        acquisisci(lavoro, estrazione, documento.contenutoPerEstrazione(), sbloccato);
     }
 
-    private void acquisisci(Lavoro lavoro, RisultatoEstrazione estrazione) {
+    /**
+     * Ricorda la password del lotto che ha aperto il PDF; se e' nuova avvia lo sblocco dei PDF archiviati. Un errore
+     * non ferma l'elaborazione del file.
+     */
+    private void ricordaPassword(WorkspaceId ws, String password) {
+        try {
+            if (ricordate.ricorda(ws, password)) {
+                sbloccoArchiviati.avvia(ws);
+            }
+        } catch (RuntimeException e) {
+            log.warn("Password del PDF non ricordata: {}", e.getClass().getName());
+        }
+    }
+
+    /**
+     * @param pdf          PDF da archiviare (senza protezione)
+     * @param pdfSbloccato copia senza protezione da conservare se il file finisce in errore, null se il PDF non era
+     *                     cifrato
+     */
+    private void acquisisci(Lavoro lavoro, RisultatoEstrazione estrazione, byte[] pdf, byte[] pdfSbloccato) {
         EsitoAcquisizione esito;
         try {
             esito = acquisizione.acquisisci(
-                    new DocumentoCaricato(lavoro.workspace(), lavoro.caricamentoId(), lavoro.contenuto(), lavoro.hash()),
+                    new DocumentoCaricato(lavoro.workspace(), lavoro.caricamentoId(), pdf, lavoro.hash(), false),
                     estrazione);
         } catch (CedolinoNonAcquisibileException | IllegalArgumentException e) {
             // messaggi pensati per l'utente (dati mancanti o non validi), senza dati personali
             log.info("Cedolino non acquisibile (caricamento {}): {}", lavoro.caricamentoId().valore(),
                     e.getClass().getSimpleName());
-            chiusura.errore(lavoro, MotivoErrore.DATI_INCOMPLETI, MessaggiCaricamento.nonAcquisibile(e.getMessage()));
+            chiusura.errore(lavoro, MotivoErrore.DATI_INCOMPLETI, MessaggiCaricamento.nonAcquisibile(e.getMessage()),
+                    pdfSbloccato);
             return;
         }
         switch (esito) {

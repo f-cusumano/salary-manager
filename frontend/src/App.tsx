@@ -2,12 +2,16 @@ import { AppShell, Container, Stack, Text } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
-import { IconTrash } from '@tabler/icons-react';
+import { IconKey, IconTrash } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useApiClient } from './api/context';
 import { messaggioErrore } from './api/errors';
 import { invalidaDopoAcquisizione } from './api/invalidazioni';
 import {
+  caricamentiProtettiDaRileggere,
+  chiavi,
+  rileggiCaricamentiProtetti,
   useCaricamentiInErrore,
   usePersone,
   useRimuoviAssociazione,
@@ -62,6 +66,8 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
   const [inserimento, setInserimento] = useState<{ caricamentoId: number } | null>(null);
   const [associazione, setAssociazione] = useState<OpzioniAssociazione | null>(null);
   const [rilettura, setRilettura] = useState<{ caricamentoId: number } | null>(null);
+  // lotto della rilettura di un file protetto con la password indicata: alla fine si propone di provarla sugli altri
+  const riletturaConPassword = useRef<string | null>(null);
 
   // la persona ricordata vale solo se esiste ancora (puo' sparire eliminando l'ultimo cedolino)
   const personaId =
@@ -78,9 +84,66 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
     ricordaPersona(id);
   }, []);
 
+  const api = useApiClient();
+  // segui() del caricamento della radice, definito dopo: serve a seguire la nuova lettura dei file protetti
+  const seguiLotto = useRef<((lotto: LottoCaricamento) => void) | null>(null);
+
+  // dopo una password che ha aperto un PDF protetto: si propone di provarla sugli altri file protetti in errore
+  const proponiAltriProtetti = useCallback(
+    async (lotto: LottoCaricamento) => {
+      const aperto = lotto.caricamenti.some((c) => !(c.stato === 'ERRORE' && c.motivo === 'PDF_PROTETTO'));
+      if (!aperto) {
+        return;
+      }
+      let altri: number[];
+      try {
+        altri = await caricamentiProtettiDaRileggere(api, queryClient);
+      } catch {
+        // elenco non leggibile: la proposta si salta, la password resta comunque ricordata
+        return;
+      }
+      if (altri.length === 0) {
+        return;
+      }
+      const t = testi.altriProtetti;
+      modals.openConfirmModal({
+        title: t.titolo,
+        children: (
+          <Stack gap="xs">
+            <Text size="sm">
+              {altri.length === 1 ? t.testoUno : t.testoAltri.replace('{numero}', String(altri.length))}
+            </Text>
+            <Text size="sm" c="dimmed">
+              {t.nota}
+            </Text>
+          </Stack>
+        ),
+        labels: { confirm: t.conferma, cancel: t.soloQuesto },
+        confirmProps: { leftSection: <IconKey size={16} aria-hidden /> },
+        onConfirm: () =>
+          void rileggiCaricamentiProtetti(api).then(
+            (nuovo) => {
+              void queryClient.invalidateQueries({ queryKey: chiavi.caricamentiInErrore });
+              if (nuovo !== null) {
+                seguiLotto.current?.(nuovo);
+                apriModaleCaricamento();
+              }
+            },
+            (errore: unknown) =>
+              notifications.show({ color: 'red', title: t.errore, message: messaggioErrore(errore) }),
+          ),
+      });
+    },
+    [api, queryClient, apriModaleCaricamento],
+  );
+
   const caricamentoCompletato = useCallback(
     async (lotto: LottoCaricamento) => {
       await invalidaDopoAcquisizione(queryClient);
+      if (riletturaConPassword.current === lotto.lotto) {
+        riletturaConPassword.current = null;
+        void proponiAltriProtetti(lotto);
+      }
       notifications.show({
         color: lotto.caricamenti.some((c) => c.stato === 'ERRORE') ? 'orange' : 'teal',
         title: testi.caricamento.completato,
@@ -92,10 +155,14 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
         selezionaPersona(nuova);
       }
     },
-    [queryClient, selezionaPersona, nessunaPersonaSelezionata],
+    [queryClient, selezionaPersona, nessunaPersonaSelezionata, proponiAltriProtetti],
   );
 
   const caricamento = useCaricamento((lotto) => void caricamentoCompletato(lotto), intervalloPollingMs);
+  const { segui } = caricamento;
+  useEffect(() => {
+    seguiLotto.current = segui;
+  }, [segui]);
   const lottoCompletato = caricamento.lotto?.completato ?? false;
   const { azzera } = caricamento;
 
@@ -213,7 +280,8 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
           caricamentoId={rilettura?.caricamentoId ?? null}
           caricamento={caricamento}
           onChiudi={() => setRilettura(null)}
-          onAvviata={() => {
+          onAvviata={(lotto, conPassword) => {
+            riletturaConPassword.current = conPassword ? lotto.lotto : null;
             setRilettura(null);
             apriModaleCaricamento();
           }}

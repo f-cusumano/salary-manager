@@ -262,9 +262,10 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * PDF originale conservato di un file in errore
-     * @description Il PDF come caricato (anche se protetto da password), con il nome originale nell'header Content-Disposition
-     *     (`filename` e `filename*` RFC 5987, come per i cedolini). 404 se il PDF non e' conservato.
+     * PDF conservato di un file in errore
+     * @description Il PDF come caricato (ancora protetto se nessuna password lo ha aperto, altrimenti senza protezione), con il
+     *     nome originale nell'header Content-Disposition (`filename` e `filename*` RFC 5987, come per i cedolini). 404
+     *     se il PDF non e' conservato.
      */
     get: operations['scaricaPdfCaricamento'];
     put?: never;
@@ -287,10 +288,34 @@ export interface paths {
     /**
      * Rilegge il PDF conservato in un nuovo lotto (eventualmente con la password)
      * @description Registra un nuovo caricamento dello stesso file (stato IN_CODA) in un nuovo lotto, da seguire in polling su
-     *     `GET /api/v1/caricamenti/lotti/{lotto}`. La password vale solo per questa lettura: mai salvata ne' registrata
-     *     nei log. 409 se il file non e' in errore, se un nuovo tentativo e' in corso o se il PDF non e' conservato.
+     *     `GET /api/v1/caricamenti/lotti/{lotto}`. Una password che apre il PDF viene ricordata cifrata e provata sui PDF
+     *     protetti successivi; mai registrata nei log. 409 se il file non e' in errore, se un nuovo tentativo e' in corso
+     *     o se il PDF non e' conservato.
      */
     post: operations['rileggiCaricamento'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/caricamenti/in-errore/rilettura-protetti': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Rilegge tutti i file in errore protetti da password con le password ricordate
+     * @description Registra in un nuovo lotto un nuovo caricamento (stato IN_CODA) per ogni file in errore con motivo
+     *     PDF_PROTETTO, PDF conservato e nessun tentativo in corso, da seguire in polling su
+     *     `GET /api/v1/caricamenti/lotti/{lotto}`. Si provano anche le password ricordate: e' il seguito di una password
+     *     che ha aperto un PDF. 204 se non ci sono file da rileggere.
+     */
+    post: operations['rileggiCaricamentiProtetti'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1096,7 +1121,8 @@ export interface components {
       /**
        * Format: password
        * @description Password di apertura del PDF protetto (null se non serve). Il backend prova questa, poi le password
-       *     configurate e i codici fiscali delle persone censite. Mai salvata ne' registrata nei log.
+       *     configurate, quelle ricordate e i codici fiscali delle persone censite. Se apre il PDF viene ricordata
+       *     cifrata; mai registrata nei log.
        */
       password: string | null;
     };
@@ -1538,8 +1564,8 @@ export interface operations {
           /**
            * Format: password
            * @description Password di apertura dei PDF protetti, valida per tutto il lotto (facoltativa). Il backend prova
-           *     questa, poi le password configurate e i codici fiscali delle persone censite. Mai salvata ne'
-           *     registrata nei log.
+           *     questa, poi le password configurate, quelle ricordate e i codici fiscali delle persone censite. Se
+           *     apre un PDF viene ricordata cifrata; mai registrata nei log.
            */
           password?: string;
         };
@@ -1645,7 +1671,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description PDF come caricato (anche se protetto), con il nome originale */
+      /** @description PDF conservato, con il nome originale */
       200: {
         headers: {
           /** @description attachment; filename="cedolino.pdf"; filename*=UTF-8''cedolino.pdf */
@@ -1687,6 +1713,33 @@ export interface operations {
       400: components['responses']['RichiestaNonValida'];
       404: components['responses']['NonTrovato'];
       409: components['responses']['Conflitto'];
+    };
+  };
+  rileggiCaricamentiProtetti: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lotto registrato (polling su /api/v1/caricamenti/lotti/{lotto}) */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['LottoCaricamento'];
+        };
+      };
+      /** @description Nessun file protetto da rileggere */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
     };
   };
   associaCaricamento: {

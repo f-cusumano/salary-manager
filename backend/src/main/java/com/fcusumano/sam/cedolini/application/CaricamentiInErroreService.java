@@ -11,6 +11,7 @@ import com.fcusumano.sam.cedolini.CaricamentoCedolini;
 import com.fcusumano.sam.cedolini.CaricamentoId;
 import com.fcusumano.sam.cedolini.CaricamentoInErrore;
 import com.fcusumano.sam.cedolini.CedolinoManuale;
+import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.cedolini.PdfCedolino;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
 import com.fcusumano.sam.cedolini.VerificaCedolinoManuale;
@@ -85,12 +86,14 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
     private final Clock clock;
     private final ValidazioneCedolinoManuale validazione;
     private final InterpreteRispostaEstrazione interprete;
+    private final SbloccoPdfArchiviati sbloccoArchiviati;
 
     CaricamentiInErroreService(CaricamentiRepository caricamenti, CedoliniRepository cedolini,
                                ScrittureSerializzate scritture, AcquisizioneCedolino acquisizione,
                                ElaborazioneCaricamenti elaborazione, CaricamentoCedolini caricamentoCedolini,
                                ConsultazioneAnagrafica consultazione, CurrentWorkspaceProvider workspaceProvider,
-                               ApplicationEventPublisher eventi, Clock clock) {
+                               ApplicationEventPublisher eventi, Clock clock,
+                               SbloccoPdfArchiviati sbloccoArchiviati) {
         this.caricamenti = caricamenti;
         this.cedolini = cedolini;
         this.scritture = scritture;
@@ -103,6 +106,7 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
         this.clock = clock;
         this.validazione = new ValidazioneCedolinoManuale(clock);
         this.interprete = InterpreteRispostaEstrazione.standard(clock);
+        this.sbloccoArchiviati = sbloccoArchiviati;
     }
 
     // ------------------------------------------------------------------------------------------ letture
@@ -227,6 +231,40 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
         return List.of(lettura.registrato());
     }
 
+    @Override
+    public List<Caricamento> rileggiProtetti() {
+        var ws = workspaceProvider.corrente();
+        var letture = scritture.inTransazione(ws, stato -> {
+            var file = caricamenti.inErrore(ws).stream()
+                    .filter(f -> f.motivo() == MotivoErrore.PDF_PROTETTO && f.pdfDisponibile() && !f.inElaborazione())
+                    .toList();
+            if (file.isEmpty()) {
+                return List.<NuovaLettura>of();
+            }
+            var pdf = new ArrayList<byte[]>(file.size());
+            var inCoda = new ArrayList<FileInCoda>(file.size());
+            for (var f : file) {
+                var dettaglio = ControlliFileInErrore.daRisolvere(caricamenti, ws, f.id());
+                pdf.add(caricamenti.pdf(ws, dettaglio.hash()).orElseThrow(
+                        () -> new OperazioneNonConsentitaException(MessaggiCaricamento.PDF_NON_CONSERVATO)));
+                inCoda.add(new FileInCoda(dettaglio.nomeFileOriginale(), dettaglio.dimensione(), dettaglio.hash()));
+            }
+            var registrati = caricamenti.registra(ws, UUID.randomUUID(), inCoda);
+            var nuove = new ArrayList<NuovaLettura>(registrati.size());
+            for (int i = 0; i < registrati.size(); i++) {
+                nuove.add(new NuovaLettura(registrati.get(i), new Lavoro(ws, registrati.get(i).id(),
+                        inCoda.get(i).nomeFileOriginale(), pdf.get(i), inCoda.get(i).hash(), null)));
+            }
+            return nuove;
+        });
+        if (letture.isEmpty()) {
+            return List.of();
+        }
+        elaborazione.accoda(letture.stream().map(NuovaLettura::lavoro).toList());
+        log.info("Nuova lettura di {} file in errore protetti da password", letture.size());
+        return letture.stream().map(NuovaLettura::registrato).toList();
+    }
+
     /** Tentativo registrato e lavoro da accodare (la password resta solo in memoria). */
     private record NuovaLettura(Caricamento registrato, Lavoro lavoro) {
     }
@@ -262,6 +300,8 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
         return switch (manuale.registrazione().esito()) {
             case Acquisito a -> {
                 log.info("Cedolino {} inserito a mano (caricamento {})", a.cedolinoId().valore(), id.valore());
+                // il PDF conservato puo' essere ancora protetto: si prova a sbloccarlo con le password note
+                sbloccoArchiviati.avvia(ws);
                 yield caricamentoCedolini.stato(List.of(id)).getFirst();
             }
             case Scartato s -> {

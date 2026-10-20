@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fcusumano.sam.cedolini.application.estrazione.EstrazioneCedolinoException.Motivo;
+import com.fcusumano.sam.cedolini.application.estrazione.LettorePdf.Sblocco;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException;
 import com.fcusumano.sam.cedolini.application.estrazione.PdfNonLeggibileException.Causa;
 import java.io.ByteArrayInputStream;
@@ -28,7 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Lettura dei PDF: validita', limiti e decifratura con le password candidate (lotto, configurate, codici fiscali).
+ * Lettura dei PDF: validita', limiti e decifratura con le password candidate (lotto, configurate, ricordate, codici
+ * fiscali), password da ricordare e sblocco dei PDF archiviati.
  * PDF generati al volo o fittizi delle fixture.
  */
 class PdfBoxLettorePdfTest {
@@ -128,6 +130,102 @@ class PdfBoxLettorePdfTest {
 
         var conCfMaiuscolo = pdf(1, CF);
         assertThat(lettore(List.of()).apri(conCfMaiuscolo, "", () -> List.of(CF.toLowerCase())).protetto()).isTrue();
+    }
+
+    @Test
+    void soloLaPasswordDellUtenteCheApreIlPdfVaRicordata() throws IOException {
+        var protetto = pdf(1, "segreta");
+
+        var conUtente = lettore(List.of()).apri(protetto, " segreta ", List::of, NESSUN_CF);
+        assertThat(conUtente.passwordUtenteValida()).as("la versione senza spazi ai lati").isEqualTo("segreta");
+        assertThat(conUtente.decifrato()).isTrue();
+        assertThat(conUtente.toString()).doesNotContain("segreta");
+
+        var conConfigurata = lettore(List.of("segreta")).apri(protetto, "sbagliata", List::of, NESSUN_CF);
+        assertThat(conConfigurata.protetto()).isTrue();
+        assertThat(conConfigurata.passwordUtenteValida()).isNull();
+
+        var conCf = lettore(List.of()).apri(pdf(1, CF), null, List::of, () -> List.of(CF));
+        assertThat(conCf.passwordUtenteValida()).isNull();
+    }
+
+    @Test
+    void lePasswordRicordateSiProvanoDopoLeConfigurateEPrimaDeiCodiciFiscali() throws IOException {
+        var chiamateRicordate = new AtomicInteger();
+        var chiamateCf = new AtomicInteger();
+        Supplier<List<String>> ricordate = () -> {
+            chiamateRicordate.incrementAndGet();
+            return List.of("vecchia", "Ricordata-2022");
+        };
+        Supplier<List<String>> codici = () -> {
+            chiamateCf.incrementAndGet();
+            return List.of(CF);
+        };
+
+        var documento = lettore(List.of()).apri(pdf(1, "Ricordata-2022"), null, ricordate, codici);
+        assertThat(documento.protetto()).isTrue();
+        assertThat(documento.passwordUtenteValida()).isNull();
+        assertThat(chiamateCf).as("i codici fiscali non servono").hasValue(0);
+
+        lettore(List.of("aziendale")).apri(pdf(1, "aziendale"), null, ricordate, codici);
+        assertThat(chiamateRicordate).as("le ricordate si leggono solo se servono").hasValue(1);
+    }
+
+    @Test
+    void unPdfConLaSolaPasswordDelProprietarioSiArchiviaSbloccato() throws IOException {
+        byte[] originale;
+        try (var doc = new PDDocument()) {
+            doc.addPage(new PDPage());
+            var policy = new StandardProtectionPolicy("proprietario", "", new AccessPermission());
+            policy.setEncryptionKeyLength(256);
+            doc.protect(policy);
+            var uscita = new ByteArrayOutputStream();
+            doc.save(uscita);
+            originale = uscita.toByteArray();
+        }
+
+        var documento = lettore(List.of()).apri(originale, null, NESSUN_CF);
+
+        assertThat(documento.protetto()).as("nessuna password di apertura").isFalse();
+        assertThat(documento.decifrato()).isTrue();
+        try (var copia = Loader.loadPDF(documento.contenutoPerEstrazione())) {
+            assertThat(copia.isEncrypted()).isFalse();
+        }
+    }
+
+    @Test
+    void sbloccaUnPdfArchiviatoConLePasswordNote() throws IOException {
+        var protetto = pdf(3, CF.toLowerCase());
+
+        var sblocco = lettore(List.of()).sblocca(protetto, () -> List.of(CF));
+
+        assertThat(sblocco).isInstanceOfSatisfying(Sblocco.Sbloccato.class, s -> {
+            try (var copia = Loader.loadPDF(s.contenuto())) {
+                assertThat(copia.isEncrypted()).isFalse();
+                assertThat(copia.getNumberOfPages()).isEqualTo(3);
+            } catch (IOException e) {
+                throw new AssertionError(e);
+            }
+        });
+        assertThat(lettore(List.of("configurata")).sblocca(pdf(1, "configurata"), List::of))
+                .isInstanceOf(Sblocco.Sbloccato.class);
+    }
+
+    @Test
+    void loSbloccoDistingueNonProtettoProtettoENonLeggibile() throws IOException {
+        var chiamate = new AtomicInteger();
+
+        assertThat(lettore(List.of()).sblocca(pdf(1, null), () -> {
+            chiamate.incrementAndGet();
+            return List.of();
+        })).isInstanceOf(Sblocco.NonProtetto.class);
+        assertThat(chiamate).as("password lette solo se servono").hasValue(0);
+        assertThat(lettore(List.of()).sblocca(pdf(1, "segreta"), () -> List.of("altra", CF)))
+                .isInstanceOf(Sblocco.Protetto.class);
+        assertThat(lettore(List.of()).sblocca("ciao".getBytes(StandardCharsets.UTF_8), List::of))
+                .isInstanceOf(Sblocco.NonLeggibile.class);
+        var rotto = Arrays.copyOf(pdf(1, null), 40);
+        assertThat(lettore(List.of()).sblocca(rotto, List::of)).isInstanceOf(Sblocco.NonLeggibile.class);
     }
 
     @Test
