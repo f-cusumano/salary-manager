@@ -169,6 +169,18 @@ export function formatAnzianita(anni: number, mesi: number): string {
   return parti.length > 0 ? parti.join(` ${testi.durata.congiunzione} `) : testi.durata.menoDiUnMese;
 }
 
+/** Durata del preavviso: "45 giorni", "2 mesi", "1 mese e 15 giorni". */
+export function formatDurataPreavviso(mesi: number, giorni: number): string {
+  const parti: string[] = [];
+  if (mesi > 0) {
+    parti.push(`${mesi} ${mesi === 1 ? testi.durata.mese : testi.durata.mesi}`);
+  }
+  if (giorni > 0) {
+    parti.push(`${giorni} ${giorni === 1 ? testi.durata.giorno : testi.durata.giorni}`);
+  }
+  return parti.join(` ${testi.durata.congiunzione} `);
+}
+
 /** Dimensione di un file: "850 KB", "1,2 MB". */
 export function formatDimensione(byte: number): string {
   if (byte < 1024) {

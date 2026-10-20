@@ -1,17 +1,31 @@
-import { Badge, Card, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import { Badge, Card, Group, SimpleGrid, Stack, Table, Text, Title, Tooltip } from '@mantine/core';
 import {
   IconBriefcase,
+  IconDoorExit,
+  IconInfoCircle,
   IconBeach,
   IconCalendarStats,
   IconCash,
   IconFileText,
   IconNotes,
+  IconHourglass,
   IconPigMoney,
 } from '@tabler/icons-react';
 import { useId, type ReactNode } from 'react';
-import type { RapportoDettaglio, Riepilogo, RigaMensilita, SaldoRateo } from '../api/types';
+import type {
+  DurataPreavviso,
+  Liquidazione,
+  Preavviso,
+  RapportoDettaglio,
+  Riepilogo,
+  RigaMensilita,
+  SaldoRateo,
+  VoceLiquidazione,
+} from '../api/types';
 import {
   formatAnzianita,
+  formatData,
+  formatDurataPreavviso,
   formatImporto,
   formatIstante,
   formatMese,
@@ -32,7 +46,11 @@ interface Props {
   rapporto: RapportoDettaglio;
 }
 
-/** Area riepilogo: anzianità e scatti, retribuzione, contratto, note, ferie/permessi (solo azienda attuale), TFR. */
+/**
+ * Area riepilogo: anzianità e scatti, retribuzione, contratto, note, ferie/permessi (solo azienda attuale), TFR,
+ * preavviso (solo azienda attuale in corso) e stima della liquidazione (azienda attuale o ultima azienda finché il TFR
+ * non è liquidato).
+ */
 export function RiepilogoArea({ rapporto }: Props) {
   const idTitolo = useId();
   const { riepilogo } = rapporto;
@@ -81,6 +99,8 @@ export function RiepilogoArea({ rapporto }: Props) {
         </Blocco>
         {riepilogo && rapporto.attuale && <BloccoFerie saldi={riepilogo.ratei.saldi} />}
         {riepilogo && <BloccoTfr riepilogo={riepilogo} attuale={rapporto.attuale} />}
+        {riepilogo?.preavviso && <BloccoPreavviso preavviso={riepilogo.preavviso} />}
+        {riepilogo?.liquidazione && <BloccoLiquidazione liquidazione={riepilogo.liquidazione} />}
       </SimpleGrid>
     </section>
   );
@@ -90,17 +110,24 @@ interface BloccoProps {
   titolo: string;
   icona: ReactNode;
   children: ReactNode;
+  /** Contenuto a destra del titolo. */
+  destra?: ReactNode;
+  /** Occupa tutta la larghezza della griglia. */
+  pieno?: boolean;
 }
 
-function Blocco({ titolo, icona, children }: BloccoProps) {
+function Blocco({ titolo, icona, children, destra, pieno }: BloccoProps) {
   const id = useId();
   return (
-    <Card component="section" aria-labelledby={id}>
-      <Group gap={8} mb="sm" wrap="nowrap" c="marchio.8">
-        {icona}
-        <Title order={4} size="h5" id={id} c="dark.6">
-          {titolo}
-        </Title>
+    <Card component="section" aria-labelledby={id} style={pieno ? { gridColumn: '1 / -1' } : undefined}>
+      <Group justify="space-between" mb="sm" gap="xs">
+        <Group gap={8} wrap="nowrap" c="marchio.8">
+          {icona}
+          <Title order={4} size="h5" id={id} c="dark.6">
+            {titolo}
+          </Title>
+        </Group>
+        {destra}
       </Group>
       {children}
     </Card>
@@ -374,6 +401,197 @@ function BloccoTfr({ riepilogo, attuale }: { riepilogo: Riepilogo; attuale: bool
           },
         ]}
       />
+    </Blocco>
+  );
+}
+
+const numeri = { fontVariantNumeric: 'tabular-nums' } as const;
+
+/** "TFR in azienda", "Ferie · 12,5 giorni", "Ratei di tredicesima · 9 mesi". */
+function etichettaVoce(voce: VoceLiquidazione): string {
+  const nome = t.voceLiquidazione[voce.tipo];
+  if (voce.quantita === null) {
+    return nome;
+  }
+  const quantita =
+    voce.unita !== null
+      ? formatQuantita(voce.quantita, voce.unita)
+      : `${voce.quantita} ${voce.quantita === 1 ? t.liquidazioneMese : t.liquidazioneMesi}`;
+  return `${nome} · ${quantita}`;
+}
+
+/** "lordo 8.120,40 € · contributi 0,00 € · imposte 1.867,69 €" (le parti non stimabili sono omesse). */
+function dettaglioImporti(lordo: number | null, contributi: number | null, imposte: number | null): string {
+  return [
+    lordo !== null && `${t.liquidazioneLordo} ${formatImporto(lordo)}`,
+    contributi !== null && contributi !== 0 && `${t.liquidazioneContributi} ${formatImporto(contributi)}`,
+    imposte !== null && `${t.liquidazioneImposte} ${formatImporto(imposte)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function RigaVoceLiquidazione({ voce }: { voce: VoceLiquidazione }) {
+  const etichetta = etichettaVoce(voce);
+  const stimabile = voce.netto !== null;
+  return (
+    <Group
+      component="li"
+      justify="space-between"
+      align="flex-start"
+      wrap="nowrap"
+      gap="sm"
+      py={6}
+      style={{ borderBottom: '1px dashed var(--mantine-color-gray-2)' }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <Group gap={4} wrap="nowrap">
+          <Text size="sm" fw={500}>
+            {etichetta}
+          </Text>
+          {stimabile && voce.nota && (
+            <Tooltip label={voce.nota} multiline w={320} events={{ hover: true, focus: true, touch: true }}>
+              <span
+                tabIndex={0}
+                role="img"
+                aria-label={`${etichetta}: ${voce.nota}`}
+                style={{ display: 'inline-flex', cursor: 'help', color: 'var(--mantine-color-dimmed)' }}
+              >
+                <IconInfoCircle size={14} aria-hidden />
+              </span>
+            </Tooltip>
+          )}
+        </Group>
+        <Text size="xs" c="dimmed">
+          {stimabile ? dettaglioImporti(voce.lordo, voce.contributi, voce.imposte) : voce.nota}
+        </Text>
+      </div>
+      <Stack gap={0} align="flex-end">
+        <Text size="sm" fw={600} style={numeri} c={stimabile ? undefined : 'dimmed'}>
+          {stimabile ? formatImporto(voce.netto) : t.liquidazioneNonStimabile}
+        </Text>
+        {voce.netto !== null && voce.netto < 0 && (
+          <Text size="xs" c="red.7">
+            {t.liquidazioneDebito}
+          </Text>
+        )}
+      </Stack>
+    </Group>
+  );
+}
+
+function BloccoLiquidazione({ liquidazione }: { liquidazione: Liquidazione }) {
+  return (
+    <Blocco
+      titolo={t.liquidazione}
+      icona={<IconDoorExit size={18} aria-hidden />}
+      pieno
+      destra={
+        <Text size="xs" c="dimmed">
+          {t.liquidazioneAl} {formatData(liquidazione.dataRiferimento)}
+        </Text>
+      }
+    >
+      <Text size="sm" c="dimmed">
+        {t.liquidazioneNetto}
+      </Text>
+      <ValoreGrande>
+        <Stima spiegazione={t.liquidazioneNettoTooltip}>{formatImporto(liquidazione.totaleNetto)}</Stima>
+      </ValoreGrande>
+      <Text size="xs" c="dimmed" mt={4} style={numeri}>
+        {dettaglioImporti(
+          liquidazione.totaleLordo,
+          liquidazione.totaleContributi,
+          liquidazione.totaleImposte,
+        )}
+      </Text>
+      {!liquidazione.completa && (
+        <Text size="xs" c="orange.8" mt={4}>
+          {t.liquidazioneParziale}
+        </Text>
+      )}
+      <Stack component="ul" gap={0} mt="sm" p={0} style={{ listStyle: 'none', margin: 0 }}>
+        {liquidazione.voci.map((voce) => (
+          <RigaVoceLiquidazione key={voce.tipo} voce={voce} />
+        ))}
+      </Stack>
+      {liquidazione.nota && (
+        <>
+          <Title order={5} size="xs" mt="sm" mb={2} c="dimmed" fw={600}>
+            {t.liquidazioneDettagli}
+          </Title>
+          <Text size="xs" c="dimmed">
+            {liquidazione.nota}
+          </Text>
+        </>
+      )}
+    </Blocco>
+  );
+}
+
+function durata(d: DurataPreavviso | null): string {
+  return d ? formatDurataPreavviso(d.mesi, d.giorni) : testi.comune.nonDisponibile;
+}
+
+/** Termini di preavviso del CCNL per livello e anzianità, con l'indennità sostitutiva se non lavorato. */
+function BloccoPreavviso({ preavviso: p }: { preavviso: Preavviso }) {
+  const verificato = p.stato === 'VERIFICATO';
+  return (
+    <Blocco titolo={t.preavviso} icona={<IconHourglass size={18} aria-hidden />}>
+      {verificato ? (
+        <>
+          <Text size="sm" c="dimmed">
+            {[p.gruppoLivelli, p.fascia && `${t.preavvisoAnzianita} ${p.fascia}`].filter(Boolean).join(' · ')}
+          </Text>
+          <ElencoValori
+            righe={[
+              { etichetta: t.preavvisoDimissioni, valore: durata(p.dimissioni), enfasi: true },
+              { etichetta: t.preavvisoLicenziamento, valore: durata(p.licenziamento), enfasi: true },
+            ]}
+          />
+          {(p.indennitaDimissioni !== null || p.indennitaLicenziamento !== null) && (
+            <>
+              <Title order={5} size="sm" mt="md" mb={4} c="dimmed" fw={600}>
+                {t.preavvisoNonLavorato}
+              </Title>
+              <ElencoValori
+                righe={[
+                  p.indennitaDimissioni !== null && {
+                    etichetta: t.preavvisoTrattenuta,
+                    valore: (
+                      <Stima spiegazione={p.nota ?? t.preavvisoIndennitaTooltip}>
+                        {formatImporto(p.indennitaDimissioni)}
+                      </Stima>
+                    ),
+                  },
+                  p.indennitaLicenziamento !== null && {
+                    etichetta: t.preavvisoIndennita,
+                    valore: (
+                      <Stima spiegazione={p.nota ?? t.preavvisoIndennitaTooltip}>
+                        {formatImporto(p.indennitaLicenziamento)}
+                      </Stima>
+                    ),
+                  },
+                ]}
+              />
+            </>
+          )}
+          <Text size="xs" c="dimmed" mt="xs">
+            {[
+              p.prossimaFascia && `${t.preavvisoProssimaFascia} ${formatMese(p.prossimaFascia)}.`,
+              p.riferimento && `${t.preavvisoCcnl}: ${p.riferimento}.`,
+              t.preavvisoEsclusioni,
+              p.indennitaDimissioni === null && p.nota,
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          </Text>
+        </>
+      ) : (
+        <Text size="sm" c="dimmed">
+          {p.nota}
+        </Text>
+      )}
     </Blocco>
   );
 }

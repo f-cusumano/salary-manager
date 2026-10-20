@@ -19,6 +19,8 @@ import java.util.List;
  * @param buoniPasto  true se almeno uno degli ultimi cedolini ordinari (3 per default) riporta buoni pasto
  * @param ratei       saldi dell'ultimo cedolino che riporta ratei, con stima del valore (lista vuota se non stampati)
  * @param mensilita   indicatori per cedolino, in ordine cronologico (scatto in busta, aumento fuori scatti)
+ * @param liquidazione stima di quanto spetterebbe lasciando l'azienda alla data dell'ultimo cedolino (o alla
+ *                     cessazione); {@link Liquidazione#NESSUNA} se il TFR e' gia' liquidato o non ci sono mensilita'
  */
 public record RiepilogoRapporto(
         RapportoLavoroId rapportoId,
@@ -29,10 +31,12 @@ public record RiepilogoRapporto(
         boolean buoniPasto,
         Ratei ratei,
         Tfr tfr,
-        List<IndicatoriMensilita> mensilita) {
+        List<IndicatoriMensilita> mensilita,
+        Liquidazione liquidazione) {
 
     public RiepilogoRapporto {
         mensilita = mensilita == null ? List.of() : List.copyOf(mensilita);
+        liquidazione = liquidazione == null ? Liquidazione.NESSUNA : liquidazione;
     }
 
     /**
@@ -181,5 +185,62 @@ public record RiepilogoRapporto(
             boolean scattoInBusta,
             boolean aumentoFuoriScatti,
             BigDecimal lordoContrattuale) {
+    }
+
+    /**
+     * Stima della liquidazione ("Se andassi via oggi"): TFR in azienda, ferie/permessi residui e ratei di tredicesima e
+     * quattordicesima maturati e non pagati, con contributi e imposte stimati. Sempre una stima. Il preavviso non e'
+     * considerato (lavorato).
+     *
+     * @param dataRiferimento           data della stima: cessazione se nota, altrimenti fine del mese dell'ultimo
+     *                                  cedolino ordinario; null se la stima non si applica (vedi {@link #NESSUNA})
+     * @param voci                      voci nell'ordine di presentazione; solo quelle con qualcosa da liquidare o con
+     *                                  un importo non stimabile da segnalare
+     * @param aliquotaContributi        aliquota dei contributi INPS a carico del dipendente applicata a ferie e ratei
+     * @param aliquotaContributiStampata true se letta dal cedolino, false se da configurazione
+     * @param aliquotaIrpefMarginale    aliquota IRPEF marginale stimata dalla RAL; null se la RAL non e' nota
+     * @param aliquotaTfr               aliquota della tassazione separata del TFR; null se non determinabile
+     * @param nota                      ipotesi generali della stima; null se la stima non si applica
+     */
+    public record Liquidazione(
+            LocalDate dataRiferimento,
+            List<VoceLiquidazione> voci,
+            BigDecimal aliquotaContributi,
+            boolean aliquotaContributiStampata,
+            BigDecimal aliquotaIrpefMarginale,
+            BigDecimal aliquotaTfr,
+            String nota) {
+
+        public static final Liquidazione NESSUNA = new Liquidazione(null, List.of(), null, false, null, null, null);
+
+        public Liquidazione {
+            voci = voci == null ? List.of() : List.copyOf(voci);
+        }
+
+        /** True se la stima si applica (TFR non ancora liquidato e almeno una mensilita' ordinaria). */
+        public boolean presente() {
+            return dataRiferimento != null;
+        }
+    }
+
+    /**
+     * Voce della liquidazione stimata. Netto = lordo - contributi - imposte. Gli importi sono null se non stimabili
+     * (la nota spiega perche'); un lordo negativo e' un debito (es. ferie godute in anticipo).
+     *
+     * @param quantita  giorni/ore di ferie e permessi, mesi di rateo per tredicesima e quattordicesima; null per il TFR
+     * @param unita     unita' della quantita' per ferie e permessi; null per TFR e ratei (mesi)
+     * @param contributi contributi INPS a carico del dipendente (0 per il TFR)
+     * @param imposte   IRPEF stimata (tassazione separata per il TFR, aliquota marginale per le altre voci)
+     * @param nota      base del calcolo o motivo per cui non e' stimabile
+     */
+    public record VoceLiquidazione(
+            TipoVoceLiquidazione tipo,
+            BigDecimal quantita,
+            UnitaMisura unita,
+            BigDecimal lordo,
+            BigDecimal contributi,
+            BigDecimal imposte,
+            BigDecimal netto,
+            String nota) {
     }
 }

@@ -12,6 +12,7 @@ import com.fcusumano.sam.anagrafica.RapportoLavoroDettaglio;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.calcoli.FonteDato;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto;
+import com.fcusumano.sam.calcoli.TipoVoceLiquidazione;
 import com.fcusumano.sam.ccnl.Ccnl;
 import com.fcusumano.sam.cedolini.AttribuzioneCaricamento;
 import com.fcusumano.sam.cedolini.CaricamentoId;
@@ -131,6 +132,17 @@ final class DatiDiProva {
                         new BigDecimal("4500.00000"), BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("1000.00000"),
                         new BigDecimal("3465.00000"), new BigDecimal("0.23000"), false, YearMonth.of(2025, 2), null,
                         false, false, null, null),
-                indicatori);
+                indicatori,
+                new RiepilogoRapporto.Liquidazione(LocalDate.of(2025, 2, 28), List.of(
+                        new RiepilogoRapporto.VoceLiquidazione(TipoVoceLiquidazione.TFR, null, null,
+                                new BigDecimal("4500.00000"), BigDecimal.ZERO, new BigDecimal("1035.00000"),
+                                new BigDecimal("3465.00000"), "Tassazione separata"),
+                        new RiepilogoRapporto.VoceLiquidazione(TipoVoceLiquidazione.FERIE, new BigDecimal("12.50000"),
+                                UnitaMisura.GIORNI, new BigDecimal("1129.81000"), new BigDecimal("103.83000"),
+                                new BigDecimal("235.97000"), new BigDecimal("790.01000"), "Saldo"),
+                        new RiepilogoRapporto.VoceLiquidazione(TipoVoceLiquidazione.RATEI_QUATTORDICESIMA,
+                                null, null, null, null, null, null, "Mese non noto")),
+                        new BigDecimal("0.09190"), true, new BigDecimal("0.23000"), new BigDecimal("0.23000"),
+                        "Stima"));
     }
 }

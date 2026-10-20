@@ -1,6 +1,7 @@
 package com.fcusumano.sam.calcoli.adapter.persistence;
 
 import static com.fcusumano.sam.shared.db.jooq.Tables.INDICATORE_MENSILITA;
+import static com.fcusumano.sam.shared.db.jooq.Tables.RIEPILOGO_LIQUIDAZIONE_VOCE;
 import static com.fcusumano.sam.shared.db.jooq.Tables.RIEPILOGO_RAPPORTO;
 import static com.fcusumano.sam.shared.db.jooq.Tables.RIEPILOGO_RATEO;
 
@@ -9,11 +10,14 @@ import com.fcusumano.sam.calcoli.FonteDato;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.Anzianita;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.IndicatoriMensilita;
+import com.fcusumano.sam.calcoli.RiepilogoRapporto.Liquidazione;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.Ratei;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.Retribuzione;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.SaldoRateo;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.Scatti;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.Tfr;
+import com.fcusumano.sam.calcoli.RiepilogoRapporto.VoceLiquidazione;
+import com.fcusumano.sam.calcoli.TipoVoceLiquidazione;
 import com.fcusumano.sam.calcoli.application.RiepiloghiRepository;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.TipoRateo;
@@ -29,7 +33,8 @@ import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 /**
- * Accesso jOOQ alle tabelle {@code riepilogo_rapporto}, {@code riepilogo_rateo} e {@code indicatore_mensilita}.
+ * Accesso jOOQ alle tabelle {@code riepilogo_rapporto}, {@code riepilogo_rateo}, {@code indicatore_mensilita} e
+ * {@code riepilogo_liquidazione_voce}.
  * I mesi sono memorizzati come primo giorno del mese, gli importi con scala 5, le note troncate alla lunghezza della
  * colonna. La sostituzione cancella e reinserisce tutte le righe del rapporto (ricalcolo da zero).
  */
@@ -82,10 +87,30 @@ class JooqRiepiloghiRepository implements RiepiloghiRepository {
                     .set(INDICATORE_MENSILITA.ORDINE, ordine++)
                     .execute();
         }
+        var posizione = 0;
+        for (var voce : riepilogo.liquidazione().voci()) {
+            dsl.insertInto(RIEPILOGO_LIQUIDAZIONE_VOCE)
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.WORKSPACE_ID, workspace.valore())
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.RAPPORTO_ID, rapporto.valore())
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.ORDINE, posizione++)
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.TIPO, voce.tipo().name())
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.QUANTITA, Importi.normalizza(voce.quantita()))
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.UNITA, voce.unita() == null ? null : voce.unita().name())
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.LORDO, Importi.normalizza(voce.lordo()))
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.CONTRIBUTI, Importi.normalizza(voce.contributi()))
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.IMPOSTE, Importi.normalizza(voce.imposte()))
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.NETTO, Importi.normalizza(voce.netto()))
+                    .set(RIEPILOGO_LIQUIDAZIONE_VOCE.NOTA, tronca(voce.nota(), LUNGHEZZA_NOTA_RIEPILOGO))
+                    .execute();
+        }
     }
 
     @Override
     public void elimina(WorkspaceId workspace, RapportoLavoroId rapportoId) {
+        dsl.deleteFrom(RIEPILOGO_LIQUIDAZIONE_VOCE)
+                .where(RIEPILOGO_LIQUIDAZIONE_VOCE.WORKSPACE_ID.eq(workspace.valore()),
+                        RIEPILOGO_LIQUIDAZIONE_VOCE.RAPPORTO_ID.eq(rapportoId.valore()))
+                .execute();
         dsl.deleteFrom(INDICATORE_MENSILITA)
                 .where(INDICATORE_MENSILITA.WORKSPACE_ID.eq(workspace.valore()),
                         INDICATORE_MENSILITA.RAPPORTO_ID.eq(rapportoId.valore()))
@@ -107,6 +132,7 @@ class JooqRiepiloghiRepository implements RiepiloghiRepository {
         var s = riepilogo.scatti();
         var r = riepilogo.retribuzione();
         var t = riepilogo.tfr();
+        var l = riepilogo.liquidazione();
         dsl.insertInto(RIEPILOGO_RAPPORTO)
                 .set(RIEPILOGO_RAPPORTO.RAPPORTO_ID, riepilogo.rapportoId().valore())
                 .set(RIEPILOGO_RAPPORTO.WORKSPACE_ID, workspace.valore())
@@ -154,6 +180,12 @@ class JooqRiepiloghiRepository implements RiepiloghiRepository {
                 .set(RIEPILOGO_RAPPORTO.TFR_LIQUIDATO, t.liquidato())
                 .set(RIEPILOGO_RAPPORTO.TFR_IMPORTO_LIQUIDATO, Importi.normalizza(t.importoLiquidato()))
                 .set(RIEPILOGO_RAPPORTO.TFR_NETTO_LIQUIDATO, Importi.normalizza(t.nettoLiquidato()))
+                .set(RIEPILOGO_RAPPORTO.LIQUIDAZIONE_DATA, l.dataRiferimento())
+                .set(RIEPILOGO_RAPPORTO.LIQUIDAZIONE_ALIQUOTA_CONTRIBUTI, Importi.normalizza(l.aliquotaContributi()))
+                .set(RIEPILOGO_RAPPORTO.LIQUIDAZIONE_CONTRIBUTI_STAMPATI, l.aliquotaContributiStampata())
+                .set(RIEPILOGO_RAPPORTO.LIQUIDAZIONE_ALIQUOTA_IRPEF, Importi.normalizza(l.aliquotaIrpefMarginale()))
+                .set(RIEPILOGO_RAPPORTO.LIQUIDAZIONE_ALIQUOTA_TFR, Importi.normalizza(l.aliquotaTfr()))
+                .set(RIEPILOGO_RAPPORTO.LIQUIDAZIONE_NOTA, tronca(l.nota(), LUNGHEZZA_NOTA_RIEPILOGO))
                 .execute();
     }
 
@@ -226,6 +258,27 @@ class JooqRiepiloghiRepository implements RiepiloghiRepository {
                         i.getScattoInBusta(),
                         i.getAumentoFuoriScatti(),
                         i.getLordoContrattuale()));
+        var voci = dsl.selectFrom(RIEPILOGO_LIQUIDAZIONE_VOCE)
+                .where(RIEPILOGO_LIQUIDAZIONE_VOCE.WORKSPACE_ID.eq(workspace.valore()),
+                        RIEPILOGO_LIQUIDAZIONE_VOCE.RAPPORTO_ID.eq(rapportoId.valore()))
+                .orderBy(RIEPILOGO_LIQUIDAZIONE_VOCE.ORDINE)
+                .fetch(v -> new VoceLiquidazione(
+                        TipoVoceLiquidazione.valueOf(v.getTipo()),
+                        v.getQuantita(),
+                        v.getUnita() == null ? null : UnitaMisura.valueOf(v.getUnita()),
+                        v.getLordo(),
+                        v.getContributi(),
+                        v.getImposte(),
+                        v.getNetto(),
+                        v.getNota()));
+        var liquidazione = r.getLiquidazioneData() == null ? Liquidazione.NESSUNA : new Liquidazione(
+                r.getLiquidazioneData(),
+                voci,
+                r.getLiquidazioneAliquotaContributi(),
+                r.getLiquidazioneContributiStampati(),
+                r.getLiquidazioneAliquotaIrpef(),
+                r.getLiquidazioneAliquotaTfr(),
+                r.getLiquidazioneNota());
 
         return new RiepilogoRapporto(
                 rapportoId,
@@ -236,7 +289,8 @@ class JooqRiepiloghiRepository implements RiepiloghiRepository {
                 r.getBuoniPasto(),
                 new Ratei(cedolino(r.getRateiCedolinoId()), saldi),
                 tfr,
-                mensilita);
+                mensilita,
+                liquidazione);
     }
 
     // ------------------------------------------------------------------------------------------------ conversioni

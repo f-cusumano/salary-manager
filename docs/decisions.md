@@ -1055,3 +1055,62 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      true o null si aprono con le password configurate, ricordate e i codici fiscali delle persone del workspace; quelli
      aperti sono sostituiti dalla copia senza protezione (hash invariato). Un solo sblocco alla volta su un thread
      virtuale, senza bloccare richieste o avvio; un PDF illeggibile resta da verificare. Nei log solo id e conteggi.
+
+## Stima della liquidazione ("Se andassi via oggi")
+
+161. **[utente] Sezione "Se andassi via oggi"** nel riepilogo del rapporto: stima di quanto si riceverebbe lasciando
+     l'azienda, con le voci singole e il totale (lordo, contributi, imposte, netto). Esposta per il rapporto attuale e
+     per l'ultimo rapporto della persona (primo nell'ordine dell'anagrafica) finche' un cedolino non liquida il TFR;
+     per gli altri rapporti `liquidazione` e' null. Calcolata nel ricalcolo (`CalcoloLiquidazione`, deterministica) e
+     salvata in `riepilogo_rapporto` (colonne `liquidazione_*`) e `riepilogo_liquidazione_voce` (changelog
+     `420-liquidazione.sql`).
+162. **[utente] Data della stima = ultimo cedolino, senza proiezioni**: fine del mese dell'ultima mensilita' ordinaria,
+     o la data di cessazione se nota. Il TFR e' quello calcolato dai cedolini, non la proiezione "ad oggi" del blocco
+     TFR (che resta com'e').
+163. **[utente] TFR con la tassazione separata dell'azienda** (art. 19 TUIR): reddito di riferimento = (TFR in azienda al
+     netto delle rivalutazioni gia' assoggettate a imposta sostitutiva + quote versate ai fondi + anticipi) x 12 / mesi
+     di anzianita'; aliquota media = IRPEF lorda del reddito di riferimento / reddito di riferimento, con gli scaglioni
+     dell'anno della data di riferimento (`salary-manager.liquidazione.irpef`, per anno di entrata in vigore: 2007,
+     2022, 2024, 2026 = 23% / 33% / 43% dalla L. 199/2025); nessuna detrazione, nessun contributo. Le rivalutazioni
+     nette escluse sono quelle degli anni con dati TFR sui cedolini (dicembre se stampata, altrimenti l'ultima
+     dell'anno; imposta stampata o 17%); quelle degli anni senza dati, o comprese in un fondo iniziale, restano
+     imponibili (stima prudente, detto in nota). Gli anticipi concorrono solo all'aliquota; la riliquidazione
+     dell'Agenzia delle Entrate sull'aliquota media dei cinque anni precedenti non e' stimata. Le quote versate ai
+     fondi pensione non sono nel totale (le liquida il fondo).
+164. **[utente] Trattenute su ferie, permessi e ratei**: contributi INPS a carico del dipendente con l'aliquota stampata
+     sull'ultima mensilita' ordinaria (somma delle percentuali delle trattenute previdenziali INPS/IVS/FPLD/CIGS/FIS/FAP,
+     accettata tra 5% e 15%; i fondi pensione e sanitari sono esclusi), altrimenti
+     `salary-manager.liquidazione.aliquota-contributi-default` (9,19%); IRPEF all'aliquota marginale della RAL al netto
+     dei contributi. Addizionali, detrazioni, trattamento integrativo e conguaglio di fine anno non sono stimati (detto
+     in nota). Senza RAL imposte e netto di queste voci sono null e il totale e' parziale (`completa = false`).
+165. **Voci**: ferie, permessi, ROL, ex festivita' e banca ore dai saldi del riepilogo ratei (un'unita' per tipo, quella
+     con il valore stimato; un saldo negativo e' un debito e riduce il totale; saldo 0 omesso). Ratei di tredicesima:
+     mesi dall'inizio dell'anno (o dall'assunzione, o dal mese dopo l'ultimo pagamento nell'anno: tredicesima,
+     dicembre o altro cedolino che la contiene) al mese di riferimento x lordo mensile / 12; alla cessazione il mese
+     conta se lavorato per almeno 15 giorni. Ratei di quattordicesima solo per i CCNL a 14 mensilita': periodo di 12
+     mesi che inizia nel mese di pagamento del CCNL (luglio: da luglio a giugno, come nel Commercio), pagamenti
+     considerati solo se successivi all'inizio del periodo; mese ignoto = voce non stimabile. Preavviso considerato
+     lavorato: nessuna indennita' ne' trattenuta (il preavviso e' esposto nel riepilogo dell'azienda, a parte: 166-169).
+
+## Preavviso nel riepilogo dell'azienda
+
+166. **[utente] Preavviso nel riepilogo, non nella liquidazione**: blocco "Preavviso" del riepilogo, solo per il
+     rapporto attuale in corso (nessuna cessazione, TFR non liquidato), con i termini per dimissioni e licenziamento e
+     l'indennita' sostitutiva se il preavviso non e' lavorato (entrambe le versioni richieste dall'utente). La stima
+     "Se andassi via oggi" resta con il preavviso lavorato (165).
+167. **Termini solo se verificati su due fonti**: tabella `ccnl_preavviso` (changelog `260-ccnl-preavviso.sql`, fonti in
+     commento) per CCNL, gruppo di livelli e fascia di anzianita' (`oltre_anni` 0, 5, 10), in mesi e giorni di
+     calendario. Verificati: Commercio (artt. 247 e 254), Metalmeccanico industria (classificazione 2021 e vecchie
+     categorie), Studi professionali (art. 146), Turismo. Gli altri CCNL non hanno righe e il blocco dice "non ancora
+     verificati" (es. Telecomunicazioni: una sola fonte dopo il rinnovo 2025; Logistica: termini diversi per impiegati,
+     operai e viaggianti, non distinguibili dal livello; Commercio Confesercenti: nessuna fonte). Come per i parametri
+     CCNL (decisioni precedenti), un valore non verificato non e' inserito.
+168. **Livello e fascia**: il livello del rapporto (stampato sui cedolini) e' normalizzato (maiuscole, "quadro" = Q,
+     "super" = S, numeri romani in cifre, senza "livello"/"categoria") e cercato nei gruppi del CCNL; non trovato =
+     "livello non riconosciuto". Fascia = la soglia piu' alta superata dall'anzianita' all'ultimo cedolino (stessa
+     anzianita' del riepilogo, nessuna proiezione come per 162): "oltre 5 anni" vale da 5 anni e 1 mese. Il blocco
+     indica da quale mese si passa alla fascia successiva.
+169. **Indennita' sostitutiva stimata e lorda**: lordo mensile x mensilita' / 12 (ratei delle mensilita' aggiuntive) per
+     ogni mese di preavviso, / 30 per ogni giorno di calendario. Contributi e imposte (tassazione separata) non sono
+     stimati; voci variabili escluse. Calcolata in lettura (`CalcoloPreavviso`, da CCNL, livello e riepilogo salvato),
+     senza colonne nuove nel riepilogo: segue subito la tabella dei termini.

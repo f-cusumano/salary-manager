@@ -3,6 +3,7 @@ package com.fcusumano.sam.calcoli.domain;
 import static com.fcusumano.sam.calcoli.domain.CedolinoDiProva.COMMERCIO;
 import static com.fcusumano.sam.calcoli.domain.CedolinoDiProva.METALMECCANICO;
 import static com.fcusumano.sam.calcoli.domain.CedolinoDiProva.PARAMETRI;
+import static com.fcusumano.sam.calcoli.domain.CedolinoDiProva.PARAMETRI_LIQUIDAZIONE;
 import static com.fcusumano.sam.calcoli.domain.CedolinoDiProva.RAPPORTO;
 import static com.fcusumano.sam.calcoli.domain.CedolinoDiProva.contesto;
 import static com.fcusumano.sam.calcoli.domain.CedolinoDiProva.datiTfr;
@@ -33,7 +34,7 @@ class CalcolatoreRiepilogoTest {
     private static final LocalDate ASSUNZIONE = LocalDate.of(2021, 9, 1);
     private static final LocalDate CESSAZIONE = LocalDate.of(2024, 6, 15);
 
-    private final CalcolatoreRiepilogo calcolatore = new CalcolatoreRiepilogo(PARAMETRI);
+    private final CalcolatoreRiepilogo calcolatore = new CalcolatoreRiepilogo(PARAMETRI, PARAMETRI_LIQUIDAZIONE);
 
     /** Rapporto Alfa inventato: rinnovo a giugno 2023, scatto a settembre 2023, cessazione 15/06/2024, TFR liquidato. */
     private static List<CedolinoNormalizzato> rapportoCessato() {

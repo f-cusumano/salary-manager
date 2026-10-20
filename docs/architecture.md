@@ -99,10 +99,12 @@ applicati):
 | `230-ccnl-riconoscimento.sql`     | `ccnl.codice_cnel` (univoco, nullable), `ccnl.parole_escluse`; parole chiave per parole intere; quattordicesima non certa a NULL |
 | `240-ccnl-descrizioni.sql`        | (solo dati) descrizioni e note di verifica dei CCNL con le lettere accentate                  |
 | `250-ccnl-ampliamento.sql`       | (solo dati) CCNL piu' diffusi, valori verificati e descrizioni riconoscibili (decisione 156)  |
+| `260-ccnl-preavviso.sql`         | tabella `ccnl_preavviso`: termini di preavviso verificati per CCNL, gruppo di livelli e fascia di anzianita' (decisione 167) |
 | `310-cedolino-tipo-dichiarato.sql`| `cedolino.tipo_dichiarato` (tipo dichiarato dall'estrazione, base della riclassificazione)    |
 | `320-cedolino-avvisi.sql`         | `cedolino.avvisi_estrazione` (avvisi dei controlli e note del modello, separati da a capo)     |
 | `330-caricamenti-in-errore.sql`   | `caricamento.motivo` (solo in ERRORE) e indice `(workspace_id, hash_contenuto, id)`; tabelle `caricamento_pdf` (PDF dei file in errore, chiave workspace + hash) e `caricamento_attribuzione` (mensilita' associata dall'utente, FK verso `rapporto_lavoro` con cascata) |
 | `410-calcoli-stime.sql`           | `riepilogo_rapporto`: fonte e stima degli scatti attuali, quota TFR stimata, TFR liquidato (importo e netto); `riepilogo_rateo.nota`; `indicatore_mensilita.ordine` |
+| `420-liquidazione.sql`            | `riepilogo_rapporto.liquidazione_*` e tabella `riepilogo_liquidazione_voce` (stima "Se andassi via oggi", decisione 161) |
 | `510-segnalazione-ordine.sql`     | `segnalazione.ordine` (ordinamento deterministico) e indice `(rapporto_id, ordine)`            |
 
 Tutte le tabelle di dominio hanno `workspace_id` (FK verso `workspace`; workspace di default `id = 1`). La tabella

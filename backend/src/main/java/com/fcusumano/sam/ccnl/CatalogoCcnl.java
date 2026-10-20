@@ -21,4 +21,10 @@ public interface CatalogoCcnl {
      * "CCNL da indicare".
      */
     Optional<Ccnl> riconosci(String testoStampato);
+
+    /**
+     * Termini di preavviso verificati del CCNL, per gruppo di livelli e fascia di anzianita'; lista vuota se il CCNL
+     * non ha termini verificati in tabella (o non esiste).
+     */
+    List<RegolaPreavviso> preavviso(String codice);
 }

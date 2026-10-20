@@ -1,6 +1,8 @@
 package com.fcusumano.sam.web.api.dto;
 
 import com.fcusumano.sam.calcoli.FonteDato;
+import com.fcusumano.sam.calcoli.StatoPreavviso;
+import com.fcusumano.sam.calcoli.TipoVoceLiquidazione;
 import com.fcusumano.sam.cedolini.TipoRateo;
 import com.fcusumano.sam.shared.UnitaMisura;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -15,6 +17,9 @@ import java.util.List;
  *
  * @param buoniPasto "Buoni pasto: SI/NO": SI se presenti in almeno uno degli ultimi 3 cedolini ordinari
  * @param ratei      residui di ferie/permessi: esposti solo per il rapporto attuale (saldi vuoti altrimenti)
+ * @param liquidazione stima "Se andassi via oggi": solo per il rapporto attuale o per l'ultimo rapporto della persona
+ *                     finche' il TFR non e' liquidato; null altrimenti
+ * @param preavviso  termini di preavviso del CCNL: solo per il rapporto attuale in corso; null altrimenti
  */
 @Schema(name = "Riepilogo")
 public record RiepilogoDto(
@@ -24,7 +29,9 @@ public record RiepilogoDto(
         Retribuzione retribuzione,
         boolean buoniPasto,
         RateiRiepilogo ratei,
-        TfrRiepilogo tfr) {
+        TfrRiepilogo tfr,
+        Liquidazione liquidazione,
+        Preavviso preavviso) {
 
     @Schema(name = "Anzianita")
     public record Anzianita(
@@ -113,5 +120,80 @@ public record RiepilogoDto(
             boolean liquidato,
             BigDecimal importoLiquidato,
             BigDecimal nettoLiquidato) {
+    }
+
+    /**
+     * Stima della liquidazione alla data di riferimento (sempre una stima, preavviso lavorato).
+     *
+     * @param dataRiferimento            cessazione, o fine del mese dell'ultimo cedolino ordinario
+     * @param totaleNetto                somma dei netti stimabili
+     * @param completa                   false se il netto di almeno una voce non e' stimabile (totali parziali)
+     * @param aliquotaContributiStampata true se l'aliquota INPS e' letta dal cedolino
+     * @param aliquotaIrpefMarginale     null se la RAL non e' nota
+     * @param aliquotaTfr                aliquota media della tassazione separata del TFR; null se non determinabile
+     * @param nota                       ipotesi generali della stima
+     */
+    @Schema(name = "Liquidazione")
+    public record Liquidazione(
+            LocalDate dataRiferimento,
+            List<VoceLiquidazione> voci,
+            BigDecimal totaleLordo,
+            BigDecimal totaleContributi,
+            BigDecimal totaleImposte,
+            BigDecimal totaleNetto,
+            boolean completa,
+            BigDecimal aliquotaContributi,
+            boolean aliquotaContributiStampata,
+            BigDecimal aliquotaIrpefMarginale,
+            BigDecimal aliquotaTfr,
+            String nota) {
+    }
+
+    /**
+     * @param quantita giorni/ore (ferie e permessi) o mesi (ratei di tredicesima e quattordicesima); null per il TFR
+     * @param unita    unita' di ferie e permessi; null per TFR e ratei
+     * @param nota     base del calcolo o motivo per cui l'importo non e' stimabile
+     */
+    @Schema(name = "VoceLiquidazione")
+    public record VoceLiquidazione(
+            TipoVoceLiquidazione tipo,
+            BigDecimal quantita,
+            UnitaMisura unita,
+            BigDecimal lordo,
+            BigDecimal contributi,
+            BigDecimal imposte,
+            BigDecimal netto,
+            String nota) {
+    }
+
+    /**
+     * Preavviso dal CCNL per livello e anzianita' all'ultimo cedolino. Con stato diverso da VERIFICATO termini e
+     * indennita' sono null e la nota spiega il motivo.
+     *
+     * @param gruppoLivelli          gruppo di livelli del CCNL che comprende il livello
+     * @param fascia                 fascia di anzianita' applicata (es. "fino a 5 anni")
+     * @param prossimaFascia         mese da cui si applica la fascia successiva; null se ultima o non determinabile
+     * @param indennitaDimissioni    stima lorda trattenuta se ti dimetti senza lavorare il preavviso
+     * @param indennitaLicenziamento stima lorda pagata dall'azienda se licenzia senza far lavorare il preavviso
+     * @param riferimento            articolo del CCNL
+     */
+    @Schema(name = "Preavviso")
+    public record Preavviso(
+            StatoPreavviso stato,
+            String livello,
+            String gruppoLivelli,
+            String fascia,
+            YearMonth prossimaFascia,
+            DurataPreavviso dimissioni,
+            DurataPreavviso licenziamento,
+            BigDecimal indennitaDimissioni,
+            BigDecimal indennitaLicenziamento,
+            String riferimento,
+            String nota) {
+    }
+
+    /** Durata del preavviso in mesi e giorni di calendario (es. 1 mese e 15 giorni). */
+    @Schema(name = "DurataPreavviso")
+    public record DurataPreavviso(int mesi, int giorni) {
     }
 }

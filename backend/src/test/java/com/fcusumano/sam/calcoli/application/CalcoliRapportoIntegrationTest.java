@@ -12,6 +12,8 @@ import com.fcusumano.sam.calcoli.CalcoliRapporto;
 import com.fcusumano.sam.calcoli.FonteDato;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.IndicatoriMensilita;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.SaldoRateo;
+import com.fcusumano.sam.calcoli.RiepilogoRapporto.VoceLiquidazione;
+import com.fcusumano.sam.calcoli.TipoVoceLiquidazione;
 import com.fcusumano.sam.calcoli.domain.CalcolatoreRiepilogo;
 import com.fcusumano.sam.calcoli.domain.ContestoRapporto;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
@@ -129,6 +131,7 @@ class CalcoliRapportoIntegrationTest {
         assertThat(r.tfr().nettoLiquidato()).isEqualByComparingTo("1937.63");
         assertThat(r.tfr().riferimento()).isEqualTo(YearMonth.of(2024, 7));
         assertThat(r.tfr().nota()).contains("Luglio 2024");
+        assertThat(r.liquidazione().presente()).as("TFR gia' liquidato").isFalse();
 
         var conScatto = r.mensilita().stream().filter(IndicatoriMensilita::scattoInBusta)
                 .map(IndicatoriMensilita::cedolinoId).toList();
@@ -212,6 +215,13 @@ class CalcoliRapportoIntegrationTest {
         assertThat(commercio.scatti().attualiStimati()).isTrue();
         assertThat(commercio.scatti().prossimoScatto()).isEqualTo(LocalDate.of(2027, 7, 1));
         assertThat(commercio.scatti().fonteProssimo()).isEqualTo(FonteDato.CCNL);
+        assertThat(commercio.liquidazione().dataRiferimento()).isEqualTo(LocalDate.of(2025, 2, 28));
+        assertThat(commercio.liquidazione().voci()).extracting(VoceLiquidazione::tipo)
+                .contains(TipoVoceLiquidazione.TFR, TipoVoceLiquidazione.RATEI_TREDICESIMA,
+                        TipoVoceLiquidazione.RATEI_QUATTORDICESIMA);
+        assertThat(commercio.liquidazione().voci()).allSatisfy(v -> assertThat(v.netto()).isNotNull());
+        assertThat(dsl.fetchCount(dsl.selectFrom("riepilogo_liquidazione_voce")))
+                .isEqualTo(commercio.liquidazione().voci().size());
     }
 
     @Test

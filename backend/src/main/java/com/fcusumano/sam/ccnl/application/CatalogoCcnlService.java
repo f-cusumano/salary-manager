@@ -2,6 +2,7 @@ package com.fcusumano.sam.ccnl.application;
 
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
 import com.fcusumano.sam.ccnl.Ccnl;
+import com.fcusumano.sam.ccnl.RegolaPreavviso;
 import com.fcusumano.sam.ccnl.domain.RiconoscitoreCcnl;
 import java.util.List;
 import java.util.Optional;
@@ -48,5 +49,13 @@ class CatalogoCcnlService implements CatalogoCcnl {
                 .flatMap(archivio::perCodice);
         log.debug("Riconoscimento CCNL dal testo stampato: {}", riconosciuto.map(Ccnl::codice).orElse("nessuno"));
         return riconosciuto;
+    }
+
+    @Override
+    public List<RegolaPreavviso> preavviso(String codice) {
+        if (codice == null || codice.isBlank()) {
+            return List.of();
+        }
+        return archivio.regolePreavviso(codice.strip());
     }
 }

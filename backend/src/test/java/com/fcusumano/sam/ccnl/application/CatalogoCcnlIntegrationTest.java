@@ -4,7 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
 import com.fcusumano.sam.ccnl.Ccnl;
+import com.fcusumano.sam.ccnl.DurataPreavviso;
+import com.fcusumano.sam.ccnl.RegolaPreavviso;
 import com.fcusumano.sam.ccnl.domain.RegolaRiconoscimento;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -125,6 +129,37 @@ class CatalogoCcnlIntegrationTest {
                 .allSatisfy(ccnl -> assertThat(catalogo.riconosci(ccnl.descrizione())).as(ccnl.descrizione())
                         .map(Ccnl::codice).contains(ccnl.codice()));
         assertThat(catalogo.riconosci("Altro CCNL (13 mensilità)")).isEmpty();
+    }
+
+    @Test
+    void preavvisoSoloPerICcnlVerificatiConTreFasceDiAnzianitaPerGruppo() {
+        var verificati = List.of("COMMERCIO", "METALMECCANICO_INDUSTRIA", "STUDI_PROFESSIONALI", "TURISMO");
+        assertThat(catalogo.elenco()).extracting(Ccnl::codice)
+                .allSatisfy(codice -> assertThat(catalogo.preavviso(codice).isEmpty())
+                        .as(codice).isEqualTo(!verificati.contains(codice)));
+        verificati.forEach(codice -> catalogo.preavviso(codice).stream()
+                .collect(Collectors.groupingBy(RegolaPreavviso::livelli,
+                        Collectors.mapping(RegolaPreavviso::oltreAnni, Collectors.toList())))
+                .forEach((livelli, fasce) -> assertThat(fasce).as(codice + " " + livelli).containsExactly(0, 5, 10)));
+        assertThat(catalogo.preavviso(null)).isEmpty();
+        assertThat(catalogo.preavviso("INESISTENTE")).isEmpty();
+    }
+
+    @Test
+    void preavvisoDelCommercioPerLivelloEAnzianita() {
+        var regole = catalogo.preavviso("COMMERCIO");
+        assertThat(regole).hasSize(12);
+        var terzoOltreCinque = regole.stream().filter(r -> r.comprende("3° livello") && r.oltreAnni() == 5)
+                .findFirst().orElseThrow();
+        assertThat(terzoOltreCinque.descrizioneLivelli()).isEqualTo("2° e 3° livello");
+        assertThat(terzoOltreCinque.dimissioni()).isEqualTo(new DurataPreavviso(0, 30));
+        assertThat(terzoOltreCinque.licenziamento()).isEqualTo(new DurataPreavviso(0, 45));
+        assertThat(terzoOltreCinque.riferimento()).contains("Art. 247");
+
+        var metalmeccanico = catalogo.preavviso("METALMECCANICO_INDUSTRIA").stream()
+                .filter(r -> r.comprende("C3") && r.oltreAnni() == 10).findFirst().orElseThrow();
+        assertThat(metalmeccanico.dimissioni()).isEqualTo(new DurataPreavviso(2, 15));
+        assertThat(metalmeccanico.licenziamento()).isEqualTo(new DurataPreavviso(2, 15));
     }
 
     @Test

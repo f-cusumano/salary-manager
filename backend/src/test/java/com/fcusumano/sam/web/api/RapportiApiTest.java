@@ -16,8 +16,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fcusumano.sam.anagrafica.AziendaId;
+import com.fcusumano.sam.anagrafica.PersonaId;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
+import com.fcusumano.sam.anagrafica.RapportoSintesi;
+import com.fcusumano.sam.calcoli.Preavviso;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto.IndicatoriMensilita;
+import com.fcusumano.sam.calcoli.StatoPreavviso;
+import com.fcusumano.sam.ccnl.DurataPreavviso;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.MotivoErrore;
 import com.fcusumano.sam.segnalazioni.Evidenza;
@@ -28,6 +34,7 @@ import com.fcusumano.sam.segnalazioni.TipoSegnalazione;
 import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
+import java.math.BigDecimal;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
@@ -187,6 +194,10 @@ class RapportiApiTest extends ApiWebMvcTest {
         when(anagrafica.elencoPersone()).thenReturn(List.of(
                 DatiDiProva.personaSintesi("Mario Rossi (RSSMRA80A01H501U)")));
         when(calcoli.riepilogo(RAPPORTO)).thenReturn(Optional.of(DatiDiProva.riepilogo(List.of())));
+        when(calcoli.preavviso(RAPPORTO)).thenReturn(Optional.of(new Preavviso(StatoPreavviso.VERIFICATO, "3",
+                "2° e 3° livello", "fino a 5 anni", YearMonth.of(2028, 1), new DurataPreavviso(0, 20),
+                new DurataPreavviso(1, 15), new BigDecimal("1555.555"), new BigDecimal("3500"), "Art. 247",
+                "Stima")));
         when(segnalazioni.segnalazioni(RAPPORTO)).thenReturn(List.of(new Segnalazione(new SegnalazioneId(40),
                 RAPPORTO, null, Competenza.Mensilita.ordinaria(YearMonth.of(2024, 2)),
                 TipoSegnalazione.MENSILITA_MANCANTE, Gravita.AVVISO, "Mensilità mancante: Febbraio 2024",
@@ -239,7 +250,51 @@ class RapportiApiTest extends ApiWebMvcTest {
                 .andExpect(jsonPath("$.riepilogo.tfr.liquidato").value(false))
                 .andExpect(jsonPath("$.riepilogo.tfr.importoLiquidato").value(nullValue()))
                 .andExpect(jsonPath("$.riepilogo.tfr.nettoLiquidato").value(nullValue()))
-                .andExpect(jsonPath("$.riepilogo.tfr.riferimento").value("2025-02"));
+                .andExpect(jsonPath("$.riepilogo.tfr.riferimento").value("2025-02"))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.dataRiferimento").value("2025-02-28"))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.voci[*].tipo")
+                        .value(contains("TFR", "FERIE", "RATEI_QUATTORDICESIMA")))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.voci[1].quantita").value(12.5))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.voci[1].unita").value("GIORNI"))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.voci[2].lordo").value(nullValue()))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.totaleLordo").value(5629.81))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.totaleContributi").value(103.83))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.totaleImposte").value(1270.97))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.totaleNetto").value(4255.01))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.completa").value(false))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.aliquotaContributi").value(0.0919))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.aliquotaContributiStampata").value(true))
+                .andExpect(jsonPath("$.riepilogo.liquidazione.nota").value("Stima"))
+                .andExpect(jsonPath("$.riepilogo.preavviso.stato").value("VERIFICATO"))
+                .andExpect(jsonPath("$.riepilogo.preavviso.gruppoLivelli").value("2° e 3° livello"))
+                .andExpect(jsonPath("$.riepilogo.preavviso.prossimaFascia").value("2028-01"))
+                .andExpect(jsonPath("$.riepilogo.preavviso.dimissioni.giorni").value(20))
+                .andExpect(jsonPath("$.riepilogo.preavviso.licenziamento.mesi").value(1))
+                .andExpect(jsonPath("$.riepilogo.preavviso.licenziamento.giorni").value(15))
+                .andExpect(jsonPath("$.riepilogo.preavviso.indennitaDimissioni").value(1555.56))
+                .andExpect(jsonPath("$.riepilogo.preavviso.indennitaLicenziamento").value(3500.0));
+    }
+
+    @Test
+    void liquidazionePerLUltimaAziendaCessataENonPerLePrecedenti() throws Exception {
+        when(anagrafica.dettaglioRapporto(RAPPORTO))
+                .thenReturn(Optional.of(DatiDiProva.dettaglio("COMMERCIO", DatiDiProva.periodoConcluso())));
+        when(calcoli.riepilogo(RAPPORTO)).thenReturn(Optional.of(DatiDiProva.riepilogo(List.of())));
+        var ultimo = new RapportoSintesi(RAPPORTO, new PersonaId(1), new AziendaId(3), "Alfa Software S.r.l.",
+                "01234567897", "Alfa Software S.r.l.", DatiDiProva.periodoConcluso(), "COMMERCIO");
+        var precedente = new RapportoSintesi(new RapportoLavoroId(5), new PersonaId(1), new AziendaId(2),
+                "Beta S.p.A.", null, "Beta S.p.A.", DatiDiProva.periodoConcluso(), null);
+
+        when(anagrafica.rapportiDiPersona(new PersonaId(1))).thenReturn(List.of(ultimo, precedente));
+        mvc.perform(get("/api/v1/rapporti/7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.riepilogo.liquidazione.voci", hasSize(3)));
+
+        when(anagrafica.rapportiDiPersona(new PersonaId(1))).thenReturn(List.of(precedente, ultimo));
+        mvc.perform(get("/api/v1/rapporti/7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.riepilogo.liquidazione").value(nullValue()))
+                .andExpect(jsonPath("$.riepilogo.preavviso").value(nullValue()));
     }
 
     @Test
