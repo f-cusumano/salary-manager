@@ -35,6 +35,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.apache.pdfbox.Loader;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,6 +81,7 @@ class CaricamentoCedoliniIntegrationTest {
     void databaseVuoto() {
         dsl.execute("DELETE FROM caricamento_attribuzione");
         dsl.execute("DELETE FROM caricamento_pdf");
+        dsl.execute("DELETE FROM password_pdf");
         dsl.execute("DELETE FROM caricamento");
         dsl.execute("DELETE FROM cedolino");
         dsl.execute("DELETE FROM rapporto_lavoro");
@@ -431,13 +433,17 @@ class CaricamentoCedoliniIntegrationTest {
     }
 
     @Test
-    void pdfProtettoConLaPasswordDelLottoSiAcquisisceEConservaLOriginale() {
+    void pdfProtettoConLaPasswordDelLottoSiAcquisisceEArchiviaLaCopiaSenzaProtezione() {
         var originale = pdfFixture("rossi-beta-2024-09");
         var esito = carica(PASSWORD_BETA_09, new FileCaricato("rossi-beta-2024-09.pdf", originale)).getFirst();
 
         assertThat(esito.stato()).isEqualTo(StatoCaricamento.ACQUISITO);
-        assertThat(archivio.pdf(esito.cedolinoId())).get()
-                .satisfies(pdf -> assertThat(pdf.contenuto()).isEqualTo(originale));
+        assertThat(archivio.pdf(esito.cedolinoId())).get().satisfies(pdf -> {
+            assertThat(pdf.contenuto()).isNotEqualTo(originale);
+            try (var copia = Loader.loadPDF(pdf.contenuto())) {
+                assertThat(copia.isEncrypted()).isFalse();
+            }
+        });
 
         // l'hash e' sull'originale cifrato: il secondo caricamento e' un duplicato riconosciuto prima di decifrare
         var ripetuto = caricaFixture("rossi-beta-2024-09").getFirst();

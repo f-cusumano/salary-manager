@@ -62,8 +62,9 @@ class CaricamentiController {
             List<MultipartFile> files,
             @RequestPart(name = "password", required = false)
             @Parameter(description = "Password di apertura dei PDF protetti, valida per tutto il lotto "
-                    + "(facoltativa). Il backend prova questa, poi le password configurate e i codici fiscali delle "
-                    + "persone censite. Mai salvata ne' registrata nei log.",
+                    + "(facoltativa). Il backend prova questa, poi le password configurate, quelle ricordate e i "
+                    + "codici fiscali delle persone censite. Se apre un PDF viene ricordata cifrata; mai registrata "
+                    + "nei log.",
                     schema = @Schema(type = "string", format = "password", maxLength =
                             ValidazioneCaricamento.LUNGHEZZA_MASSIMA_PASSWORD,
                             accessMode = Schema.AccessMode.WRITE_ONLY))

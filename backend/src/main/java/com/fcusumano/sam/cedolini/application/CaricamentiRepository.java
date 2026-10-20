@@ -88,10 +88,16 @@ public interface CaricamentiRepository {
     /** Conserva il PDF originale del file, se non e' gia' conservato (stesso hash = stesso contenuto). */
     void salvaPdfSeAssente(WorkspaceId workspace, String hash, byte[] contenuto);
 
+    /**
+     * Conserva la copia senza protezione del PDF del file (l'hash resta quello del PDF caricato), al posto dell'eventuale
+     * PDF protetto gia' conservato.
+     */
+    void salvaPdfSbloccato(WorkspaceId workspace, String hash, byte[] contenuto);
+
     /** Elimina il PDF conservato del file, se presente. */
     void eliminaPdf(WorkspaceId workspace, String hash);
 
-    /** PDF originale conservato del file. */
+    /** PDF conservato del file: come caricato o, se una password lo ha aperto, la sua copia senza protezione. */
     Optional<byte[]> pdf(WorkspaceId workspace, String hash);
 
     /**

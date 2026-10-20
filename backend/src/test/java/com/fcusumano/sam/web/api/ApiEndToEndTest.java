@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Stream;
+import org.apache.pdfbox.Loader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -138,7 +139,7 @@ class ApiEndToEndTest {
         assertThat(beta.<List<String>>leggi("$.mensilita[*].titolo"))
                 .startsWith("Febbraio 2025", "Gennaio 2025", "Dicembre 2024");
 
-        // Dettaglio del cedolino e PDF originale (anche quello protetto resta cifrato com'era)
+        // Dettaglio del cedolino e PDF archiviato (quello protetto senza protezione, stesse pagine)
         int settembreId = beta.<List<Integer>>leggi("$.mensilita[?(@.titolo == 'Settembre 2024')].cedolinoId")
                 .getFirst();
         var cedolino = get("/api/v1/cedolini/" + settembreId);
@@ -150,7 +151,10 @@ class ApiEndToEndTest {
         assertThat(nomeFile).matches("2024\\.09_\\d+_\\d+\\.pdf");
         assertThat(pdf.intestazioni().getFirst(HttpHeaders.CONTENT_DISPOSITION))
                 .isEqualTo("attachment; filename=\"" + nomeFile + "\"; filename*=UTF-8''" + nomeFile);
-        assertThat(pdf.corpo()).isEqualTo(fixture(PROTETTO));
+        try (var archiviato = Loader.loadPDF(pdf.corpo()); var caricato = Loader.loadPDF(fixture(PROTETTO), PASSWORD_PROTETTO)) {
+            assertThat(archiviato.isEncrypted()).isFalse();
+            assertThat(archiviato.getNumberOfPages()).isEqualTo(caricato.getNumberOfPages());
+        }
 
         // Note e CCNL (il cambio ricalcola il riepilogo)
         var note = put("/api/v1/rapporti/" + betaId + "/note", "{\"note\":\"Verificare il premio di produzione\"}");

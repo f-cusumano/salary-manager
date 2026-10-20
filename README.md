@@ -349,6 +349,8 @@ Variabili principali del backend (d'ambiente o nel `.env`):
 | `SAM_AI_EFFORT`                   | `salary-manager.ai.effort`                 | `medium`                 | `low`, `medium`, `high`, `xhigh`, `max` (solo con `SAM_LETTORE=claude`) |
 | `SAM_AI_FALLBACK_RIFIUTI`         | `salary-manager.ai.fallback-rifiuti`       | `true`                   | se il modello rifiuta, l'API ripete la richiesta sul modello di fallback (solo con `SAM_LETTORE=claude`) |
 | `SAM_PDF_PASSWORD_CANDIDATE`      | `salary-manager.pdf.password-candidate`    | (nessuna)                | password da provare sui PDF protetti, separate da virgola |
+| `SAM_PASSWORD_PDF_CHIAVE`         | `salary-manager.password-pdf.chiave`       | (nessuna: file della chiave) | chiave AES-256 in base64 (32 byte, es. `openssl rand -base64 32`) con cui si cifrano le password ricordate dei PDF; vedi [PDF protetti da password](#pdf-protetti-da-password) |
+| `SAM_PASSWORD_PDF_FILE_CHIAVE`    | `salary-manager.password-pdf.file-chiave`  | `<SAM_DB_PATH>-chiave-password-pdf.key` | file della chiave usato se `SAM_PASSWORD_PDF_CHIAVE` è vuota, creato al primo uso |
 | `SAM_DB_PATH`                     | `salary-manager.database.path`             | `./data/salary-manager`  | file H2 senza estensione, relativo alla cartella di avvio |
 | `SAM_DB_USER`, `SAM_DB_PASSWORD`  | `spring.datasource.username` / `password`  | `sa` / vuota             | credenziali del database |
 | `SAM_JOOQ_DIALECT`                | `spring.jooq.sql-dialect`                  | `H2`                     | `POSTGRES` con un vero PostgreSQL |
@@ -401,18 +403,24 @@ Variabili del frontend e di Docker Compose:
 
 - **Tutto è nel database H2**, un solo file: in sviluppo `backend/data/salary-manager.mv.db` (cartella `data/`
   ignorata da git), con Docker il volume `sam-data` montato su `/data` (`/data/salary-manager.mv.db`).
-- I **PDF originali**, così come caricati (anche se protetti da password), sono salvati nella tabella `cedolino_pdf`
+- I **PDF** sono salvati nella tabella `cedolino_pdf` così come caricati o, se erano protetti da password, come
+  **copia senza protezione** (stesse pagine e stesso contenuto),
   con un nome normalizzato indipendente dal file caricato: `AAAA.MM_<idAzienda>_<idPersona>.pdf` (mese `01`-`12`,
   `13` tredicesima, `14` quattordicesima) oppure `AAAA.TFRnn_<idAzienda>_<idPersona>.pdf` per i cedolini successivi
   alla cessazione. Si scaricano dalla lista mensilità.
 - Il PDF di un **file caricato con errore** che si può ancora completare (inserimento a mano o nuova lettura) resta
-  nella tabella `caricamento_pdf`, così come caricato, uno per file anche se caricato più volte. Viene eliminato
+  nella tabella `caricamento_pdf`, così come caricato (senza protezione se una password lo ha aperto), uno per file
+  anche se caricato più volte. Viene eliminato
   appena il file è risolto: inserito a mano o letto (diventa il PDF del cedolino), scartato come duplicato o
   aggiuntivo, rimosso con "Rimuovi" dall'elenco dei cedolini caricati con errore. I file danneggiati, con troppe
   pagine o con più cedolini non vengono conservati.
 - Il JSON prodotto dal lettore resta a DB per verifica (`cedolino.estratto_json`), con il lettore usato
   (`cedolino.modello_estrazione`). **Nessun dato bancario** (IBAN, ABI/CAB, conto) viene letto o salvato; le password
-  dei PDF non vengono mai salvate né scritte nei log.
+  dei PDF indicate dall'utente che aprono un PDF sono salvate solo **cifrate** (tabella `password_pdf`) e non
+  vengono mai scritte nei log.
+- Il **file della chiave** delle password ricordate (`backend/data/salary-manager-chiave-password-pdf.key`, con
+  Docker `/data/salary-manager-chiave-password-pdf.key` nel volume) va conservato insieme al database: senza, le
+  password ricordate non si leggono più (i PDF già sbloccati restano sbloccati).
 - Con il **lettore locale** (predefinito) e con quello a fixture il PDF **non lascia il computer**. Con il lettore
   Claude (`SAM_LETTORE=claude`) **il PDF viene inviato all'API Anthropic** (la copia decifrata, se era protetto).
 - Eliminando un cedolino i dati derivati del rapporto vengono ricalcolati da zero; eliminando l'ultimo cedolino di
@@ -438,7 +446,8 @@ Alcuni cedolini sono protetti da una password di apertura. Nella modale di caric
 
 1. la password indicata nel caricamento;
 2. le password configurate (`SAM_PDF_PASSWORD_CANDIDATE`, separate da virgola);
-3. i **codici fiscali delle persone già censite**, in maiuscolo e in minuscolo (molti software paghe usano il codice
+3. le **password ricordate**: quelle indicate in passato che hanno aperto almeno un PDF;
+4. i **codici fiscali delle persone già censite**, in maiuscolo e in minuscolo (molti software paghe usano il codice
    fiscale del dipendente come password).
 
 Se in un lotto di più file un PDF protetto non si apre, viene **riprovato una volta a fine lotto**: così si apre anche
@@ -446,10 +455,33 @@ quando il codice fiscale che fa da password appartiene a una persona censita da 
 (i file sono elaborati in parallelo e l'ordine non conta). Se nessuna password funziona, il file va in errore con il
 messaggio *"PDF protetto da password: riprova indicando la password"* e compare tra i
 [cedolini caricati con errore](#cedolini-caricati-con-errore): con **"Riprova con password"** si indica la password e
-il file viene riletto dal PDF conservato, senza ricaricarlo (la password vale solo per quella lettura e non viene
-salvata). In alternativa si può inserire a mano: l'anteprima del PDF nel modulo chiede la password al visualizzatore
-del browser, che non la salva. Il lettore (locale o Claude) riceve una copia decifrata creata solo in memoria; a DB si
-conserva il PDF originale, su cui si calcola anche l'impronta usata per riconoscere i file già caricati.
+il file viene riletto dal PDF conservato, senza ricaricarlo. Se la password è giusta e ci sono altri cedolini
+protetti in errore, l'applicazione chiede se provarla anche su quelli: con **"Prova anche sugli altri"** vengono
+riletti tutti in un nuovo lotto (finché un PDF protetto non si apre non si sa di quale azienda sia, quindi si
+provano tutti; quelli che non si aprono restano com'erano), con **"Solo questo"** restano in errore. In alternativa
+si può inserire a mano: l'anteprima del PDF nel modulo chiede la password al visualizzatore del browser, che non la
+salva.
+
+**Il PDF si archivia senza protezione.** Quando una password apre un PDF, in archivio (e tra i file in errore, se la
+lettura non riesce per altri motivi) va una copia senza protezione con le stesse pagine e lo stesso contenuto: per
+riaprirlo non serve più la password. L'impronta usata per riconoscere i file già caricati resta quella del PDF
+caricato, quindi ricaricare lo stesso file protetto dà comunque "già caricato". Unica differenza: un'eventuale firma
+digitale del PDF non è più valida nella copia (nei cedolini è raro). Anche il lettore (locale o Claude) riceve la
+copia senza protezione.
+
+**La password viene ricordata, cifrata.** La password indicata (nel caricamento o in "Riprova con password") che apre
+un PDF viene salvata cifrata con AES-256-GCM e provata sui PDF protetti caricati in seguito: i cedolini dei mesi
+successivi della stessa azienda, che di solito hanno la stessa password, si aprono da soli. Le password sbagliate non
+vengono salvate. La chiave di cifratura è `SAM_PASSWORD_PDF_CHIAVE` nel `.env` (base64 di 32 byte, per esempio
+`openssl rand -base64 32`) oppure, se manca, quella del file `SAM_PASSWORD_PDF_FILE_CHIAVE`, creato al primo uso con
+una chiave casuale accanto al database. Se la chiave cambia o il file si perde, le password ricordate vengono ignorate
+e vanno indicate di nuovo.
+
+**Cedolini protetti già in archivio.** All'avvio, e ogni volta che si ricorda una nuova password, i PDF archiviati
+ancora protetti (per esempio quelli caricati con le versioni precedenti, che conservavano l'originale, o quelli
+inseriti a mano da un PDF protetto) vengono sbloccati in sottofondo con le password note (configurate, ricordate e
+codici fiscali): quelli che si aprono sono sostituiti dalla copia senza protezione, gli altri restano com'erano e si
+riprovano in seguito.
 
 I cedolini scansionati (solo immagine, senza testo) si leggono solo con il lettore Claude, che legge il PDF anche
 visivamente; il lettore locale li rifiuta con un messaggio che lo suggerisce.

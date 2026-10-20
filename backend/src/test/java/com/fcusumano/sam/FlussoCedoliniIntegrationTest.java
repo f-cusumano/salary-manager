@@ -110,6 +110,7 @@ class FlussoCedoliniIntegrationTest {
         dsl.execute("DELETE FROM caricamento_attribuzione");
         dsl.execute("DELETE FROM caricamento_pdf");
         dsl.execute("DELETE FROM caricamento");
+        dsl.execute("DELETE FROM password_pdf");
         dsl.execute("DELETE FROM cedolino");
         dsl.execute("DELETE FROM rapporto_lavoro");
         dsl.execute("DELETE FROM persona");

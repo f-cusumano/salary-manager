@@ -17,8 +17,8 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>ERRORE: motivo e messaggio. Se il file e' ancora in errore (ricontrollato dopo la registrazione: un tentativo
  *       successivo dello stesso file puo' essersi concluso prima) il PDF si conserva (uno per file) se il motivo lo
- *       prevede, altrimenti si elimina, e l'associazione resta: le segnalazioni del rapporto associato, che riportano
- *       motivo e azioni possibili, vengono ricalcolate. Se il file non e' piu' in errore PDF e associazione si
+ *       prevede (la copia senza protezione se una password lo ha aperto), altrimenti si elimina, e l'associazione
+ *       resta: le segnalazioni del rapporto associato, che riportano motivo e azioni possibili, vengono ricalcolate. Se il file non e' piu' in errore PDF e associazione si
  *       eliminano;</li>
  *   <li>DUPLICATO / AGGIUNTIVO_NON_GESTITO: il file non e' piu' in errore, quindi PDF e associazione si eliminano.</li>
  * </ul>
@@ -43,13 +43,25 @@ class ChiusuraCaricamento {
 
     /** Porta il caricamento in ERRORE con motivo e messaggio (mai dati personali). */
     void errore(Lavoro lavoro, MotivoErrore motivo, String messaggio) {
+        errore(lavoro, motivo, messaggio, null);
+    }
+
+    /**
+     * Come {@link #errore(Lavoro, MotivoErrore, String)}, per un PDF che una password ha aperto prima dell'errore: si
+     * conserva la sua copia senza protezione, anche al posto del PDF protetto conservato da un tentativo precedente.
+     *
+     * @param pdfSbloccato copia senza protezione del PDF, null se il PDF non era cifrato o non si e' aperto
+     */
+    void errore(Lavoro lavoro, MotivoErrore motivo, String messaggio, byte[] pdfSbloccato) {
         var ws = lavoro.workspace();
         try {
             scritture.inTransazione(ws, stato -> {
                 caricamenti.registraErrore(ws, lavoro.caricamentoId(), motivo, messaggio);
                 var hash = lavoro.hash();
                 if (caricamenti.fileInErrore(ws, hash)) {
-                    if (motivo.conservaPdf()) {
+                    if (motivo.conservaPdf() && pdfSbloccato != null) {
+                        caricamenti.salvaPdfSbloccato(ws, hash, pdfSbloccato);
+                    } else if (motivo.conservaPdf()) {
                         caricamenti.salvaPdfSeAssente(ws, hash, lavoro.contenuto());
                     } else {
                         caricamenti.eliminaPdf(ws, hash);

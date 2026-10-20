@@ -19,9 +19,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.encryption.AccessPermission;
+import org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -188,6 +191,19 @@ final class SupportoCaricamenti {
                 contenuto.showText(testo);
                 contenuto.endText();
             }
+            documento.save(uscita);
+            return uscita.toByteArray();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Come {@link #pdfConTesto(String)}, protetto dalla password di apertura indicata. */
+    static byte[] pdfProtettoConTesto(String testo, String password) {
+        try (var documento = Loader.loadPDF(pdfConTesto(testo)); var uscita = new ByteArrayOutputStream()) {
+            var protezione = new StandardProtectionPolicy("proprietario-" + password, password, new AccessPermission());
+            protezione.setEncryptionKeyLength(256);
+            documento.protect(protezione);
             documento.save(uscita);
             return uscita.toByteArray();
         } catch (IOException e) {

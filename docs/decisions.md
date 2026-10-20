@@ -263,7 +263,8 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
     causa `PROTETTO_DA_PASSWORD`) con messaggio "PDF protetto da password: riprova indicando la password" (era
     "indica la password e ricarica": con il PDF conservato si riprova senza ricaricare, decisione 148). A Claude va
     la copia decifrata (`setAllSecurityToBeRemoved`); a DB e per l'hash si usa l'originale. Le password non sono mai
-    salvate ne' loggate. PDFBox e' ammesso solo negli adapter `pdf` e `fixture` (regola ArchUnit).
+    salvate ne' loggate. PDFBox e' ammesso solo negli adapter `pdf` e `fixture` (regola ArchUnit). Archivio della copia
+    decifrata, password ricordate e ordine aggiornato dei tentativi: decisioni 157 e 158.
 68. **Limiti dei PDF**: intestazione `%PDF-` nei primi 1024 byte, almeno una pagina, al massimo
     `salary-manager.pdf.pagine-massime` (100) pagine, PDF in base64 + 256KB di margine entro
     `salary-manager.pdf.dimensione-massima-richiesta` (32MB, cioe' PDF fino a circa 23MB). Le scansioni senza testo
@@ -291,9 +292,9 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
 
 71. **[utente] Password dei PDF protetti per lotto**: estensione additiva dell'API,
     `CaricamentoCedolini.avvia(List<FileCaricato>, String password)` (l'`avvia(files)` esistente delega con password
-    null). La password resta solo in memoria per l'elaborazione (mai salvata, mai nei log, nascosta nel `toString`) ed
-    e' la prima provata dalla decisione 67. L'hash per i duplicati e' calcolato sul PDF originale caricato, che e'
-    anche quello salvato a DB.
+    null). La password resta solo in memoria per l'elaborazione (mai nei log, nascosta nel `toString`) ed e' la prima
+    provata dalla decisione 67; se apre un PDF viene ricordata cifrata (decisione 158). L'hash per i duplicati e'
+    calcolato sul PDF originale caricato; a DB si salva la sua copia senza protezione se era cifrato (decisione 157).
 72. **Elaborazione asincrona**: `avvia` registra i file IN_CODA in una transazione propria (`REQUIRES_NEW`, committata
     prima di avviare i thread) e ritorna. Ogni file e' elaborato su un thread virtuale; le estrazioni contemporanee sono
     limitate da un semaforo (`salary-manager.ai.concurrency`). File identici (stesso hash) dello stesso workspace sono
@@ -1013,3 +1014,44 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
        `METALMECCANICO_PMI`.
      - **Cassa Edile**: `ccnl-tredicesima-cassa-edile` comprende anche `EDILIZIA_ARTIGIANATO` (tredicesima degli operai
        pagata dalla Cassa Edile come nell'industria).
+
+## Cedolini protetti da password
+
+157. **[utente] Il PDF protetto si archivia senza protezione** (supera le decisioni 67, 71 e 142 su "a DB si salva
+     l'originale"): quando una password apre un PDF cifrato, in `cedolino_pdf` va la copia senza protezione prodotta da
+     PDFBox (`setAllSecurityToBeRemoved`: stesse pagine e stesso contenuto, file riscritto), la stessa che riceve il
+     lettore. Vale anche per i PDF cifrati con la sola password del proprietario (`LettorePdf.DocumentoPdf.decifrato`).
+     L'hash del cedolino resta quello del PDF caricato: ricaricare lo stesso file protetto da' ancora "gia' caricato".
+     Un file in errore aperto da una password (es. layout non riconosciuto dopo la password giusta) conserva in
+     `caricamento_pdf` la copia senza protezione, anche al posto del PDF protetto conservato da un tentativo precedente
+     (`CaricamentiRepository.salvaPdfSbloccato`). L'eventuale firma digitale non e' piu' valida nella copia (accettato
+     dall'utente: nei cedolini e' rara). La colonna `cedolino_pdf.protetto` (changelog `340`) vale false per i PDF senza
+     password di apertura, true per quelli che nessuna password nota apre, null se da verificare (archiviati prima di
+     questa versione e inseriti a mano dal PDF conservato, che puo' essere ancora protetto).
+158. **[utente] Password ricordata cifrata**: la password indicata dall'utente (caricamento o nuova lettura) che apre un
+     PDF (`DocumentoPdf.passwordUtenteValida`, anche nella versione senza spazi ai lati) viene salvata in `password_pdf`
+     (changelog `341`) cifrata con AES-256-GCM (`adapter.cifratura.AesGcmCifraturaPassword`: versione, nonce casuale di
+     12 byte, testo cifrato e tag; l'id del workspace come dati autenticati) e non piu' due volte (confronto in chiaro
+     nella transazione serializzata del workspace). Le password configurate e i codici fiscali non si salvano: si
+     provano comunque. Ordine dei tentativi (aggiorna la decisione 67): nessuna password, password dell'utente,
+     configurate, ricordate, codici fiscali (ricordate e codici fiscali letti solo se servono; i valori di 16 lettere e
+     cifre si provano anche in maiuscolo e minuscolo, gli altri come sono). Le password ricordate valgono per tutto il
+     workspace, non per azienda: un PDF protetto non dice di quale azienda e' finche' non si apre.
+     - **Chiave**: `salary-manager.password-pdf.chiave` (`SAM_PASSWORD_PDF_CHIAVE`, base64 di 32 byte) o, se vuota, il
+       file `salary-manager.password-pdf.file-chiave` (default `${salary-manager.database.path}-chiave-password-pdf.key`,
+       cioe' accanto al database e nel volume con Docker), creato al primo uso con una chiave casuale e permessi 600 dove
+       possibile. Chiave mancante o non valida: errore chiaro al primo uso, non all'avvio. Una password non piu'
+       decifrabile (chiave cambiata) viene ignorata con un avviso nei log (solo il numero).
+     - **Nei test** la chiave e' fissa in `application-test.yml`: nessun file creato.
+159. **[utente] Nuova lettura di tutti i file protetti in errore**: `POST /api/v1/caricamenti/in-errore/rilettura-protetti`
+     (`CaricamentiInErrore.rileggiProtetti`) registra in un nuovo lotto un tentativo per ogni file in errore con motivo
+     `PDF_PROTETTO`, PDF conservato e nessun tentativo in corso (204 se nessuno), senza password: valgono quelle
+     ricordate. Il frontend la propone alla fine della nuova lettura di un file protetto fatta con una password, se il
+     file non e' tornato in errore per la password e restano altri file protetti in errore ("Prova anche sugli altri" /
+     "Solo questo"); in entrambi i casi la password resta ricordata. Si provano tutti i file protetti e non solo quelli
+     "dell'azienda" perche' l'azienda di un PDF chiuso non e' nota; quelli che non si aprono restano in errore.
+160. **[utente] Sblocco dei PDF gia' archiviati** (`SbloccoPdfArchiviati`): all'avvio (`ApplicationReadyEvent`, tutti i
+     workspace), quando si ricorda una nuova password e dopo un inserimento a mano (un workspace) i PDF con `protetto`
+     true o null si aprono con le password configurate, ricordate e i codici fiscali delle persone del workspace; quelli
+     aperti sono sostituiti dalla copia senza protezione (hash invariato). Un solo sblocco alla volta su un thread
+     virtuale, senza bloccare richieste o avvio; un PDF illeggibile resta da verificare. Nei log solo id e conteggi.

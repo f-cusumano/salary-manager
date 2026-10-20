@@ -47,7 +47,7 @@ import org.springframework.stereotype.Component;
 /**
  * Fase di persistenza di un caricamento, in una transazione serializzata per workspace: censimento di persona,
  * azienda e rapporto, determinazione della competenza, controllo di unicita' (duplicato / aggiuntivo), salvataggio
- * di cedolino e PDF originale, riclassificazione dei cedolini del rapporto e rinumerazione dei progressivi TFR
+ * di cedolino e PDF (senza protezione se era cifrato), riclassificazione dei cedolini del rapporto e rinumerazione dei progressivi TFR
  * ({@link ClassificazioneCedolini}), estremi del rapporto, caricamento ACQUISITO (gli eventuali tentativi in errore
  * successivi dello stesso file diventano DUPLICATO), eliminazione di PDF conservato e associazione del file (non piu'
  * in errore) e infine pubblicazione di {@link CedolinoAcquisito} (i ricalcoli dei
@@ -91,8 +91,15 @@ class AcquisizioneCedolino {
         this.eventi = eventi;
     }
 
-    /** Documento caricato da archiviare: PDF originale (come caricato) e suo hash SHA-256. */
-    record DocumentoCaricato(WorkspaceId workspace, CaricamentoId caricamentoId, byte[] pdfOriginale, String hash) {
+    /**
+     * Documento caricato da archiviare.
+     *
+     * @param pdf         PDF da archiviare: quello caricato o, se era cifrato, la sua copia senza protezione
+     * @param hash        hash SHA-256 del PDF caricato (anche quando si archivia la copia senza protezione)
+     * @param pdfProtetto false se {@code pdf} e' senza password di apertura, null se non verificato
+     */
+    record DocumentoCaricato(WorkspaceId workspace, CaricamentoId caricamentoId, byte[] pdf, String hash,
+                             Boolean pdfProtetto) {
     }
 
     /**
@@ -168,8 +175,9 @@ class AcquisizioneCedolino {
                 }
                 attribuzione = caricamenti.attribuzione(workspace, file.hash()).orElse(null);
             }
-            var registrazione = registra(new DocumentoCaricato(workspace, caricamentoId, pdf, file.hash()), estrazione,
-                    !prova, scelte);
+            // il PDF conservato puo' essere ancora protetto: lo verifica lo sblocco dei PDF archiviati
+            var registrazione = registra(new DocumentoCaricato(workspace, caricamentoId, pdf, file.hash(), null),
+                    estrazione, !prova, scelte);
             if (prova || registrazione.esito() instanceof Scartato) {
                 stato.setRollbackOnly();
             }
@@ -255,7 +263,8 @@ class AcquisizioneCedolino {
                 tipo,
                 nomeFile.nomeFile(competenza, rapporto.aziendaId(), rapporto.personaId()),
                 documento.hash(),
-                documento.pdfOriginale(),
+                documento.pdf(),
+                documento.pdfProtetto(),
                 estrazione.jsonOriginale(),
                 estratto.confidenza() == null ? null : estratto.confidenza().complessiva(),
                 estratto.campiNonTrovati(),

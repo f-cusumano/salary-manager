@@ -64,6 +64,23 @@ public interface CedoliniRepository {
 
     Optional<PdfCedolino> pdf(WorkspaceId workspace, CedolinoId id);
 
+    /**
+     * Cedolini (di tutti i workspace) il cui PDF archiviato e' ancora protetto o da verificare, in ordine di
+     * workspace e id.
+     */
+    List<PdfDaSbloccare> pdfDaSbloccare();
+
+    /** Cedolini del workspace il cui PDF archiviato e' ancora protetto o da verificare, in ordine di id. */
+    List<CedolinoId> pdfDaSbloccare(WorkspaceId workspace);
+
+    /**
+     * Aggiorna il PDF archiviato del cedolino (se esiste ancora).
+     *
+     * @param contenuto copia senza protezione da archiviare al posto del PDF attuale, null per lasciarlo com'e'
+     * @param protetto  true se il PDF archiviato resta protetto da una password sconosciuta
+     */
+    void aggiornaPdf(WorkspaceId workspace, CedolinoId id, byte[] contenuto, boolean protetto);
+
     /** Elimina il cedolino; le tabelle figlie e il PDF sono rimossi in cascata. */
     void elimina(WorkspaceId workspace, CedolinoId id);
 
@@ -78,12 +95,17 @@ public interface CedoliniRepository {
     record AssegnazioneCompetenza(CedolinoId id, Competenza competenza, String nomeFile) {
     }
 
+    record PdfDaSbloccare(WorkspaceId workspace, CedolinoId cedolinoId) {
+    }
+
     /**
      * Cedolino da salvare.
      *
      * @param dati               dati normalizzati ({@code id} null)
      * @param tipoDichiarato     tipo dichiarato dall'estrazione (mai AGGIUNTIVA: un aggiuntivo non viene salvato)
-     * @param pdfOriginale       PDF come caricato (anche se protetto da password)
+     * @param pdf                PDF da archiviare: quello caricato o, se era cifrato, la sua copia senza protezione
+     * @param pdfProtetto        false se il PDF e' senza password di apertura, null se non verificato (inserimento a
+     *                           mano dal PDF conservato di un file in errore)
      * @param jsonEstrazione     JSON dell'estrazione per audit (dati bancari gia' mascherati)
      * @param confidenza         confidenza complessiva 0..1, null se non disponibile
      * @param avvisiEstrazione   avvisi dell'estrazione (dati bancari gia' mascherati), mai da loggare
@@ -93,7 +115,8 @@ public interface CedoliniRepository {
             TipoDichiarato tipoDichiarato,
             String nomeFile,
             String hash,
-            byte[] pdfOriginale,
+            byte[] pdf,
+            Boolean pdfProtetto,
             String jsonEstrazione,
             BigDecimal confidenza,
             List<String> campiNonTrovati,

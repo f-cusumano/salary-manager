@@ -42,8 +42,8 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
  * <p>
  * Le azioni accettano l'id di uno qualunque dei tentativi in ERRORE del file. Il modulo cedolini le rifiuta (409) se
  * il file non e' piu' in errore o se un suo nuovo tentativo e' in elaborazione. Gli errori sui dati inviati sono
- * restituiti campo per campo ({@code errori} del Problem Details). La password della nuova lettura passa solo in
- * memoria, come quella del caricamento.
+ * restituiti campo per campo ({@code errori} del Problem Details). La password della nuova lettura, come quella del
+ * caricamento, non e' mai registrata nei log; se apre il PDF il modulo cedolini la ricorda cifrata.
  */
 @RestController
 @RequestMapping(path = "/api/v1/caricamenti", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -86,11 +86,12 @@ class CaricamentiInErroreController {
     }
 
     @GetMapping(value = "/{caricamentoId}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
-    @Operation(operationId = "scaricaPdfCaricamento", summary = "PDF originale conservato di un file in errore",
-            description = "Il PDF come caricato (anche se protetto da password), con il nome originale nell'header "
+    @Operation(operationId = "scaricaPdfCaricamento", summary = "PDF conservato di un file in errore",
+            description = "Il PDF come caricato (ancora protetto se nessuna password lo ha aperto, altrimenti senza "
+                    + "protezione), con il nome originale nell'header "
                     + "Content-Disposition (filename e filename* RFC 5987, come per i cedolini). 404 se il PDF non e' "
                     + "conservato.")
-    @ApiResponse(responseCode = "200", description = "PDF come caricato (anche se protetto), con il nome originale",
+    @ApiResponse(responseCode = "200", description = "PDF conservato, con il nome originale",
             headers = @Header(name = HttpHeaders.CONTENT_DISPOSITION,
                     description = "attachment; filename=\"cedolino.pdf\"; filename*=UTF-8''cedolino.pdf",
                     schema = @Schema(type = "string")),
@@ -114,9 +115,9 @@ class CaricamentiInErroreController {
     @Operation(operationId = "rileggiCaricamento",
             summary = "Rilegge il PDF conservato in un nuovo lotto (eventualmente con la password)",
             description = "Registra un nuovo caricamento dello stesso file (stato IN_CODA) in un nuovo lotto, da "
-                    + "seguire in polling su GET /api/v1/caricamenti/lotti/{lotto}. La password vale solo per questa "
-                    + "lettura: mai salvata ne' registrata nei log. 409 se il file non e' in errore, se un nuovo "
-                    + "tentativo e' in corso o se il PDF non e' conservato.")
+                    + "seguire in polling su GET /api/v1/caricamenti/lotti/{lotto}. Una password che apre il PDF viene "
+                    + "ricordata cifrata e provata sui PDF protetti successivi; mai registrata nei log. 409 se il file "
+                    + "non e' in errore, se un nuovo tentativo e' in corso o se il PDF non e' conservato.")
     @ApiResponse(responseCode = "202", description = "Lotto registrato (polling su /api/v1/caricamenti/lotti/{lotto})")
     @Risposte.RichiestaNonValida
     @Risposte.NonTrovato
@@ -126,6 +127,28 @@ class CaricamentiInErroreController {
             @RequestBody RichiestaRiletturaDto richiesta) {
         var password = ValidazioneCaricamento.password(richiesta.password());
         var registrati = inErrore.rileggi(new CaricamentoId(caricamentoId), password);
+        var lotto = registrati.getFirst().lotto();
+        var posizione = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .path("/api/v1/caricamenti/lotti/{lotto}")
+                .buildAndExpand(lotto)
+                .toUri();
+        return ResponseEntity.accepted().location(posizione).body(Mappatura.lotto(lotto, registrati));
+    }
+
+    @PostMapping("/in-errore/rilettura-protetti")
+    @Operation(operationId = "rileggiCaricamentiProtetti",
+            summary = "Rilegge tutti i file in errore protetti da password con le password ricordate",
+            description = "Registra in un nuovo lotto un nuovo caricamento (stato IN_CODA) per ogni file in errore "
+                    + "con motivo PDF_PROTETTO, PDF conservato e nessun tentativo in corso, da seguire in polling su "
+                    + "GET /api/v1/caricamenti/lotti/{lotto}. Si provano anche le password ricordate: e' il seguito di "
+                    + "una password che ha aperto un PDF. 204 se non ci sono file da rileggere.")
+    @ApiResponse(responseCode = "202", description = "Lotto registrato (polling su /api/v1/caricamenti/lotti/{lotto})")
+    @ApiResponse(responseCode = "204", description = "Nessun file protetto da rileggere")
+    ResponseEntity<LottoCaricamentoDto> rileggiCaricamentiProtetti() {
+        var registrati = inErrore.rileggiProtetti();
+        if (registrati.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
         var lotto = registrati.getFirst().lotto();
         var posizione = ServletUriComponentsBuilder.fromCurrentContextPath()
                 .path("/api/v1/caricamenti/lotti/{lotto}")

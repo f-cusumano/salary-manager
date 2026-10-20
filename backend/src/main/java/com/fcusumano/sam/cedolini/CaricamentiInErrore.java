@@ -23,7 +23,7 @@ public interface CaricamentiInErrore {
     List<CaricamentoInErrore> associatiARapporto(RapportoLavoroId rapportoId);
 
     /**
-     * PDF originale conservato (come caricato, anche se protetto) con il nome del file originale; vuoto se il
+     * PDF conservato (come caricato o, se una password lo ha aperto, senza protezione) con il nome del file originale; vuoto se il
      * caricamento non esiste, non e' in ERRORE o il PDF del file non e' conservato.
      */
     Optional<PdfCedolino> pdf(CaricamentoId id);
@@ -56,6 +56,15 @@ public interface CaricamentiInErrore {
      * @return il caricamento registrato IN_CODA
      */
     List<Caricamento> rileggi(CaricamentoId id, String password);
+
+    /**
+     * Rilegge in un nuovo lotto tutti i file in errore perche' protetti da password (motivo
+     * {@link MotivoErrore#PDF_PROTETTO}, PDF conservato, nessun tentativo in elaborazione), provando anche le password
+     * ricordate: e' il seguito di una password che ha aperto un PDF. Quelli che nessuna password apre restano in errore.
+     *
+     * @return i caricamenti registrati IN_CODA, vuoto se non ci sono file da rileggere
+     */
+    List<Caricamento> rileggiProtetti();
 
     /**
      * Prova l'inserimento a mano senza salvare nulla: competenza, conflitti, persona, azienda e rapporto nuovi, avvisi.
