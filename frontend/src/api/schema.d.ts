@@ -417,6 +417,16 @@ export interface components {
     /** @enum {string} */
     TipoRateo: 'FERIE' | 'PERMESSI' | 'ROL' | 'EX_FESTIVITA' | 'BANCA_ORE';
     /** @enum {string} */
+    TipoVoceLiquidazione:
+      | 'TFR'
+      | 'FERIE'
+      | 'PERMESSI'
+      | 'ROL'
+      | 'EX_FESTIVITA'
+      | 'BANCA_ORE'
+      | 'RATEI_TREDICESIMA'
+      | 'RATEI_QUATTORDICESIMA';
+    /** @enum {string} */
     FontePeriodo: 'DATA_CONTRATTUALE' | 'CEDOLINI' | 'NON_DISPONIBILE';
     /** @enum {string} */
     FonteDato: 'DATA_CONTRATTUALE' | 'CEDOLINI' | 'CCNL' | 'NON_DISPONIBILE';
@@ -647,6 +657,8 @@ export interface components {
       /** @description Residui di ferie e permessi, esposti solo se il rapporto e' attuale (altrimenti saldi vuoti) */
       ratei: components['schemas']['RateiRiepilogo'];
       tfr: components['schemas']['TfrRiepilogo'];
+      /** @description Stima "Se andassi via oggi": solo per il rapporto attuale o per l'ultimo rapporto della persona finche' il TFR non e' liquidato; null altrimenti */
+      liquidazione: components['schemas']['Liquidazione'] | null;
     };
     Anzianita: {
       dal: components['schemas']['Mese'] | null;
@@ -729,6 +741,45 @@ export interface components {
       importoLiquidato: components['schemas']['Importo'] | null;
       /** @description TFR liquidato al netto della ritenuta stampata; null se non liquidato o senza ritenuta */
       nettoLiquidato: components['schemas']['Importo'] | null;
+    };
+    /** @description Stima di quanto spetterebbe lasciando l'azienda alla data di riferimento (cessazione, o fine del mese dell'ultimo cedolino ordinario), senza proiezioni e con il preavviso considerato lavorato. Sempre una stima. */
+    Liquidazione: {
+      /** Format: date */
+      dataRiferimento: string;
+      voci: components['schemas']['VoceLiquidazione'][];
+      totaleLordo: components['schemas']['Importo'];
+      totaleContributi: components['schemas']['Importo'];
+      totaleImposte: components['schemas']['Importo'];
+      /** @description Somma dei netti stimabili */
+      totaleNetto: components['schemas']['Importo'];
+      /** @description false se il netto di almeno una voce non e' stimabile (totali parziali) */
+      completa: boolean;
+      /** @description Aliquota dei contributi INPS a carico del dipendente (0..1) su ferie e ratei */
+      aliquotaContributi: number;
+      /** @description true se l'aliquota INPS e' letta dal cedolino, false se da configurazione */
+      aliquotaContributiStampata: boolean;
+      /** @description Aliquota IRPEF marginale stimata sulla RAL (0..1); null se la RAL non e' nota */
+      aliquotaIrpefMarginale: number | null;
+      /** @description Aliquota media della tassazione separata del TFR (0..1); null se non determinabile */
+      aliquotaTfr: number | null;
+      /** @description Ipotesi generali della stima */
+      nota: string | null;
+    };
+    /** @description Voce della liquidazione stimata; netto = lordo - contributi - imposte. Importi null se non stimabili. */
+    VoceLiquidazione: {
+      tipo: components['schemas']['TipoVoceLiquidazione'];
+      /** @description Giorni/ore di ferie e permessi o mesi di rateo (tredicesima, quattordicesima); null per il TFR */
+      quantita: number | null;
+      /** @description Unita' di ferie e permessi; null per TFR e ratei */
+      unita: components['schemas']['UnitaMisura'] | null;
+      /** @description Negativo se e' un debito (es. ferie godute in anticipo) */
+      lordo: components['schemas']['Importo'] | null;
+      contributi: components['schemas']['Importo'] | null;
+      /** @description Tassazione separata per il TFR, IRPEF all'aliquota marginale per le altre voci */
+      imposte: components['schemas']['Importo'] | null;
+      netto: components['schemas']['Importo'] | null;
+      /** @description Base del calcolo o motivo per cui l'importo non e' stimabile */
+      nota: string | null;
     };
     /**
      * @description Riga della lista mensilita'. `stato = PRESENTE`: cedolino caricato, espandibile (dettaglio da

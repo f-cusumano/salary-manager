@@ -19,9 +19,11 @@ import java.util.function.Function;
 public final class CalcolatoreRiepilogo {
 
     private final ParametriCalcolo parametri;
+    private final ParametriLiquidazione parametriLiquidazione;
 
-    public CalcolatoreRiepilogo(ParametriCalcolo parametri) {
+    public CalcolatoreRiepilogo(ParametriCalcolo parametri, ParametriLiquidazione parametriLiquidazione) {
         this.parametri = Objects.requireNonNull(parametri, "parametri");
+        this.parametriLiquidazione = Objects.requireNonNull(parametriLiquidazione, "parametriLiquidazione");
     }
 
     public RiepilogoRapporto calcola(ContestoRapporto contesto, List<CedolinoNormalizzato> cedolini,
@@ -29,16 +31,21 @@ public final class CalcolatoreRiepilogo {
         var ordinati = CedoliniOrdinati.di(cedolini);
         var completo = conDateDaiCedolini(contesto, ordinati);
         var anzianita = CalcoloAnzianita.calcola(completo, ordinati);
+        var retribuzione = CalcoloRetribuzione.calcola(completo, ordinati, parametri);
+        var ratei = CalcoloRatei.calcola(ordinati, parametri);
+        var tfr = CalcoloTfr.calcola(completo, ordinati, anzianita, parametri);
         return new RiepilogoRapporto(
                 completo.rapportoId(),
                 calcolatoIl,
                 anzianita,
                 CalcoloScatti.calcola(completo, ordinati, anzianita),
-                CalcoloRetribuzione.calcola(completo, ordinati, parametri),
+                retribuzione,
                 CalcoloBuoniPasto.calcola(ordinati, parametri),
-                CalcoloRatei.calcola(ordinati, parametri),
-                CalcoloTfr.calcola(completo, ordinati, anzianita, parametri),
-                CalcoloIndicatori.calcola(ordinati, parametri));
+                ratei,
+                tfr,
+                CalcoloIndicatori.calcola(ordinati, parametri),
+                CalcoloLiquidazione.calcola(completo, ordinati, anzianita, retribuzione, ratei, tfr, parametri,
+                        parametriLiquidazione));
     }
 
     private static ContestoRapporto conDateDaiCedolini(ContestoRapporto contesto, CedoliniOrdinati cedolini) {

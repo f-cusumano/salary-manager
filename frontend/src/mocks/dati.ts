@@ -1048,6 +1048,90 @@ function rapportoMario1(db: MockDb): RapportoDettaglio {
       importoLiquidato: null,
       nettoLiquidato: null,
     },
+    liquidazione: {
+      dataRiferimento: '2026-09-30',
+      voci: [
+        {
+          tipo: 'TFR',
+          quantita: null,
+          unita: null,
+          lordo: 8120.4,
+          contributi: 0,
+          imposte: 1867.69,
+          netto: 6252.71,
+          nota:
+            'Tassazione separata: aliquota media del 23% sul reddito di riferimento di 2.693,60 € ' +
+            '(12.345,67 € x 12 / 55 mesi di anzianità), con gli scaglioni IRPEF 2026.',
+        },
+        {
+          tipo: 'FERIE',
+          quantita: 12.5,
+          unita: 'GIORNI',
+          lordo: 1376.4,
+          contributi: 126.49,
+          imposte: 412.47,
+          netto: 837.44,
+          nota: 'Saldo dell’ultimo cedolino che riporta i ratei. Giorni x paga giornaliera stampata sul cedolino.',
+        },
+        {
+          tipo: 'PERMESSI',
+          quantita: 32,
+          unita: 'ORE',
+          lordo: 545.33,
+          contributi: 50.12,
+          imposte: 163.42,
+          netto: 331.79,
+          nota: 'Saldo dell’ultimo cedolino che riporta i ratei. Ore x paga oraria stampata sul cedolino.',
+        },
+        {
+          tipo: 'EX_FESTIVITA',
+          quantita: 16,
+          unita: 'ORE',
+          lordo: 272.67,
+          contributi: 25.06,
+          imposte: 81.71,
+          netto: 165.9,
+          nota: 'Saldo dell’ultimo cedolino che riporta i ratei. Ore x paga oraria stampata sul cedolino.',
+        },
+        {
+          tipo: 'RATEI_TREDICESIMA',
+          quantita: 9,
+          unita: null,
+          lordo: 2147.24,
+          contributi: 197.33,
+          imposte: 643.47,
+          netto: 1306.44,
+          nota: '9/12 del lordo mensile (2.862,98 €) per i mesi da Gennaio 2026 a Settembre 2026.',
+        },
+        {
+          tipo: 'RATEI_QUATTORDICESIMA',
+          quantita: 3,
+          unita: null,
+          lordo: 715.75,
+          contributi: 65.78,
+          imposte: 214.49,
+          netto: 435.48,
+          nota:
+            '3/12 del lordo mensile (2.862,98 €) per i mesi da Luglio 2026 a Settembre 2026 (periodo di ' +
+            'maturazione da Luglio 2026 a Giugno 2027).',
+        },
+      ],
+      totaleLordo: 13177.79,
+      totaleContributi: 464.78,
+      totaleImposte: 3383.25,
+      totaleNetto: 9329.76,
+      completa: true,
+      aliquotaContributi: 0.0919,
+      aliquotaContributiStampata: true,
+      aliquotaIrpefMarginale: 0.33,
+      aliquotaTfr: 0.23,
+      nota:
+        'Stima senza proiezioni dopo l’ultimo cedolino, con il preavviso considerato lavorato. Non comprende ' +
+        'straordinari, premi e altre voci variabili. Le quote di TFR versate ai fondi pensione (4.225,27 €) non ' +
+        'sono comprese: le liquida il fondo. Contributi INPS al 9,19%, come stampato sul cedolino. IRPEF ' +
+        'all’aliquota marginale del 33% stimata sulla RAL al netto dei contributi, senza addizionali, detrazioni ' +
+        'e conguaglio di fine anno.',
+    },
   };
 
   const mancante = righe.find((r) => r.stato === 'MANCANTE');
@@ -1217,6 +1301,7 @@ function rapportoMario2(db: MockDb): RapportoDettaglio {
         importoLiquidato: 9870,
         nettoLiquidato: 7699.6,
       },
+      liquidazione: null,
     },
     mensilita: righe,
   };
@@ -1345,6 +1430,67 @@ function rapportoLaura(db: MockDb): RapportoDettaglio {
         liquidato: false,
         importoLiquidato: null,
         nettoLiquidato: null,
+      },
+      liquidazione: {
+        dataRiferimento: '2026-09-30',
+        voci: [
+          {
+            tipo: 'TFR',
+            quantita: null,
+            unita: null,
+            lordo: 1590.12,
+            contributi: 0,
+            imposte: 365.73,
+            netto: 1224.39,
+            nota:
+              'Tassazione separata: aliquota media del 23% sul reddito di riferimento di 1.734,68 € ' +
+              '(1.590,12 € x 12 / 11 mesi di anzianità), con gli scaglioni IRPEF 2026.',
+          },
+          {
+            tipo: 'FERIE',
+            quantita: 61.5,
+            unita: 'ORE',
+            lordo: 713.88,
+            contributi: 65.61,
+            imposte: 149.1,
+            netto: 499.17,
+            nota: 'Saldo dell’ultimo cedolino che riporta i ratei. Ore x lordo mensile / divisore orario 173 (da configurazione).',
+          },
+          {
+            tipo: 'ROL',
+            quantita: 22,
+            unita: 'ORE',
+            lordo: null,
+            contributi: null,
+            imposte: null,
+            netto: null,
+            nota: 'Valore non stimabile: paga giornaliera/oraria e lordo mensile non disponibili.',
+          },
+          {
+            tipo: 'RATEI_TREDICESIMA',
+            quantita: 9,
+            unita: null,
+            lordo: 1462.5,
+            contributi: 134.4,
+            imposte: 305.46,
+            netto: 1022.64,
+            nota: '9/12 del lordo mensile (1.950,00 €) per i mesi da Gennaio 2026 a Settembre 2026.',
+          },
+        ],
+        totaleLordo: 3766.5,
+        totaleContributi: 200.01,
+        totaleImposte: 820.29,
+        totaleNetto: 2746.2,
+        completa: false,
+        aliquotaContributi: 0.0919,
+        aliquotaContributiStampata: false,
+        aliquotaIrpefMarginale: 0.23,
+        aliquotaTfr: 0.23,
+        nota:
+          'Stima senza proiezioni dopo l’ultimo cedolino, con il preavviso considerato lavorato. Non comprende ' +
+          'straordinari, premi e altre voci variabili. Contributi INPS al 9,19% (aliquota non stampata sul ' +
+          'cedolino). IRPEF all’aliquota marginale del 23% stimata sulla RAL al netto dei contributi, senza ' +
+          'addizionali, detrazioni e conguaglio di fine anno.',
       },
     },
     mensilita: righe,

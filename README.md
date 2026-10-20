@@ -2,7 +2,7 @@
 
 Portale web per ricostruire e monitorare la situazione retributiva di più persone a partire dai loro **cedolini
 PDF**. I cedolini vengono letti, normalizzati, salvati a database e usati per calcolare riepiloghi (anzianità, scatti,
-RAL, TFR, ferie e permessi con stima del valore) e per segnalare anomalie (mensilità mancanti, valori in calo senza
+RAL, TFR, ferie e permessi con stima del valore, stima della liquidazione "Se andassi via oggi") e per segnalare anomalie (mensilità mancanti, valori in calo senza
 causa nota, fondo TFR incoerente, ...). La lettura è fatta di default dal **lettore locale**, gratuito e offline, che
 interpreta il testo dei PDF dei layout supportati; per scansioni e layout sconosciuti si può usare **Claude** (API
 Anthropic, a pagamento). Vedi [Lettori dei cedolini](#lettori-dei-cedolini).
@@ -373,6 +373,7 @@ Altre proprietà utili, senza variabile dedicata:
 | `server.tomcat.max-part-count`                             | `1001`                                      | parti di una richiesta multipart: fino a 1000 PDF per lotto più la password |
 | `salary-manager.storage.nome-file-pattern`                 | `{anno}.{mese}_{idAzienda}_{idPersona}.pdf` | nome normalizzato dei PDF |
 | `salary-manager.tfr.*`                                     | `0.23` / `0.17` / `13.5` / `0.03` / `12`    | aliquota stimata per il netto, imposta sostitutiva sulla rivalutazione, divisore della quota, tasso indicativo di rivalutazione e mesi massimi della stima "ad oggi" |
+| `salary-manager.liquidazione.*`                            | `0.0919` / scaglioni per anno               | contributi INPS del dipendente se non stampati, scaglioni IRPEF per la stima della liquidazione (vedi `application.yml`) |
 | `salary-manager.ferie.*`                                   | `26` / `173` / `8`                          | divisori giornaliero e orario, ore al giorno per la stima del valore |
 | `salary-manager.calcoli.*`                                 | `0.01` / `13` / `3`                         | tolleranza degli aumenti, mensilità senza CCNL (14 se i cedolini documentano una quattordicesima), cedolini esaminati per i buoni pasto |
 | `salary-manager.segnalazioni.*`                            | vedi `application.yml`                      | tolleranze (fondo TFR, importi), mesi di attesa del fine rapporto, CCNL con Cassa Edile |

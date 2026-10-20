@@ -14,6 +14,7 @@ import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.calcoli.RiepilogoRapporto;
 import com.fcusumano.sam.calcoli.domain.CalcolatoreRiepilogo;
 import com.fcusumano.sam.calcoli.domain.ParametriCalcolo;
+import com.fcusumano.sam.calcoli.domain.ParametriLiquidazione;
 import com.fcusumano.sam.ccnl.CatalogoCcnl;
 import com.fcusumano.sam.cedolini.ArchivioCedolini;
 import com.fcusumano.sam.shared.WorkspaceId;
@@ -39,12 +40,15 @@ class CalcoliRapportoServiceTest {
     private static final ParametriCalcolo PARAMETRI = new ParametriCalcolo(new BigDecimal("26"), new BigDecimal("173"),
             new BigDecimal("8"), new BigDecimal("13.5"), new BigDecimal("0.23"), new BigDecimal("0.17"),
             new BigDecimal("0.01"), 13, 3, new BigDecimal("0.03"), 12);
+    private static final ParametriLiquidazione PARAMETRI_LIQUIDAZIONE = new ParametriLiquidazione(
+            new BigDecimal("0.0919"), List.of(new ParametriLiquidazione.ScaglioniIrpef(2024,
+                    List.of(new ParametriLiquidazione.Scaglione(null, new BigDecimal("0.23"))))));
 
     private final ConsultazioneAnagrafica anagrafica = mock(ConsultazioneAnagrafica.class);
     private final RiepiloghiRepository repository = mock(RiepiloghiRepository.class);
     private final CalcoliRapportoService service = new CalcoliRapportoService(anagrafica, mock(ArchivioCedolini.class),
-            mock(CatalogoCcnl.class), repository, () -> WorkspaceId.DEFAULT, new CalcolatoreRiepilogo(PARAMETRI),
-            PARAMETRI, APRILE_2024);
+            mock(CatalogoCcnl.class), repository, () -> WorkspaceId.DEFAULT,
+            new CalcolatoreRiepilogo(PARAMETRI, PARAMETRI_LIQUIDAZIONE), PARAMETRI, APRILE_2024);
 
     @Test
     void ilTfrDelRapportoAttualeEProiettatoAlMeseCorrente() {
@@ -73,7 +77,7 @@ class CalcoliRapportoServiceTest {
                 new BigDecimal("4526.32"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("3494.93"),
                 new BigDecimal("0.23"), false, YearMonth.of(2023, 12), null, false, false, null, null);
         var riepilogo = new RiepilogoRapporto(ID, OffsetDateTime.now(APRILE_2024), null, null, null, false, null, tfr,
-                List.of());
+                List.of(), null);
         when(repository.trova(WorkspaceId.DEFAULT, ID)).thenReturn(Optional.of(riepilogo));
         return riepilogo;
     }

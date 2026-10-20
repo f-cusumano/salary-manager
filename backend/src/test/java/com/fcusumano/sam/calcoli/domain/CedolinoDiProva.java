@@ -36,6 +36,17 @@ final class CedolinoDiProva {
     static final ParametriCalcolo PARAMETRI = new ParametriCalcolo(
             new BigDecimal("26"), new BigDecimal("173"), new BigDecimal("8"), new BigDecimal("13.5"),
             new BigDecimal("0.23"), new BigDecimal("0.17"), new BigDecimal("0.01"), 13, 3, new BigDecimal("0.03"), 12);
+    /** Scaglioni IRPEF 2024-2025 e dal 2026, contributi INPS di default 9,19%. */
+    static final ParametriLiquidazione PARAMETRI_LIQUIDAZIONE = new ParametriLiquidazione(new BigDecimal("0.0919"),
+            List.of(
+                    new ParametriLiquidazione.ScaglioniIrpef(2024, List.of(
+                            new ParametriLiquidazione.Scaglione(new BigDecimal("28000"), new BigDecimal("0.23")),
+                            new ParametriLiquidazione.Scaglione(new BigDecimal("50000"), new BigDecimal("0.35")),
+                            new ParametriLiquidazione.Scaglione(null, new BigDecimal("0.43")))),
+                    new ParametriLiquidazione.ScaglioniIrpef(2026, List.of(
+                            new ParametriLiquidazione.Scaglione(new BigDecimal("28000"), new BigDecimal("0.23")),
+                            new ParametriLiquidazione.Scaglione(new BigDecimal("50000"), new BigDecimal("0.33")),
+                            new ParametriLiquidazione.Scaglione(null, new BigDecimal("0.43"))))));
 
     private Long id;
     private final Competenza competenza;
@@ -48,6 +59,7 @@ final class CedolinoDiProva {
     private DatiTfr tfr;
     private Integer numeroScatti;
     private LocalDate prossimoScatto;
+    private boolean contieneTredicesima;
     private boolean contieneQuattordicesima;
     private BuoniPasto buoniPasto = BuoniPasto.ASSENTI;
 
@@ -136,6 +148,18 @@ final class CedolinoDiProva {
         return this;
     }
 
+    /** Il cedolino paga la tredicesima (o suoi ratei) insieme alla mensilita'. */
+    CedolinoDiProva conTredicesima() {
+        this.contieneTredicesima = true;
+        return this;
+    }
+
+    /** Voce con quantita' (es. aliquota percentuale di un contributo). */
+    CedolinoDiProva voce(String descrizione, CategoriaVoce categoria, String quantita, String importo) {
+        voci.add(new Voce(null, descrizione, categoria, euro(quantita), "%", null, null, euro(importo)));
+        return this;
+    }
+
     /** Il cedolino paga la quattordicesima (o suoi ratei) insieme alla mensilita'. */
     CedolinoDiProva conQuattordicesima() {
         this.contieneQuattordicesima = true;
@@ -155,7 +179,7 @@ final class CedolinoDiProva {
                 "Impiegato", "5", null, null,
                 null, null, null, null, null,
                 elementi, voci, ratei, tfr, null, numeroScatti, prossimoScatto, buoniPasto,
-                false, contieneQuattordicesima, null);
+                contieneTredicesima, contieneQuattordicesima, null);
     }
 
     /** Dati TFR con i soli campi indicati (gli altri null). */

@@ -70,7 +70,7 @@ class CalcoliRapportoService implements CalcoliRapporto {
         }
         var tfr = ProiezioneTfr.proietta(r.tfr(), YearMonth.now(clock), parametri);
         return tfr == r.tfr() ? r : new RiepilogoRapporto(r.rapportoId(), r.calcolatoIl(), r.anzianita(), r.scatti(),
-                r.retribuzione(), r.buoniPasto(), r.ratei(), tfr, r.mensilita());
+                r.retribuzione(), r.buoniPasto(), r.ratei(), tfr, r.mensilita(), r.liquidazione());
     }
 
     @Override

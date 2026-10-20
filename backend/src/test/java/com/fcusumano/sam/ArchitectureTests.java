@@ -36,7 +36,8 @@ class ArchitectureTests {
             "cedolini", Set.of("Cedolino", "CedolinoPdf", "CedolinoVoce", "CedolinoElementoRetributivo",
                     "CedolinoRateo", "CedolinoTfr", "CedolinoDati", "Caricamento", "CaricamentoPdf",
                     "CaricamentoAttribuzione"),
-            "calcoli", Set.of("RiepilogoRapporto", "RiepilogoRateo", "IndicatoreMensilita"),
+            "calcoli", Set.of("RiepilogoRapporto", "RiepilogoRateo", "IndicatoreMensilita",
+                    "RiepilogoLiquidazioneVoce"),
             "segnalazioni", Set.of("Segnalazione"));
 
     private static final JavaClasses CLASSI = new ClassFileImporter()

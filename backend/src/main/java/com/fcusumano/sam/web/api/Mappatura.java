@@ -44,7 +44,9 @@ import com.fcusumano.sam.web.api.dto.RiepilogoDto;
 import com.fcusumano.sam.web.api.dto.SegnalazioneDto;
 import com.fcusumano.sam.web.api.dto.VerificaCedolinoManualeDto;
 import com.fcusumano.sam.web.api.dto.VoceDto;
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -111,9 +113,10 @@ final class Mappatura {
 
     /**
      * Riepilogo per la UI. I residui di ferie/permessi sono esposti solo per il rapporto attuale: per gli altri la
-     * lista dei saldi e' vuota (e il cedolino di riferimento null), come previsto dal contratto.
+     * lista dei saldi e' vuota (e il cedolino di riferimento null), come previsto dal contratto. La liquidazione stimata
+     * e' esposta solo se richiesto (rapporto attuale o ultimo della persona) e se si applica.
      */
-    static RiepilogoDto riepilogo(RiepilogoRapporto r, boolean rapportoAttuale) {
+    static RiepilogoDto riepilogo(RiepilogoRapporto r, boolean rapportoAttuale, boolean conLiquidazione) {
         var a = r.anzianita();
         var s = r.scatti();
         var rt = r.retribuzione();
@@ -137,7 +140,33 @@ final class Mappatura {
                 new RiepilogoDto.TfrRiepilogo(euro(t.totaleAccumulato()), euro(t.quotaMensile()),
                         euro(t.quotaInAzienda()), euro(t.quotaFondi()), euro(t.quotaBusta()), euro(t.anticipi()),
                         euro(t.stimaNetto()), esatto(t.aliquotaStimata()), t.stimato(), t.riferimento(), t.nota(),
-                        t.quotaMensileStimata(), t.liquidato(), euro(t.importoLiquidato()), euro(t.nettoLiquidato())));
+                        t.quotaMensileStimata(), t.liquidato(), euro(t.importoLiquidato()), euro(t.nettoLiquidato())),
+                conLiquidazione && r.liquidazione().presente() ? liquidazione(r.liquidazione()) : null);
+    }
+
+    private static RiepilogoDto.Liquidazione liquidazione(RiepilogoRapporto.Liquidazione l) {
+        var voci = l.voci().stream()
+                .map(v -> new RiepilogoDto.VoceLiquidazione(v.tipo(), esatto(v.quantita()), v.unita(), euro(v.lordo()),
+                        euro(v.contributi()), euro(v.imposte()), euro(v.netto()), v.nota()))
+                .toList();
+        return new RiepilogoDto.Liquidazione(
+                l.dataRiferimento(),
+                voci,
+                somma(voci, RiepilogoDto.VoceLiquidazione::lordo),
+                somma(voci, RiepilogoDto.VoceLiquidazione::contributi),
+                somma(voci, RiepilogoDto.VoceLiquidazione::imposte),
+                somma(voci, RiepilogoDto.VoceLiquidazione::netto),
+                voci.stream().allMatch(v -> v.netto() != null),
+                esatto(l.aliquotaContributi()),
+                l.aliquotaContributiStampata(),
+                esatto(l.aliquotaIrpefMarginale()),
+                esatto(l.aliquotaTfr()),
+                l.nota());
+    }
+
+    private static BigDecimal somma(List<RiepilogoDto.VoceLiquidazione> voci,
+                                    Function<RiepilogoDto.VoceLiquidazione, BigDecimal> campo) {
+        return euro(voci.stream().map(campo).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add));
     }
 
     private static RiepilogoDto.SaldoRateo saldo(RiepilogoRapporto.SaldoRateo s) {

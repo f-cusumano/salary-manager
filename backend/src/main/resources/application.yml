@@ -147,6 +147,38 @@ salary-manager:
     # Mesi massimi proiettati dall'ultimo cedolino nella stima "ad oggi" (0 = nessuna proiezione)
     mesi-massimi-proiezione: 12
 
+  # Stima della liquidazione ("Se andassi via oggi"). Valori di legge: aggiornarli quando cambiano.
+  liquidazione:
+    # Contributi INPS a carico del dipendente (IVS 9,19%) se il cedolino non stampa l'aliquota
+    aliquota-contributi-default: 0.0919
+    # Scaglioni IRPEF per anno di entrata in vigore (si usano quelli dell'anno della data di riferimento; per gli
+    # anni precedenti al primo, il primo). Fonti: L. 296/2006 (2007-2021), L. 234/2021 (2022-2023),
+    # D.Lgs. 216/2023 e L. 207/2024 (2024-2025), L. 199/2025 art. 1 c. 3 (dal 2026)
+    irpef:
+      - dal-anno: 2007
+        scaglioni:
+          - { fino: 15000, aliquota: 0.23 }
+          - { fino: 28000, aliquota: 0.27 }
+          - { fino: 55000, aliquota: 0.38 }
+          - { fino: 75000, aliquota: 0.41 }
+          - { aliquota: 0.43 }
+      - dal-anno: 2022
+        scaglioni:
+          - { fino: 15000, aliquota: 0.23 }
+          - { fino: 28000, aliquota: 0.25 }
+          - { fino: 50000, aliquota: 0.35 }
+          - { aliquota: 0.43 }
+      - dal-anno: 2024
+        scaglioni:
+          - { fino: 28000, aliquota: 0.23 }
+          - { fino: 50000, aliquota: 0.35 }
+          - { aliquota: 0.43 }
+      - dal-anno: 2026
+        scaglioni:
+          - { fino: 28000, aliquota: 0.23 }
+          - { fino: 50000, aliquota: 0.33 }
+          - { aliquota: 0.43 }
+
   # Stima del valore di ferie e permessi quando il cedolino non riporta paga giornaliera/oraria o divisori
   ferie:
     divisore-giornaliero: 26

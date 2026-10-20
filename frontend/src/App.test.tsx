@@ -118,6 +118,60 @@ describe('barra superiore e selezione persona', () => {
     expect(screen.queryByText('Stima netto')).not.toBeInTheDocument();
   });
 
+  it('stima la liquidazione dell’azienda attuale con voci, trattenute e totale netto', async () => {
+    const { user } = renderConMock(<App />);
+    await selezionaPersona(user, 'Mario Rossi');
+
+    const sezione = await screen.findByRole('region', { name: 'Se andassi via oggi' });
+    expect(within(sezione).getByText('Stima al 30 Settembre 2026')).toBeInTheDocument();
+    expect(within(sezione).getByText('9.329,76 €')).toBeInTheDocument();
+    expect(
+      within(sezione).getByText('lordo 13.177,79 € · contributi 464,78 € · imposte 3.383,25 €'),
+    ).toBeInTheDocument();
+    const voci = within(sezione).getAllByRole('listitem');
+    expect(voci.map((v) => v.firstElementChild?.firstElementChild?.textContent)).toEqual([
+      'TFR in azienda',
+      'Ferie · 12,5 giorni',
+      'Permessi · 32 ore',
+      'Ex festività · 16 ore',
+      'Ratei di tredicesima · 9 mesi',
+      'Ratei di quattordicesima · 3 mesi',
+    ]);
+    // il TFR non ha contributi: solo lordo e imposte; la base del calcolo è nel tooltip
+    const tfr = voci[0];
+    if (!tfr) {
+      throw new Error('voce TFR non trovata');
+    }
+    expect(within(tfr).getByText('lordo 8.120,40 € · imposte 1.867,69 €')).toBeInTheDocument();
+    expect(within(tfr).getByText('6.252,71 €')).toBeInTheDocument();
+    expect(
+      within(tfr).getByLabelText(/^TFR in azienda: Tassazione separata: aliquota media del 23%/),
+    ).toBeInTheDocument();
+    expect(within(sezione).getByText(/preavviso considerato lavorato/)).toBeInTheDocument();
+    expect(
+      within(sezione).queryByText('Totale parziale: alcune voci non sono stimabili.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('segnala le voci non stimabili e il totale parziale; nessuna stima se il TFR è già liquidato', async () => {
+    const { user } = renderConMock(<App />);
+    await selezionaPersona(user, 'Laura Bianchi');
+
+    const sezione = await screen.findByRole('region', { name: 'Se andassi via oggi' });
+    expect(within(sezione).getByText('Totale parziale: alcune voci non sono stimabili.')).toBeInTheDocument();
+    const rol = within(sezione).getByText('ROL · 22 ore').closest('li');
+    if (!rol) {
+      throw new Error('voce ROL non trovata');
+    }
+    expect(within(rol).getByText('non stimabile')).toBeInTheDocument();
+    expect(within(rol).getByText(/^Valore non stimabile/)).toBeInTheDocument();
+
+    await selezionaPersona(user, 'Mario Rossi');
+    await user.click(await screen.findByRole('button', { name: /Beta Consulting/ }));
+    expect(await screen.findByText('3 anni e 6 mesi')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Se andassi via oggi' })).not.toBeInTheDocument();
+  });
+
   it('marca come stime scatti e quota TFR non stampati, con la spiegazione nel tooltip', async () => {
     const { user } = renderConMock(<App />);
     await selezionaPersona(user, 'Laura Bianchi');

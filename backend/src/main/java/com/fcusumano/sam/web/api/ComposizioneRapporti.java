@@ -3,6 +3,7 @@ package com.fcusumano.sam.web.api;
 import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
 import com.fcusumano.sam.anagrafica.Persona;
 import com.fcusumano.sam.anagrafica.PersonaId;
+import com.fcusumano.sam.anagrafica.RapportoLavoroDettaglio;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.anagrafica.RapportoSintesi;
 import com.fcusumano.sam.calcoli.CalcoliRapporto;
@@ -109,8 +110,18 @@ class ComposizioneRapporti {
                 rapporto.ccnlSceltoDaUtente(),
                 rapporto.note(),
                 segnalazioni.segnalazioni(id).stream().map(Mappatura::segnalazione).toList(),
-                riepilogo.map(r -> Mappatura.riepilogo(r, attuale)).orElse(null),
+                riepilogo.map(r -> Mappatura.riepilogo(r, attuale, attuale || ultimoDellaPersona(dettaglio)))
+                        .orElse(null),
                 mensilita);
+    }
+
+    /**
+     * True se il rapporto e' il piu' recente della persona (primo nell'ordine dell'anagrafica): l'ultima azienda, anche
+     * se cessata, per cui la liquidazione puo' essere ancora da ricevere.
+     */
+    private boolean ultimoDellaPersona(RapportoLavoroDettaglio dettaglio) {
+        var rapporti = anagrafica.rapportiDiPersona(dettaglio.persona().id());
+        return !rapporti.isEmpty() && rapporti.getFirst().id().equals(dettaglio.rapporto().id());
     }
 
     /** La persona con l'etichetta anti-omonimia calcolata dall'anagrafica sull'intero workspace. */
