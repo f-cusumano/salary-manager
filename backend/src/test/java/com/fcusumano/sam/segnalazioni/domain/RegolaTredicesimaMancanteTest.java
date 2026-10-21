@@ -50,9 +50,86 @@ class RegolaTredicesimaMancanteTest {
     }
 
     @Test
-    void dicembreNonCaricatoNessunaSegnalazione() {
+    void dicembreNonCaricatoSenzaIndiziSegnalaUnAvviso() {
         var contesto = rapporto().con(ordinari(YearMonth.of(2023, 1), YearMonth.of(2023, 11)))
                 .con(ordinario(2024, 1)).build();
+
+        assertThat(regola.valuta(contesto)).singleElement().satisfies(s -> {
+            assertThat(s.gravita()).isEqualTo(Gravita.AVVISO);
+            assertThat(s.competenza()).isEqualTo(Competenza.Mensilita.tredicesima(2023));
+            assertThat(s.titolo()).isEqualTo("Tredicesima 2023 non trovata");
+            assertThat(s.descrizione()).contains("Dicembre 2023 non è stato caricato", "potrebbe essere pagata");
+            assertThat(s.evidenze()).extracting(Evidenza::descrizione).containsExactly(
+                    "Ultimo cedolino prima di dicembre: Novembre 2023", "Primo cedolino successivo: Gennaio 2024");
+        });
+    }
+
+    @Test
+    void dicembreNonCaricatoConTredicesimaAParteNegliAltriAnniEUnAnomalia() {
+        var contesto = rapporto().con(ordinari(YearMonth.of(2022, 1), YearMonth.of(2023, 11)))
+                .con(tredicesima(2022), ordinario(2024, 1)).build();
+
+        assertThat(regola.valuta(contesto)).singleElement().satisfies(s -> {
+            assertThat(s.gravita()).isEqualTo(Gravita.ANOMALIA);
+            assertThat(s.competenza()).isEqualTo(Competenza.Mensilita.tredicesima(2023));
+            assertThat(s.titolo()).isEqualTo("Tredicesima 2023 mancante");
+            assertThat(s.descrizione()).contains("cedolino a parte", "Dicembre 2023 non è stato caricato");
+            assertThat(s.evidenze()).extracting(Evidenza::descrizione)
+                    .contains("Tredicesima con cedolino a parte: Tredicesima 2022");
+        });
+    }
+
+    @Test
+    void dicembreNonCaricatoConTredicesimaNelCedolinoDiDicembreNegliAltriAnniNessunaSegnalazione() {
+        var contesto = rapporto().con(ordinari(YearMonth.of(2022, 1), YearMonth.of(2023, 11)))
+                .sostituisci(ordinario(2022, 12).conTredicesima())
+                .con(ordinario(2024, 1)).build();
+
+        assertThat(regola.valuta(contesto)).isEmpty();
+    }
+
+    @Test
+    void dicembreConUnFileInErroreAssociatoSegnalaLaTredicesima() {
+        var contesto = rapporto().con(ordinari(YearMonth.of(2023, 1), YearMonth.of(2023, 11)))
+                .con(ordinario(2024, 1))
+                .inErrore(new Competenza.Mensilita(2023, 12), MotivoErrore.PDF_SENZA_TESTO).build();
+
+        assertThat(regola.valuta(contesto)).singleElement().satisfies(s -> {
+            assertThat(s.gravita()).isEqualTo(Gravita.AVVISO);
+            assertThat(s.competenza()).isEqualTo(Competenza.Mensilita.tredicesima(2023));
+            assertThat(s.descrizione()).contains("Dicembre 2023 è stato caricato con errore");
+        });
+    }
+
+    @Test
+    void tredicesimaAssociataAUnFileInErroreInUnAltroAnnoIndicaIlCedolinoAParte() {
+        var contesto = rapporto().con(ordinari(YearMonth.of(2022, 1), YearMonth.of(2023, 11)))
+                .con(ordinario(2024, 1))
+                .inErrore(Competenza.Mensilita.tredicesima(2022), MotivoErrore.PDF_SENZA_TESTO).build();
+
+        assertThat(regola.valuta(contesto)).singleElement().satisfies(s -> {
+            assertThat(s.competenza()).isEqualTo(Competenza.Mensilita.tredicesima(2023));
+            assertThat(s.gravita()).isEqualTo(Gravita.ANOMALIA);
+        });
+    }
+
+    @Test
+    void annoSenzaCedoliniOrdinariCaricatiSiValutaComunque() {
+        var contesto = rapporto().con(ordinari(YearMonth.of(2022, 1), YearMonth.of(2022, 12)))
+                .con(tredicesima(2022), ordinario(2024, 1)).build();
+
+        assertThat(regola.valuta(contesto)).singleElement().satisfies(s -> {
+            assertThat(s.competenza()).isEqualTo(Competenza.Mensilita.tredicesima(2023));
+            assertThat(s.gravita()).isEqualTo(Gravita.ANOMALIA);
+        });
+    }
+
+    @Test
+    void dicembreNonAttesoNessunaSegnalazione() {
+        // rapporto interrotto da dicembre 2023 a gennaio 2024: dicembre non e' una mensilita' mancante
+        var contesto = rapporto().con(ordinari(YearMonth.of(2023, 1), YearMonth.of(2023, 11)))
+                .sostituisci(ordinario(2023, 11).cessazione(LocalDate.of(2023, 11, 30)))
+                .con(ordinario(2024, 2).assunzione(LocalDate.of(2024, 2, 1))).build();
 
         assertThat(regola.valuta(contesto)).isEmpty();
     }

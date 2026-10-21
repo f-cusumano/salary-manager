@@ -1114,3 +1114,19 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      ogni mese di preavviso, / 30 per ogni giorno di calendario. Contributi e imposte (tassazione separata) non sono
      stimati; voci variabili escluse. Calcolata in lettura (`CalcoloPreavviso`, da CCNL, livello e riepilogo salvato),
      senza colonne nuove nel riepilogo: segue subito la tabella dei termini.
+
+## Tredicesima e quattordicesima tra le mensilita' mancanti
+
+170. **[utente] Tredicesima e quattordicesima anche quando manca il mese in cui sarebbero pagate** (supera in parte la
+     decisione 100): prima, se mancava (o era associato a un file in
+     errore) il cedolino ordinario di dicembre, o quello del mese di pagamento della quattordicesima, la mensilita'
+     aggiuntiva non era segnalata, quindi non compariva tra le mensilita' mancanti e non le si poteva associare un file
+     in errore dalla lista. Ora, con le altre condizioni invariate, si guardano gli altri anni del rapporto
+     (`MensilitaAggiuntiva`): se e' pagata solo con un cedolino a parte (caricato o associato a un file in errore) si
+     segnala come anomalia ("... mancante"); se e' pagata solo dentro il cedolino ordinario (dicembre/gennaio per la
+     tredicesima, ordinari senza TFR liquidato per la quattordicesima) non si segnala, perche' sarebbe nel cedolino gia'
+     segnalato come mancante; senza indizi, o con indizi in entrambi i sensi, si segnala come avviso ("... non
+     trovata", con la spiegazione che potrebbe trovarsi nel cedolino mancante). Il mese deve essere davvero atteso: tra
+     le mensilita' mancanti (`RegolaMensilitaMancante.mesiMancanti`, quindi non per periodi interrotti o prima del
+     primo cedolino) o associato a un file in errore. Si valutano anche gli anni senza alcun cedolino ordinario
+     caricato. La quattordicesima resta solo per i CCNL a 14 mensilita'.

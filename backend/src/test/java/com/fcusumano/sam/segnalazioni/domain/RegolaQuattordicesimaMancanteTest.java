@@ -64,13 +64,68 @@ class RegolaQuattordicesimaMancanteTest {
         assertThat(regola.valuta(commercioDa2024(YearMonth.of(2024, 7)).build())).isEmpty();
     }
 
-    @Test
-    void cedolinoDelMeseDiPagamentoNonCaricatoNessunaSegnalazione() {
-        var contesto = rapporto().ccnl(COMMERCIO).assunzione(LocalDate.of(2020, 3, 1))
+    private static ContestoDiProva commercioSenzaLuglio2024() {
+        return rapporto().ccnl(COMMERCIO).assunzione(LocalDate.of(2020, 3, 1))
                 .con(ordinari(YearMonth.of(2024, 1), YearMonth.of(2024, 6)))
-                .con(ordinario(2024, 8), ordinario(2024, 9)).build();
+                .con(ordinario(2024, 8), ordinario(2024, 9));
+    }
+
+    @Test
+    void cedolinoDelMeseDiPagamentoNonCaricatoSenzaIndiziSegnalaUnAvviso() {
+        assertThat(regola.valuta(commercioSenzaLuglio2024().build())).singleElement().satisfies(s -> {
+            assertThat(s.gravita()).isEqualTo(Gravita.AVVISO);
+            assertThat(s.competenza()).isEqualTo(Competenza.Mensilita.quattordicesima(2024));
+            assertThat(s.titolo()).isEqualTo("Quattordicesima 2024 non trovata");
+            assertThat(s.descrizione()).contains("Luglio 2024 non è stato caricato", "potrebbe essere pagata");
+        });
+    }
+
+    @Test
+    void cedolinoDelMeseDiPagamentoNonCaricatoConQuattordicesimaAParteNegliAltriAnniEUnAnomalia() {
+        var contesto = commercioSenzaLuglio2024().con(ordinari(YearMonth.of(2023, 1), YearMonth.of(2023, 12)))
+                .con(quattordicesima(2023, 7)).build();
+
+        assertThat(regola.valuta(contesto)).singleElement().satisfies(s -> {
+            assertThat(s.gravita()).isEqualTo(Gravita.ANOMALIA);
+            assertThat(s.competenza()).isEqualTo(Competenza.Mensilita.quattordicesima(2024));
+            assertThat(s.titolo()).isEqualTo("Quattordicesima 2024 mancante");
+            assertThat(s.descrizione()).contains("cedolino a parte");
+        });
+    }
+
+    @Test
+    void cedolinoDelMeseDiPagamentoNonCaricatoConQuattordicesimaNelCedolinoOrdinarioNessunaSegnalazione() {
+        var contesto = commercioSenzaLuglio2024().con(ordinari(YearMonth.of(2023, 1), YearMonth.of(2023, 12)))
+                .sostituisci(ordinario(2023, 7).conQuattordicesima()).build();
 
         assertThat(regola.valuta(contesto)).isEmpty();
+    }
+
+    @Test
+    void cedolinoDelMeseDiPagamentoConUnFileInErroreAssociatoSegnalaLaQuattordicesima() {
+        var contesto = commercioSenzaLuglio2024()
+                .inErrore(new Competenza.Mensilita(2024, 7), MotivoErrore.PDF_SENZA_TESTO).build();
+
+        assertThat(regola.valuta(contesto)).singleElement().satisfies(s -> {
+            assertThat(s.competenza()).isEqualTo(Competenza.Mensilita.quattordicesima(2024));
+            assertThat(s.descrizione()).contains("Luglio 2024 è stato caricato con errore");
+        });
+    }
+
+    @Test
+    void meseDiPagamentoDaVerificareConUnMeseMancanteSegnalaUnAvviso() {
+        var contesto = rapporto().ccnl(TELECOMUNICAZIONI).assunzione(LocalDate.of(2020, 3, 1))
+                .con(ordinari(YearMonth.of(2024, 1), YearMonth.of(2025, 1)))
+                .build();
+        var senzaMarzo = rapporto().ccnl(TELECOMUNICAZIONI).assunzione(LocalDate.of(2020, 3, 1))
+                .con(contesto.cedolini().stream()
+                        .filter(c -> !c.competenza().equals(new Competenza.Mensilita(2024, 3))).toList())
+                .build();
+
+        assertThat(regola.valuta(senzaMarzo)).singleElement().satisfies(s -> {
+            assertThat(s.gravita()).isEqualTo(Gravita.AVVISO);
+            assertThat(s.descrizione()).contains("Marzo 2024 non è stato caricato");
+        });
     }
 
     @Test
