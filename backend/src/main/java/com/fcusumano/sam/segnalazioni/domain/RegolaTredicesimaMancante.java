@@ -13,14 +13,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * TREDICESIMA_MANCANTE (anomalia). Per ogni anno Y in cui il rapporto ha almeno una mensilita' ordinaria si segnala la
  * tredicesima mancante solo se:
  * <ul>
  *   <li>l'anno e' concluso nei dati: esiste un cedolino con periodo successivo a dicembre Y;</li>
- *   <li>la mensilita' ordinaria di dicembre Y e' caricata: altrimenti la tredicesima potrebbe essere pagata proprio
- *       nel cedolino mancante (che e' gia' segnalato come mensilita' mancante);</li>
+ *   <li>la mensilita' ordinaria di dicembre Y e' caricata (per il caso contrario vedi sotto);</li>
  *   <li>non esiste il cedolino 13 di Y e nessun cedolino di Y (ne' quello di gennaio Y+1, per i pagamenti tardivi)
  *       riporta tredicesima o suoi ratei ({@code contieneTredicesima});</li>
  *   <li>l'utente non ha associato alla tredicesima di Y un file caricato con errore (lo segnala
@@ -34,6 +34,13 @@ import java.util.Set;
  * segnala gia' FINE_RAPPORTO_MANCANTE; se c'e' (cedolino di fine rapporto o cedolino con TFR liquidato dal mese di
  * cessazione) ma nessun cedolino dal mese di cessazione riporta la tredicesima o i suoi ratei, si segnala con una
  * descrizione specifica (senza competenza: non e' attesa una mensilita' separata).
+ * <p>
+ * Se il cedolino ordinario di dicembre Y manca (segnalato come mensilita' mancante) o l'utente vi ha associato un file
+ * in errore, la tredicesima potrebbe essere pagata proprio in quel cedolino. Valgono le altre condizioni e si guardano
+ * gli altri anni del rapporto: se la tredicesima ha sempre un cedolino a parte si segnala come anomalia, se e' sempre
+ * nel cedolino ordinario non si segnala, se non ci sono indizi si segnala come avviso. Anche gli anni senza alcun
+ * cedolino ordinario caricato (tutti mancanti) si valutano cosi'. La riga della tredicesima compare quindi tra le
+ * mensilita' mancanti e le si puo' associare un file in errore.
  * <p>
  * Per i CCNL in cui la tredicesima degli operai e' accantonata presso la Cassa Edile (configurabili) la regola non si
  * applica, salvo qualifica di impiegato o quadro.
@@ -61,16 +68,17 @@ public final class RegolaTredicesimaMancante implements RegolaSegnalazione {
         if (tredicesimaInCassaEdile(contesto)) {
             return List.of();
         }
-        return contesto.ordinari().stream()
-                .map(c -> c.competenza().anno())
+        var mesiMancanti = RegolaMensilitaMancante.mesiMancanti(contesto);
+        return Stream.concat(contesto.ordinari().stream().map(c -> c.competenza().anno()),
+                        mesiMancanti.stream().map(YearMonth::getYear))
                 .distinct()
                 .sorted()
-                .map(anno -> valutaAnno(contesto, anno))
+                .map(anno -> valutaAnno(contesto, anno, mesiMancanti))
                 .flatMap(Optional::stream)
                 .toList();
     }
 
-    private Optional<SegnalazioneRilevata> valutaAnno(ContestoRapporto contesto, int anno) {
+    private Optional<SegnalazioneRilevata> valutaAnno(ContestoRapporto contesto, int anno, List<YearMonth> mesiMancanti) {
         if (contesto.esisteCompetenza(anno, 13) || contesto.inErrore(anno, 13) || tredicesimaPagata(contesto, anno)) {
             return Optional.empty();
         }
@@ -88,7 +96,8 @@ public final class RegolaTredicesimaMancante implements RegolaSegnalazione {
             return Optional.empty();
         }
         if (contesto.ordinario(dicembre).isEmpty()) {
-            return Optional.empty();
+            return MensilitaAggiuntiva.nonDisponibile(contesto, mesiMancanti, dicembre)
+                    ? dicembreNonDisponibile(contesto, anno) : Optional.empty();
         }
         return contesto.primoDopo(dicembre).map(successivo -> {
             var evidenze = new ArrayList<Evidenza>();
@@ -100,6 +109,41 @@ public final class RegolaTredicesimaMancante implements RegolaSegnalazione {
             return new SegnalazioneRilevata(CODICE, TipoSegnalazione.TREDICESIMA_MANCANTE, Gravita.ANOMALIA, null,
                     Competenza.Mensilita.tredicesima(anno), "Tredicesima " + anno + " mancante", descrizione, evidenze);
         });
+    }
+
+    /**
+     * Manca il cedolino di dicembre (o e' in errore): la tredicesima potrebbe esserci dentro. Anomalia se negli altri
+     * anni ha un cedolino a parte, avviso se non si sa, nulla se negli altri anni e' pagata nel cedolino ordinario.
+     */
+    private static Optional<SegnalazioneRilevata> dicembreNonDisponibile(ContestoRapporto contesto, int anno) {
+        var dicembre = YearMonth.of(anno, 12);
+        var successivo = contesto.primoDopo(dicembre);
+        var modalita = MensilitaAggiuntiva.modalita(contesto, TipoMensilita.TREDICESIMA, anno);
+        if (successivo.isEmpty() || modalita == MensilitaAggiuntiva.Modalita.NEL_CEDOLINO_ORDINARIO) {
+            return Optional.empty();
+        }
+        var statoDicembre = contesto.inErrore(anno, 12) ? "è stato caricato con errore"
+                : "non è stato caricato";
+        var evidenze = new ArrayList<Evidenza>();
+        contesto.ordinari().stream().filter(c -> ContestoRapporto.periodo(c).isBefore(dicembre)).reduce((a, b) -> b)
+                .ifPresent(c -> evidenze.add(Evidenze.cedolino("Ultimo cedolino prima di dicembre", c)));
+        evidenze.add(Evidenze.cedolino("Primo cedolino successivo", successivo.get()));
+        if (modalita == MensilitaAggiuntiva.Modalita.A_PARTE) {
+            MensilitaAggiuntiva.esempioAParte(contesto, TipoMensilita.TREDICESIMA, anno)
+                    .ifPresent(c -> evidenze.add(Evidenze.cedolino("Tredicesima con cedolino a parte", c)));
+            var descrizione = "Per il " + anno + " non risulta la tredicesima: negli altri anni del rapporto è pagata con "
+                    + "un cedolino a parte, che per il " + anno + " non è stato caricato. Anche il cedolino di "
+                    + Formato.mese(dicembre) + " " + statoDicembre + ".";
+            return Optional.of(new SegnalazioneRilevata(CODICE, TipoSegnalazione.TREDICESIMA_MANCANTE,
+                    Gravita.ANOMALIA, null, Competenza.Mensilita.tredicesima(anno), "Tredicesima " + anno + " mancante",
+                    descrizione, evidenze));
+        }
+        var descrizione = "Per il " + anno + " non risulta la tredicesima, ma il cedolino di " + Formato.mese(dicembre)
+                + " " + statoDicembre + ": la tredicesima potrebbe essere pagata in quel cedolino oppure con un "
+                + "cedolino a parte, anch'esso non caricato.";
+        return Optional.of(new SegnalazioneRilevata(CODICE, TipoSegnalazione.TREDICESIMA_MANCANTE, Gravita.AVVISO,
+                null, Competenza.Mensilita.tredicesima(anno), "Tredicesima " + anno + " non trovata", descrizione,
+                evidenze));
     }
 
     private Optional<SegnalazioneRilevata> cessatoNellAnno(ContestoRapporto contesto, int anno, LocalDate cessazione) {

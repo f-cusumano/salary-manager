@@ -1115,9 +1115,25 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      stimati; voci variabili escluse. Calcolata in lettura (`CalcoloPreavviso`, da CCNL, livello e riepilogo salvato),
      senza colonne nuove nel riepilogo: segue subito la tabella dei termini.
 
+## Tredicesima e quattordicesima tra le mensilita' mancanti
+
+170. **[utente] Tredicesima e quattordicesima anche quando manca il mese in cui sarebbero pagate** (supera in parte la
+     decisione 100): prima, se mancava (o era associato a un file in
+     errore) il cedolino ordinario di dicembre, o quello del mese di pagamento della quattordicesima, la mensilita'
+     aggiuntiva non era segnalata, quindi non compariva tra le mensilita' mancanti e non le si poteva associare un file
+     in errore dalla lista. Ora, con le altre condizioni invariate, si guardano gli altri anni del rapporto
+     (`MensilitaAggiuntiva`): se e' pagata solo con un cedolino a parte (caricato o associato a un file in errore) si
+     segnala come anomalia ("... mancante"); se e' pagata solo dentro il cedolino ordinario (dicembre/gennaio per la
+     tredicesima, ordinari senza TFR liquidato per la quattordicesima) non si segnala, perche' sarebbe nel cedolino gia'
+     segnalato come mancante; senza indizi, o con indizi in entrambi i sensi, si segnala come avviso ("... non
+     trovata", con la spiegazione che potrebbe trovarsi nel cedolino mancante). Il mese deve essere davvero atteso: tra
+     le mensilita' mancanti (`RegolaMensilitaMancante.mesiMancanti`, quindi non per periodi interrotti o prima del
+     primo cedolino) o associato a un file in errore. Si valutano anche gli anni senza alcun cedolino ordinario
+     caricato. La quattordicesima resta solo per i CCNL a 14 mensilita'.
+
 ## Spiegazioni dei campi e modifica dei dati di un cedolino
 
-170. **[utente] Spiegazioni dei campi**: un'icona "i" accanto all'etichetta apre (clic, tocco o Invio; Esc chiude) la
+171. **[utente] Spiegazioni dei campi**: un'icona "i" accanto all'etichetta apre (clic, tocco o Invio; Esc chiude) la
      spiegazione del campo, sia nel modulo dell'inserimento a mano sia nel dettaglio del cedolino; in testa alle sezioni
      totali, voci, ratei e TFR del modulo una breve guida, e per le voci le categorie con cosa comprende ciascuna (le
      stesse spiegano i gruppi di voci del dettaglio). I testi (`testi.aiuti` in `i18n/it.ts`, per percorso dello
@@ -1125,7 +1141,7 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      `estrazione-cedolino-v1.md`) e i controlli di coerenza del modulo (netto = competenze - trattenute +
      arrotondamento; somme delle voci senza informative e presenze; saldo dei ratei = residuo + maturato - goduto; lordo
      vuoto = totale competenze): nessuna definizione nuova. Nelle righe di voci e ratei l'icona non si ripete.
-171. **[utente] Modifica = sostituzione del cedolino**: `PUT /api/v1/cedolini/{id}/dati` (con la verifica
+172. **[utente] Modifica = sostituzione del cedolino**: `PUT /api/v1/cedolini/{id}/dati` (con la verifica
      `POST .../dati/verifica` e la lettura `GET .../dati` per precompilare il modulo) elimina il cedolino e registra
      con i nuovi dati lo stesso PDF (stesso hash, PDF sbloccato o no), come un inserimento a mano: stessi errori
      bloccanti (400), duplicati e aggiuntivi (409, nulla cambia), una sola transazione serializzata. Il cedolino nuovo
@@ -1134,13 +1150,13 @@ vincolanti; le altre sono default ragionevoli scelti durante lo sviluppo e posso
      ricostruito dai cedolini rimasti (svuotato se non ne restano) prima della nuova registrazione, cosi' i dati del
      cedolino modificato non sopravvivono (es. una data di cessazione tolta). Il rapporto mantiene id, CCNL scelto e
      note.
-172. **Persona o azienda diverse = altro rapporto**: scegliendo un'altra persona o azienda (o creandone di nuove) il
+173. **Persona o azienda diverse = altro rapporto**: scegliendo un'altra persona o azienda (o creandone di nuove) il
      cedolino passa al loro rapporto (creato se manca); il rapporto precedente viene ricalcolato e, se resta senza
      cedolini, eliminato con le anagrafiche orfane, come un'eliminazione. La verifica lo dice negli avvisi ("passera' a
      un altro rapporto", "il rapporto attuale verra' eliminato", "passera' da Aprile 2023 a Maggio 2023").
-173. **Precompilazione dai dati archiviati**: il modulo parte dal JSON con cui il cedolino e' stato archiviato
+174. **Precompilazione dai dati archiviati**: il modulo parte dal JSON con cui il cedolino e' stato archiviato
      (`estratto_json`, letto con l'interprete dello schema), con persona e azienda del rapporto scelte dall'elenco; i
      campi che l'archivio non ricava dal cedolino (posizione INAIL, CCNL e codice CNEL stampati) si leggono dallo
      stesso JSON. Nella modifica nulla si copia da altri cedolini del rapporto. Un JSON non leggibile = 409.
-174. **Cedolino modificato a mano**: salvato con il modello `modifica-manuale-1`; il dettaglio espone
+175. **Cedolino modificato a mano**: salvato con il modello `modifica-manuale-1`; il dettaglio espone
      `modificatoAMano` e mostra "Dati modificati a mano" al posto dell'affidabilita' della lettura.
