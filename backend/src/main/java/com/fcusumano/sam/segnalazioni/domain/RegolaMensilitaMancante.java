@@ -43,22 +43,27 @@ public final class RegolaMensilitaMancante implements RegolaSegnalazione {
 
     @Override
     public List<SegnalazioneRilevata> valuta(ContestoRapporto contesto) {
-        var ordinari = contesto.ordinari();
-        if (ordinari.isEmpty()) {
+        var intervallo = intervallo(contesto);
+        if (intervallo == null) {
             return List.of();
         }
-        var primo = ContestoRapporto.periodo(ordinari.getFirst());
-        var ultimo = ContestoRapporto.periodo(ordinari.getLast());
-        var fine = ultimo;
-        var cessazione = contesto.dataCessazione();
-        var ultimoEmettibile = YearMonth.from(contesto.oggi()).minusMonths(1);
-        boolean estesoACessazione = false;
-        if (cessazione != null && YearMonth.from(cessazione).isAfter(ultimo)) {
-            var meseCessazione = YearMonth.from(cessazione);
-            fine = meseCessazione.isAfter(ultimoEmettibile) ? ultimoEmettibile : meseCessazione;
-            estesoACessazione = fine.isAfter(ultimo);
-        }
+        var cessazione = intervallo.fine().isAfter(intervallo.ultimo()) ? contesto.dataCessazione() : null;
+        return mesiMancanti(contesto, intervallo).stream()
+                .map(mese -> segnalazione(contesto, mese, intervallo.primo(), intervallo.ultimo(), cessazione))
+                .toList();
+    }
 
+    /**
+     * Mesi senza cedolino ordinario che il rapporto dovrebbe avere (quelli segnalati da questa regola), in ordine
+     * cronologico. Usato anche dalle regole di tredicesima e quattordicesima: se manca il cedolino del mese in cui
+     * sarebbero pagate, il loro cedolino puo' mancare anch'esso.
+     */
+    public static List<YearMonth> mesiMancanti(ContestoRapporto contesto) {
+        var intervallo = intervallo(contesto);
+        return intervallo == null ? List.of() : mesiMancanti(contesto, intervallo);
+    }
+
+    private static List<YearMonth> mesiMancanti(ContestoRapporto contesto, Intervallo intervallo) {
         var coperti = new HashSet<YearMonth>();
         contesto.cedolini().stream()
                 .filter(c -> c.tipo() == TipoMensilita.ORDINARIA || c.tipo() == TipoMensilita.FINE_RAPPORTO)
@@ -70,14 +75,39 @@ public final class RegolaMensilitaMancante implements RegolaSegnalazione {
                 .forEach(coperti::add);
         var interruzioni = interruzioni(contesto);
 
-        var risultato = new ArrayList<SegnalazioneRilevata>();
-        for (var mese = primo; !mese.isAfter(fine); mese = mese.plusMonths(1)) {
-            if (coperti.contains(mese) || interrotto(mese, interruzioni)) {
-                continue;
+        var risultato = new ArrayList<YearMonth>();
+        for (var mese = intervallo.primo(); !mese.isAfter(intervallo.fine()); mese = mese.plusMonths(1)) {
+            if (!coperti.contains(mese) && !interrotto(mese, interruzioni)) {
+                risultato.add(mese);
             }
-            risultato.add(segnalazione(contesto, mese, primo, ultimo, estesoACessazione ? cessazione : null));
         }
         return risultato;
+    }
+
+    /** Periodo in cui ogni mese dovrebbe avere il cedolino ordinario; null senza cedolini ordinari. */
+    private static Intervallo intervallo(ContestoRapporto contesto) {
+        var ordinari = contesto.ordinari();
+        if (ordinari.isEmpty()) {
+            return null;
+        }
+        var primo = ContestoRapporto.periodo(ordinari.getFirst());
+        var ultimo = ContestoRapporto.periodo(ordinari.getLast());
+        var fine = ultimo;
+        var cessazione = contesto.dataCessazione();
+        var ultimoEmettibile = YearMonth.from(contesto.oggi()).minusMonths(1);
+        if (cessazione != null && YearMonth.from(cessazione).isAfter(ultimo)) {
+            var meseCessazione = YearMonth.from(cessazione);
+            fine = meseCessazione.isAfter(ultimoEmettibile) ? ultimoEmettibile : meseCessazione;
+        }
+        return new Intervallo(primo, ultimo, fine);
+    }
+
+    /**
+     * @param primo  periodo del primo cedolino ordinario
+     * @param ultimo periodo dell'ultimo cedolino ordinario
+     * @param fine   ultimo mese atteso: l'ultimo cedolino ordinario o, se successiva, la cessazione
+     */
+    private record Intervallo(YearMonth primo, YearMonth ultimo, YearMonth fine) {
     }
 
     private SegnalazioneRilevata segnalazione(ContestoRapporto contesto, YearMonth mese, YearMonth primo,

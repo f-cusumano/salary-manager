@@ -5,11 +5,13 @@ import com.fcusumano.sam.segnalazioni.Evidenza;
 import com.fcusumano.sam.segnalazioni.Gravita;
 import com.fcusumano.sam.segnalazioni.TipoSegnalazione;
 import com.fcusumano.sam.shared.Competenza;
+import com.fcusumano.sam.shared.TipoMensilita;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -22,8 +24,8 @@ import java.util.stream.IntStream;
  *       (inizio = data di assunzione; se non nota, primo cedolino, accettato solo se precede l'ultimo mese del
  *       periodo, perche' il primo mese potrebbe essere parziale);</li>
  *   <li>i cedolini in cui la quattordicesima sarebbe stata pagata sono caricati: la mensilita' ordinaria di M/Y (o,
- *       con mese di pagamento da verificare, tutte le mensilita' ordinarie dell'anno); altrimenti potrebbe trovarsi in
- *       un cedolino non caricato, gia' segnalato come mensilita' mancante;</li>
+ *       con mese di pagamento da verificare, tutte le mensilita' ordinarie dell'anno); per il caso contrario vedi
+ *       sotto;</li>
  *   <li>il rapporto non e' cessato prima di M/Y (in quel caso i ratei vanno nelle competenze finali);</li>
  *   <li>non esiste il cedolino 14 di Y e nessun cedolino di Y riporta quattordicesima o suoi ratei;</li>
  *   <li>l'utente non ha associato alla quattordicesima di Y un file caricato con errore (lo segnala
@@ -32,6 +34,11 @@ import java.util.stream.IntStream;
  *       che lo riporta: con un cambio di contratto documentato (per esempio da un CCNL a 13 mensilita') il CCNL
  *       attuale non vale per quell'anno e la quattordicesima potrebbe non essere dovuta.</li>
  * </ul>
+ * Se invece quei cedolini mancano (segnalati come mensilita' mancanti) o l'utente vi ha associato file in errore, la
+ * quattordicesima potrebbe trovarsi proprio li'. Valgono le altre condizioni e si guardano gli altri anni del rapporto:
+ * se la quattordicesima ha sempre un cedolino a parte si segnala come anomalia, se e' sempre nel cedolino ordinario
+ * non si segnala, se non ci sono indizi si segnala come avviso. La riga della quattordicesima compare quindi tra le
+ * mensilita' mancanti e le si puo' associare un file in errore.
  */
 public final class RegolaQuattordicesimaMancante implements RegolaSegnalazione {
 
@@ -53,13 +60,15 @@ public final class RegolaQuattordicesimaMancante implements RegolaSegnalazione {
         int primoAnno = inizio.anno();
         int ultimoAnno = contesto.cedolini().stream().map(ContestoRapporto::periodo).mapToInt(YearMonth::getYear)
                 .max().orElse(primoAnno);
+        var mesiMancanti = RegolaMensilitaMancante.mesiMancanti(contesto);
         return IntStream.rangeClosed(primoAnno, ultimoAnno)
-                .mapToObj(anno -> valutaAnno(contesto, anno, inizio))
+                .mapToObj(anno -> valutaAnno(contesto, anno, inizio, mesiMancanti))
                 .flatMap(Optional::stream)
                 .toList();
     }
 
-    private Optional<SegnalazioneRilevata> valutaAnno(ContestoRapporto contesto, int anno, Inizio inizio) {
+    private Optional<SegnalazioneRilevata> valutaAnno(ContestoRapporto contesto, int anno, Inizio inizio,
+                                                      List<YearMonth> mesiMancanti) {
         var ccnl = contesto.ccnl();
         int mesePagamento = ccnl.meseQuattordicesima();
         var meseM = YearMonth.of(anno, mesePagamento);
@@ -70,8 +79,16 @@ public final class RegolaQuattordicesimaMancante implements RegolaSegnalazione {
             return Optional.empty();
         }
         var ultimoMeseMaturazione = meseM.minusMonths(1);
-        if (!attivoNelPeriodo(inizio, meseM.minusYears(1), ultimoMeseMaturazione)
-                || !mesiDiPagamentoPresenti(contesto, anno, meseM, meseCerto, inizio)) {
+        if (!attivoNelPeriodo(inizio, meseM.minusYears(1), ultimoMeseMaturazione)) {
+            return Optional.empty();
+        }
+        var assenti = mesiDiPagamentoAssenti(contesto, anno, meseM, meseCerto, inizio);
+        if (!assenti.stream().allMatch(mese -> MensilitaAggiuntiva.nonDisponibile(contesto, mesiMancanti, mese))) {
+            return Optional.empty();
+        }
+        var modalita = assenti.isEmpty() ? null
+                : MensilitaAggiuntiva.modalita(contesto, TipoMensilita.QUATTORDICESIMA, anno);
+        if (modalita == MensilitaAggiuntiva.Modalita.NEL_CEDOLINO_ORDINARIO) {
             return Optional.empty();
         }
         var cessazione = contesto.dataCessazione();
@@ -84,6 +101,9 @@ public final class RegolaQuattordicesimaMancante implements RegolaSegnalazione {
         }
         if (ccnlCambiatoNelPeriodo(contesto, meseM.minusYears(1), meseM)) {
             return Optional.empty();
+        }
+        if (modalita != null) {
+            return Optional.of(pagamentoNonDisponibile(contesto, anno, assenti, successivo.get(), modalita));
         }
         var evidenze = new ArrayList<Evidenza>();
         contesto.ordinario(meseM).ifPresent(c -> evidenze.add(Evidenze.cedolino("Cedolino del mese di pagamento", c)));
@@ -100,22 +120,59 @@ public final class RegolaQuattordicesimaMancante implements RegolaSegnalazione {
     }
 
     /**
-     * I cedolini in cui la quattordicesima potrebbe essere stata pagata sono tutti caricati: quello del mese M se il
-     * mese di pagamento e' certo, altrimenti tutte le mensilita' ordinarie dell'anno (dall'inizio del rapporto).
-     * Altrimenti la quattordicesima potrebbe trovarsi in un cedolino non caricato (gia' segnalato come mancante).
+     * Mancano cedolini in cui la quattordicesima potrebbe essere pagata (o sono in errore): anomalia se negli altri
+     * anni ha un cedolino a parte, avviso se non si sa (la modalita' "nel cedolino ordinario" e' esclusa prima).
      */
-    private static boolean mesiDiPagamentoPresenti(ContestoRapporto contesto, int anno, YearMonth meseM,
-                                                   boolean meseCerto, Inizio inizio) {
-        if (meseCerto) {
-            return contesto.ordinario(meseM).isPresent();
+    private static SegnalazioneRilevata pagamentoNonDisponibile(ContestoRapporto contesto, int anno,
+                                                                List<YearMonth> assenti,
+                                                                CedolinoNormalizzato successivo,
+                                                                MensilitaAggiuntiva.Modalita modalita) {
+        var ccnl = contesto.ccnl();
+        var mesi = assenti.stream().map(Formato::mese).collect(Collectors.joining(", "));
+        var stato = assenti.size() == 1
+                ? "il cedolino di " + mesi + (contesto.inErrore(assenti.getFirst().getYear(),
+                        assenti.getFirst().getMonthValue()) ? " è stato caricato con errore" : " non è stato caricato")
+                : "i cedolini di " + mesi + " non sono stati caricati o sono in errore";
+        var evidenze = new ArrayList<Evidenza>();
+        evidenze.add(Evidenze.cedolino("Primo cedolino successivo", successivo));
+        evidenze.add(Evidenze.rapporto("Mese di pagamento della quattordicesima (CCNL)",
+                Formato.nomeMese(ccnl.meseQuattordicesima())));
+        if (modalita == MensilitaAggiuntiva.Modalita.A_PARTE) {
+            MensilitaAggiuntiva.esempioAParte(contesto, TipoMensilita.QUATTORDICESIMA, anno)
+                    .ifPresent(c -> evidenze.add(Evidenze.cedolino("Quattordicesima con cedolino a parte", c)));
+            var descrizione = "Il CCNL " + ccnl.descrizione() + " prevede la quattordicesima, ma per il " + anno
+                    + " non risulta: negli altri anni del rapporto è pagata con un cedolino a parte, che per il " + anno
+                    + " non è stato caricato. Inoltre " + stato + ".";
+            return new SegnalazioneRilevata(CODICE, TipoSegnalazione.QUATTORDICESIMA_MANCANTE, Gravita.ANOMALIA, null,
+                    Competenza.Mensilita.quattordicesima(anno), "Quattordicesima " + anno + " mancante", descrizione,
+                    evidenze);
         }
+        var descrizione = "Il CCNL " + ccnl.descrizione() + " prevede la quattordicesima, ma per il " + anno
+                + " non risulta e " + stato + ": la quattordicesima potrebbe essere pagata lì oppure con un cedolino a "
+                + "parte, anch'esso non caricato.";
+        return new SegnalazioneRilevata(CODICE, TipoSegnalazione.QUATTORDICESIMA_MANCANTE, Gravita.AVVISO, null,
+                Competenza.Mensilita.quattordicesima(anno), "Quattordicesima " + anno + " non trovata", descrizione,
+                evidenze);
+    }
+
+    /**
+     * Mesi senza cedolino ordinario tra quelli in cui la quattordicesima potrebbe essere stata pagata: il mese M se il
+     * mese di pagamento e' certo, altrimenti tutti i mesi dell'anno (dall'inizio del rapporto). Vuoto se sono tutti
+     * caricati.
+     */
+    private static List<YearMonth> mesiDiPagamentoAssenti(ContestoRapporto contesto, int anno, YearMonth meseM,
+                                                          boolean meseCerto, Inizio inizio) {
+        if (meseCerto) {
+            return contesto.ordinario(meseM).isPresent() ? List.of() : List.of(meseM);
+        }
+        var assenti = new ArrayList<YearMonth>();
         var primoMese = inizio.primoMese().getYear() == anno ? inizio.primoMese() : YearMonth.of(anno, 1);
         for (var mese = primoMese; mese.getYear() == anno; mese = mese.plusMonths(1)) {
             if (contesto.ordinario(mese).isEmpty()) {
-                return false;
+                assenti.add(mese);
             }
         }
-        return true;
+        return assenti;
     }
 
     /**
