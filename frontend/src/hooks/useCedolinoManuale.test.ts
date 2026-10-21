@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AttribuzioneCaricamento, CaricamentoInErrore, MotivoErrore } from '../api/types';
 import { creaDbMock } from '../mocks/dati';
+import { cedolinoManuale } from '../test/cedolinoManuale';
 import {
   ARCHIVIO_VUOTO,
   azioniPerCaricamento,
@@ -27,6 +28,7 @@ import {
   sezioneDi,
   titoloPrevisto,
   unisciSeVuoti,
+  valoriDaCedolino,
   valoriVuoti,
   voceCopiataVuota,
   voceVuota,
@@ -321,6 +323,50 @@ describe('richiesta dai valori del modulo', () => {
   });
 });
 
+describe('valori del modulo dai dati di un cedolino archiviato (modifica)', () => {
+  it('sono l’inverso della richiesta: rimandati senza modifiche, i dati non cambiano', () => {
+    const dati = cedolinoManuale((d) => {
+      d.dipendente.codiceFiscale = 'RSSMRA80A01H501U';
+      d.datoreLavoro.partitaIva = '01234567897';
+      d.periodo.meseVariabili = '2025-07';
+      d.retribuzione.superminimoAssorbibile = true;
+      d.ratei = [
+        { tipo: 'FERIE', unita: 'GIORNI', residuoAnnoPrecedente: 2, maturato: 1.67, goduto: 0, saldo: 3.67 },
+      ];
+      d.tfr = {
+        fondo31DicembreAnnoPrecedente: 5000,
+        rivalutazione: null,
+        impostaSostitutiva: null,
+        quotaAnno: null,
+        quotaMese: 150,
+        quotaFondi: null,
+        quotaBusta: null,
+        anticipi: null,
+        retribuzioneUtile: null,
+        liquidatoLordo: null,
+        ritenuta: null,
+      };
+      d.buoniPasto = { presenti: true, numero: 20, valoreUnitario: 8, importo: 160 };
+    });
+    expect(richiestaDa(valoriDaCedolino(dati))).toEqual(dati);
+  });
+
+  it('persona e azienda restano quelle scelte, voci e ratei sono righe complete (non copie da completare)', () => {
+    const valori = valoriDaCedolino(cedolinoManuale());
+    expect(valori).toMatchObject({
+      personaId: '1',
+      aziendaId: '1',
+      nuovaPersona: false,
+      nuovaAzienda: false,
+    });
+    expect(valori.voci.map((v) => v.copia)).toEqual([undefined, undefined]);
+    expect(valori.voci[0]).toMatchObject({ descrizione: 'Retribuzione ordinaria', importoCompetenza: 2100 });
+    expect(valori.totali.lordo).toBe('');
+    expect(valori.periodo.mese).toBe('8');
+    expect(valori.retribuzione.superminimoAssorbibile).toBe('NON_INDICATO');
+  });
+});
+
 describe('percorsi degli errori nel modulo', () => {
   it('converte gli indici della richiesta nei percorsi del modulo', () => {
     expect(percorsoForm('totali.netto')).toBe('totali.netto');
@@ -357,6 +403,14 @@ type Modifica = (v: ValoriCedolinoManuale) => void;
 describe('errori bloccanti (come il backend)', () => {
   it('un modulo completo non ha errori', () => {
     expect(erroriBloccanti(valoriValidi(), ARCHIVIO_VUOTO, OGGI)).toEqual([]);
+  });
+
+  it('un mese delle variabili completo e negli anni ammessi non e’ un errore', () => {
+    const conMese = (mese: string) => (v: ValoriCedolinoManuale) => (v.periodo.meseVariabili = mese);
+    expect(erroriBloccanti(valoriValidi(conMese('2025-07')), ARCHIVIO_VUOTO, OGGI)).toEqual([]);
+    expect(erroriBloccanti(valoriValidi(conMese('1850-07')), ARCHIVIO_VUOTO, OGGI)).toEqual([
+      { campo: 'periodo.meseVariabili', messaggio: 'Data non valida (anno dal 1900 al 2999)' },
+    ]);
   });
 
   it.each<[string, Modifica, string, string]>([

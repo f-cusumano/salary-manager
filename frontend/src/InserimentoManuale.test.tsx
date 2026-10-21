@@ -79,7 +79,7 @@ function etichettaDi(dialogo: HTMLElement, percorso: string): HTMLElement {
 
 /** Provenienza di un campo compilato in automatico: il suggerimento del punto blu accanto all'etichetta. */
 async function notaCopiato(user: Utente, dialogo: HTMLElement, percorso: string): Promise<string | null> {
-  const punto = etichettaDi(dialogo, percorso).querySelector<HTMLElement>('[aria-hidden]');
+  const punto = etichettaDi(dialogo, percorso).querySelector<HTMLElement>('[data-copiato]');
   if (!punto) {
     return null;
   }
@@ -212,7 +212,7 @@ describe('inserimento a mano', { timeout: 40_000 }, () => {
       'Copiato da Alfa Software S.r.l.: verifica',
     );
     // i dati in archivio non sono "copiati": nessun punto blu
-    expect(etichettaDi(dialogo, 'dipendente.codiceFiscale').querySelector('[aria-hidden]')).toBeNull();
+    expect(etichettaDi(dialogo, 'dipendente.codiceFiscale').querySelector('[data-copiato]')).toBeNull();
     expect(campo(dialogo, 'datiContrattuali.dataCessazione')).toHaveValue('');
     // dal cedolino di Luglio 2025: le voci senza importi
     expect(campo(dialogo, 'voci.0.descrizione')).not.toHaveValue('');

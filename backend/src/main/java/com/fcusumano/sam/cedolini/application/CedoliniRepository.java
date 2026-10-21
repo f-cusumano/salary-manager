@@ -64,6 +64,9 @@ public interface CedoliniRepository {
 
     Optional<PdfCedolino> pdf(WorkspaceId workspace, CedolinoId id);
 
+    /** PDF archiviato e dati dell'estrazione del cedolino, per modificarlo (riletti e poi riarchiviati). */
+    Optional<DocumentoArchiviato> documento(WorkspaceId workspace, CedolinoId id);
+
     /**
      * Cedolini (di tutti i workspace) il cui PDF archiviato e' ancora protetto o da verificare, in ordine di
      * workspace e id.
@@ -96,6 +99,18 @@ public interface CedoliniRepository {
     }
 
     record PdfDaSbloccare(WorkspaceId workspace, CedolinoId cedolinoId) {
+    }
+
+    /**
+     * Documento di un cedolino archiviato.
+     *
+     * @param hash           hash SHA-256 del PDF caricato
+     * @param pdf            PDF archiviato (senza protezione se e' stato sbloccato)
+     * @param pdfProtetto    stato di protezione del PDF archiviato (null = da verificare)
+     * @param jsonEstrazione JSON dello schema di lettura da cui e' stato archiviato
+     * @param modello        lettore che lo ha prodotto
+     */
+    record DocumentoArchiviato(String hash, byte[] pdf, Boolean pdfProtetto, String jsonEstrazione, String modello) {
     }
 
     /**

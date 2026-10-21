@@ -19,7 +19,8 @@ interface Props {
   esito: VerificaCedolinoManuale;
   /** I dati sono cambiati dopo la verifica: va ripetuta prima di salvare. */
   superata: boolean;
-  onRimuoviFile: () => void;
+  /** Rimozione del file scartato; senza, nessun pulsante (nella modifica di un cedolino il file resta). */
+  onRimuoviFile?: () => void;
   ref?: Ref<HTMLDivElement>;
 }
 
@@ -62,15 +63,17 @@ export function PannelloVerifica({ esito, superata, onRimuoviFile, ref }: Props)
           <Alert color="red" variant="light" title={t.nonSalvabile} icon={<IconBan aria-hidden />}>
             <Stack gap="xs" align="flex-start">
               <Text size="sm">{esito.messaggio}</Text>
-              <Button
-                size="xs"
-                color="red"
-                variant="light"
-                leftSection={<IconTrash size={14} aria-hidden />}
-                onClick={onRimuoviFile}
-              >
-                {t.rimuoviFile}
-              </Button>
+              {onRimuoviFile && (
+                <Button
+                  size="xs"
+                  color="red"
+                  variant="light"
+                  leftSection={<IconTrash size={14} aria-hidden />}
+                  onClick={onRimuoviFile}
+                >
+                  {t.rimuoviFile}
+                </Button>
+              )}
             </Stack>
           </Alert>
         ) : (

@@ -659,6 +659,83 @@ export function richiestaDa(valori: ValoriCedolinoManuale): CedolinoManuale {
   };
 }
 
+/** Testi di un gruppo della richiesta come valori del modulo (null diventa ''). */
+function testiModulo<T extends Record<string, string | null>>(gruppo: T): { [K in keyof T]: string } {
+  return Object.fromEntries(Object.entries(gruppo).map(([campo, valore]) => [campo, valore ?? ''])) as {
+    [K in keyof T]: string;
+  };
+}
+
+/** Numeri di un gruppo della richiesta come valori del modulo (null diventa ''). */
+function numeriModulo<T extends Record<string, number | null>>(gruppo: T): { [K in keyof T]: NumeroModulo } {
+  return Object.fromEntries(
+    Object.entries(gruppo).map(([campo, valore]) => [campo, numeroModulo(valore)]),
+  ) as { [K in keyof T]: NumeroModulo };
+}
+
+/**
+ * Valori del modulo dai dati di un cedolino gia' archiviato (l'inverso di richiestaDa), per modificarlo: persona e
+ * azienda restano quelle scelte, voci e ratei diventano righe del modulo complete (non copie da completare).
+ */
+export function valoriDaCedolino(dati: CedolinoManuale): ValoriCedolinoManuale {
+  const vuoti = valoriVuoti();
+  const { superminimoAssorbibile, ...importiRetribuzione } = dati.retribuzione;
+  return {
+    personaId: dati.personaId !== null ? String(dati.personaId) : null,
+    nuovaPersona: false,
+    aziendaId: dati.aziendaId !== null ? String(dati.aziendaId) : null,
+    nuovaAzienda: false,
+    dipendente: testiModulo(dati.dipendente),
+    datoreLavoro: testiModulo(dati.datoreLavoro),
+    datiContrattuali: testiModulo(dati.datiContrattuali),
+    periodo: {
+      anno: numeroModulo(dati.periodo.anno),
+      mese: dati.periodo.mese !== null ? String(dati.periodo.mese) : null,
+      tipo: dati.periodo.tipo,
+      dataElaborazione: dati.periodo.dataElaborazione ?? '',
+      meseVariabili: dati.periodo.meseVariabili ?? '',
+    },
+    totali: { ...vuoti.totali, ...numeriModulo(dati.totali) },
+    retribuzione: {
+      ...vuoti.retribuzione,
+      ...numeriModulo(importiRetribuzione),
+      superminimoAssorbibile: SCELTA_SUPERMINIMO(superminimoAssorbibile),
+    },
+    voci: dati.voci.map((voce) => ({
+      ...voceVuota(voce.categoria),
+      codice: voce.codice ?? '',
+      descrizione: voce.descrizione ?? '',
+      quantita: numeroModulo(voce.quantita),
+      unita: voce.unita ?? '',
+      base: numeroModulo(voce.base),
+      importoCompetenza: numeroModulo(voce.importoCompetenza),
+      importoTrattenuta: numeroModulo(voce.importoTrattenuta),
+    })),
+    ratei: dati.ratei.map((rateo) => ({
+      ...rateoVuoto(rateo.tipo, rateo.unita),
+      residuoAnnoPrecedente: numeroModulo(rateo.residuoAnnoPrecedente),
+      maturato: numeroModulo(rateo.maturato),
+      goduto: numeroModulo(rateo.goduto),
+      saldo: numeroModulo(rateo.saldo),
+    })),
+    tfr: dati.tfr ? { ...vuoti.tfr, ...numeriModulo(dati.tfr) } : vuoti.tfr,
+    presenze: { ...vuoti.presenze, ...numeriModulo(dati.presenze) },
+    scatti: {
+      numeroScatti: numeroModulo(dati.scatti.numeroScatti),
+      dataProssimoScatto: dati.scatti.dataProssimoScatto ?? '',
+    },
+    buoniPasto: {
+      presenti: dati.buoniPasto.presenti,
+      numero: numeroModulo(dati.buoniPasto.numero),
+      valoreUnitario: numeroModulo(dati.buoniPasto.valoreUnitario),
+      importo: numeroModulo(dati.buoniPasto.importo),
+    },
+    progressivi: { ...vuoti.progressivi, ...numeriModulo(dati.progressivi) },
+    contieneTredicesima: dati.contieneTredicesima,
+    contieneQuattordicesima: dati.contieneQuattordicesima,
+  };
+}
+
 /**
  * Percorso di un errore nel modulo: "voci[3].descrizione" diventa "voci.3.descrizione". Con gli indici delle righe
  * inviate, l'indice della richiesta (che non contiene le righe vuote) diventa quello della riga nel modulo.
@@ -918,7 +995,8 @@ export function erroriBloccanti(
     if (!MESE_AAAA_MM.test(periodo.meseVariabili)) {
       errori.aggiungi('periodo.meseVariabili', e.meseVariabili);
     } else {
-      errori.data('periodo.meseVariabili', periodo.meseVariabili);
+      // il mese "AAAA-MM" si controlla come data del suo primo giorno (anno nei limiti delle date)
+      errori.data('periodo.meseVariabili', `${periodo.meseVariabili}-01`);
     }
   }
 

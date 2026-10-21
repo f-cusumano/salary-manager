@@ -2,7 +2,7 @@ import { Alert, Button, em, Group, Loader, Modal, Stack, Tabs, Text } from '@man
 import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { IconFileOff, IconPencil } from '@tabler/icons-react';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useAziende, useCaricamentiInErrore, useCedolino, usePersone, useRapporto } from '../api/queries';
 import type { Caricamento, CaricamentoInErrore } from '../api/types';
 import { valoriIniziali, type ValoriECopiati } from '../hooks/sceltaAnagrafiche';
@@ -23,7 +23,7 @@ import { MotivoErroreBadge } from './MotivoErroreBadge';
 const t = testi.manuale;
 
 /** Sotto il breakpoint md (62em) PDF e modulo sono due schede. */
-const SCHERMO_STRETTO = `(max-width: ${em(991)})`;
+export const SCHERMO_STRETTO = `(max-width: ${em(991)})`;
 
 interface Props {
   /** File in errore da completare; null = modale chiusa. */
@@ -98,11 +98,18 @@ function FinestraInserimento({ caricamentoId, onChiudi, onAcquisito }: Props & {
   if (elemento !== null) {
     contenuto = (
       <Disposizione
-        elemento={elemento}
         stretto={stretto}
-        registraModifiche={registraModifiche}
-        onChiudi={onChiudi}
-        onAcquisito={onAcquisito}
+        anteprima={
+          <AnteprimaPdf id={elemento.id} nomeFile={elemento.nomeFileOriginale} motivo={elemento.motivo} />
+        }
+        modulo={
+          <PreparazioneModulo
+            elemento={elemento}
+            registraModifiche={registraModifiche}
+            onChiudi={onChiudi}
+            onAcquisito={onAcquisito}
+          />
+        }
       />
     );
   } else if (inErrore.isError && !inErrore.isFetching) {
@@ -150,7 +157,7 @@ function FinestraInserimento({ caricamentoId, onChiudi, onAcquisito }: Props & {
   );
 }
 
-function Preparazione() {
+export function Preparazione() {
   return (
     <Group gap="sm" p="md">
       <Loader size="sm" />
@@ -162,8 +169,15 @@ function Preparazione() {
 }
 
 interface PropsDisposizione {
-  elemento: CaricamentoInErrore;
   stretto: boolean;
+  /** Anteprima del PDF. */
+  anteprima: ReactNode;
+  /** Modulo (o la sua preparazione). */
+  modulo: ReactNode;
+}
+
+interface PropsPreparazione {
+  elemento: CaricamentoInErrore;
   registraModifiche: (modificato: () => boolean) => void;
   onChiudi: () => void;
   onAcquisito: (caricamento: Caricamento) => void;
@@ -173,7 +187,7 @@ interface PropsDisposizione {
  * PDF e modulo affiancati, oppure in due schede sotto md. La struttura non cambia con la larghezza (ruotando un
  * tablet il modulo non viene ricreato e non perde i dati): cambiano solo le schede e i pannelli nascosti.
  */
-function Disposizione({ elemento, stretto, registraModifiche, onChiudi, onAcquisito }: PropsDisposizione) {
+export function Disposizione({ stretto, anteprima, modulo }: PropsDisposizione) {
   const [scheda, setScheda] = useState<string | null>('dati');
   const idSchede = useId();
   const pannello = (valore: string) =>
@@ -200,19 +214,10 @@ function Disposizione({ elemento, stretto, registraModifiche, onChiudi, onAcquis
         </Tabs>
       )}
       <section className={classes.colonnaPdf} aria-label={t.pdf} {...pannello('pdf')}>
-        <AnteprimaPdf
-          caricamentoId={elemento.id}
-          nomeFile={elemento.nomeFileOriginale}
-          motivo={elemento.motivo}
-        />
+        {anteprima}
       </section>
       <div className={classes.colonnaModulo} {...pannello('dati')}>
-        <PreparazioneModulo
-          elemento={elemento}
-          registraModifiche={registraModifiche}
-          onChiudi={onChiudi}
-          onAcquisito={onAcquisito}
-        />
+        {modulo}
       </div>
     </div>
   );
@@ -225,12 +230,7 @@ function Disposizione({ elemento, stretto, registraModifiche, onChiudi, onAcquis
  * letture vengono aggiornate (il mese diventa presente) e il modulo non deve essere ricreato mentre conclude il
  * salvataggio.
  */
-function PreparazioneModulo({
-  elemento,
-  registraModifiche,
-  onChiudi,
-  onAcquisito,
-}: Omit<PropsDisposizione, 'stretto'>) {
+function PreparazioneModulo({ elemento, registraModifiche, onChiudi, onAcquisito }: PropsPreparazione) {
   const { attribuzione } = elemento;
   const [preparato, setPreparato] = useState<ValoriECopiati | null>(null);
   const daLeggere = preparato === null;
@@ -270,12 +270,11 @@ function PreparazioneModulo({
   const { valori, copiati } = preparato;
   return (
     <ModuloCedolinoManuale
-      elemento={elemento}
+      destinazione={{ tipo: 'inserimento', elemento, onAcquisito }}
       iniziali={valori}
       copiatiIniziali={copiati}
       registraModifiche={registraModifiche}
       onChiudi={onChiudi}
-      onAcquisito={onAcquisito}
     />
   );
 }

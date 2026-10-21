@@ -315,28 +315,33 @@ describe('barra superiore e selezione persona', () => {
 });
 
 describe('mensilità', () => {
-  it('espande più barre insieme caricando il dettaglio al bisogno; la mancante non è espandibile', async () => {
-    const { user } = renderConMock(<App />);
-    await selezionaPersona(user, 'Mario Rossi');
+  // due dettagli aperti, con le spiegazioni dei campi: le query per ruolo di jsdom superano il limite predefinito
+  it(
+    'espande più barre insieme caricando il dettaglio al bisogno; la mancante non è espandibile',
+    { timeout: 20_000 },
+    async () => {
+      const { user } = renderConMock(<App />);
+      await selezionaPersona(user, 'Mario Rossi');
 
-    const settembre = await screen.findByRole('button', { name: barra('Settembre 2026') });
-    expect(settembre).toHaveAttribute('aria-expanded', 'false');
-    await user.click(settembre);
-    expect(settembre).toHaveAttribute('aria-expanded', 'true');
-    expect(settembre).toHaveAccessibleName(barra('Settembre 2026', 'Nascondi'));
-    expect(await screen.findByRole('heading', { name: 'Competenze' })).toBeInTheDocument();
+      const settembre = await screen.findByRole('button', { name: barra('Settembre 2026') });
+      expect(settembre).toHaveAttribute('aria-expanded', 'false');
+      await user.click(settembre);
+      expect(settembre).toHaveAttribute('aria-expanded', 'true');
+      expect(settembre).toHaveAccessibleName(barra('Settembre 2026', 'Nascondi'));
+      expect(await screen.findByRole('heading', { name: 'Competenze' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: barra('Tredicesima 2025') }));
-    await waitFor(() => expect(screen.getAllByRole('heading', { name: 'Competenze' })).toHaveLength(2));
-    expect(screen.getByText('13ma Mensilità')).toBeInTheDocument();
-    // dati letti senza avvisi: nessuna sezione dedicata
-    expect(screen.queryByRole('heading', { name: 'Avvisi dell’estrazione' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: barra('Tredicesima 2025') }));
+      await waitFor(() => expect(screen.getAllByRole('heading', { name: 'Competenze' })).toHaveLength(2));
+      expect(screen.getByText('13ma Mensilità')).toBeInTheDocument();
+      // dati letti senza avvisi: nessuna sezione dedicata
+      expect(screen.queryByRole('heading', { name: 'Avvisi dell’estrazione' })).not.toBeInTheDocument();
 
-    const mancante = screen.getByRole('listitem', { name: 'Agosto 2025: Mensilità mancante' });
-    expect(within(mancante).queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /dettaglio di Marzo 2025/ })).toHaveTextContent('Scatto');
-    expect(screen.getByRole('button', { name: /dettaglio di Aprile 2024/ })).toHaveTextContent('Aumento');
-  });
+      const mancante = screen.getByRole('listitem', { name: 'Agosto 2025: Mensilità mancante' });
+      expect(within(mancante).queryByRole('button')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /dettaglio di Marzo 2025/ })).toHaveTextContent('Scatto');
+      expect(screen.getByRole('button', { name: /dettaglio di Aprile 2024/ })).toHaveTextContent('Aumento');
+    },
+  );
 
   it('annuncia nel nome della barra indicatori, ratei e netto della mensilità', async () => {
     const { user, backend } = renderConMock(<App />);

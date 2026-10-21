@@ -18,6 +18,7 @@ import com.fcusumano.sam.cedolini.CategoriaVoce;
 import com.fcusumano.sam.cedolini.CedolinoDettaglio;
 import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.CedolinoManuale;
+import com.fcusumano.sam.cedolini.CedolinoModificato;
 import com.fcusumano.sam.cedolini.CedolinoNormalizzato;
 import com.fcusumano.sam.cedolini.DatiTfr;
 import com.fcusumano.sam.cedolini.ElementiRetributivi;
@@ -37,6 +38,7 @@ import com.fcusumano.sam.web.api.dto.CaricamentoInErroreDto;
 import com.fcusumano.sam.web.api.dto.CcnlDto;
 import com.fcusumano.sam.web.api.dto.CedolinoDettaglioDto;
 import com.fcusumano.sam.web.api.dto.CedolinoManualeDto;
+import com.fcusumano.sam.web.api.dto.CedolinoModificatoDto;
 import com.fcusumano.sam.web.api.dto.CompetenzaDto;
 import com.fcusumano.sam.web.api.dto.EvidenzaDto;
 import com.fcusumano.sam.web.api.dto.LottoCaricamentoDto;
@@ -209,6 +211,7 @@ final class Mappatura {
                 dettaglio.acquisitoIl(),
                 esatto(dettaglio.confidenza()),
                 dettaglio.inseritoAMano(),
+                dettaglio.modificatoAMano(),
                 dettaglio.campiNonTrovati(),
                 dettaglio.avvisiEstrazione(),
                 new CedolinoDettaglioDto.Inquadramento(c.qualifica(), c.livello(), c.codiceDipendente(), c.ccnlTesto(),
@@ -334,6 +337,54 @@ final class Mappatura {
                         p.irpefTrattenuta())),
                 d.contieneTredicesima(),
                 d.contieneQuattordicesima());
+    }
+
+    /** Dati di un cedolino archiviato per il modulo della modifica a mano (stessa forma dell'inserimento a mano). */
+    static CedolinoManualeDto cedolinoManuale(CedolinoManuale c) {
+        var e = c.retribuzione();
+        return new CedolinoManualeDto(
+                c.personaId(),
+                c.aziendaId(),
+                se(c.dipendente(), p -> new CedolinoManualeDto.DipendenteManuale(p.codiceFiscale(), p.nome(),
+                        p.cognome(), p.dataNascita(), p.codiceDipendente())),
+                se(c.datoreLavoro(), a -> new CedolinoManualeDto.DatoreLavoroManuale(a.codiceFiscale(),
+                        a.partitaIva(), a.posizioneInps(), a.posizioneInail(), a.ragioneSociale(), a.indirizzo(),
+                        a.codiceAzienda())),
+                se(c.datiContrattuali(), k -> new CedolinoManualeDto.DatiContrattualiManuali(k.dataAssunzione(),
+                        k.dataCessazione(), k.qualifica(), k.livello(), k.ccnl(), k.codiceCnel())),
+                se(c.periodo(), p -> new CedolinoManualeDto.PeriodoManuale(p.anno(), p.mese(), p.tipo(),
+                        p.dataElaborazione(), p.meseVariabili())),
+                se(c.totali(), t -> new CedolinoDettaglioDto.Totali(esatto(t.lordo()), esatto(t.totaleCompetenze()),
+                        esatto(t.totaleTrattenute()), esatto(t.arrotondamento()), esatto(t.netto()))),
+                se(e, r -> new CedolinoDettaglioDto.ElementiRetributivi(esatto(r.minimo()), esatto(r.contingenza()),
+                        esatto(r.superminimo()), r.superminimoAssorbibile(), esatto(r.importoScatti()),
+                        esatto(r.altriElementiFissi()), esatto(r.retribuzioneBase()), esatto(r.totale()),
+                        esatto(r.pagaOraria()), esatto(r.pagaGiornaliera()), esatto(r.divisoreOrario()),
+                        esatto(r.divisoreGiornaliero()))),
+                c.voci().stream().map(v -> new CedolinoManualeDto.VoceManuale(v.codice(), v.descrizione(),
+                        v.categoria(), esatto(v.quantita()), v.unita(), esatto(v.base()),
+                        esatto(v.importoCompetenza()), esatto(v.importoTrattenuta()))).toList(),
+                c.ratei().stream().map(r -> new CedolinoDettaglioDto.Rateo(r.tipo(), r.unita(),
+                        esatto(r.residuoAnnoPrecedente()), esatto(r.maturato()), esatto(r.goduto()),
+                        esatto(r.saldo()))).toList(),
+                se(c.tfr(), t -> new CedolinoDettaglioDto.Tfr(esatto(t.fondo31DicembreAnnoPrecedente()),
+                        esatto(t.rivalutazione()), esatto(t.impostaSostitutiva()), esatto(t.quotaAnno()),
+                        esatto(t.quotaMese()), esatto(t.quotaFondi()), esatto(t.quotaBusta()), esatto(t.anticipi()),
+                        esatto(t.retribuzioneUtile()), esatto(t.liquidatoLordo()), esatto(t.ritenuta()))),
+                se(c.presenze(), p -> new CedolinoManualeDto.PresenzeManuali(esatto(p.giorniLavorati()),
+                        esatto(p.oreLavorate()), esatto(p.giorniRetribuiti()))),
+                se(c.scatti(), s -> new CedolinoManualeDto.ScattiManuali(s.numeroScatti(), s.dataProssimoScatto())),
+                se(c.buoniPasto(), b -> new CedolinoDettaglioDto.BuoniPasto(b.presenti(), esatto(b.numero()),
+                        esatto(b.valoreUnitario()), esatto(b.importo()))),
+                se(c.progressivi(), p -> new CedolinoDettaglioDto.Progressivi(esatto(p.imponibilePrevidenziale()),
+                        esatto(p.imponibileIrpef()), esatto(p.irpefTrattenuta()))),
+                c.contieneTredicesima(),
+                c.contieneQuattordicesima());
+    }
+
+    static CedolinoModificatoDto cedolinoModificato(CedolinoModificato m) {
+        return new CedolinoModificatoDto(m.cedolinoId().valore(), m.rapportoId().valore(), competenza(m.competenza()),
+                Titoli.di(m.competenza()), m.rapportoEliminato());
     }
 
     /** Valore convertito, null se assente. */

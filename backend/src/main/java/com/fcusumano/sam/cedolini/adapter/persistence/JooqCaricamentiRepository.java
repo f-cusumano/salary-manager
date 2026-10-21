@@ -212,6 +212,38 @@ class JooqCaricamentiRepository implements CaricamentiRepository {
     }
 
     @Override
+    public RiferimentiCedolino riferimenti(WorkspaceId workspace, CedolinoId cedolino) {
+        var acquisiti = dsl.select(CARICAMENTO.ID).from(CARICAMENTO)
+                .where(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore()), CARICAMENTO.CEDOLINO_ID.eq(cedolino.valore()))
+                .orderBy(CARICAMENTO.ID)
+                .fetch(r -> new CaricamentoId(r.value1()));
+        var esistenti = dsl.select(CARICAMENTO.ID).from(CARICAMENTO)
+                .where(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore()),
+                        CARICAMENTO.CEDOLINO_ESISTENTE_ID.eq(cedolino.valore()))
+                .orderBy(CARICAMENTO.ID)
+                .fetch(r -> new CaricamentoId(r.value1()));
+        return new RiferimentiCedolino(acquisiti, esistenti);
+    }
+
+    @Override
+    public void ricollega(WorkspaceId workspace, RiferimentiCedolino riferimenti, CedolinoId cedolino) {
+        if (!riferimenti.acquisiti().isEmpty()) {
+            dsl.update(CARICAMENTO)
+                    .set(CARICAMENTO.CEDOLINO_ID, cedolino.valore())
+                    .where(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore()),
+                            CARICAMENTO.ID.in(riferimenti.acquisiti().stream().map(CaricamentoId::valore).toList()))
+                    .execute();
+        }
+        if (!riferimenti.esistenti().isEmpty()) {
+            dsl.update(CARICAMENTO)
+                    .set(CARICAMENTO.CEDOLINO_ESISTENTE_ID, cedolino.valore())
+                    .where(CARICAMENTO.WORKSPACE_ID.eq(workspace.valore()),
+                            CARICAMENTO.ID.in(riferimenti.esistenti().stream().map(CaricamentoId::valore).toList()))
+                    .execute();
+        }
+    }
+
+    @Override
     public boolean fileInErrore(WorkspaceId workspace, String hash) {
         return Boolean.TRUE.equals(dsl.select(DSL.field(fileInErrore(DSL.val(workspace.valore()), DSL.val(hash))))
                 .fetchOne(Record1::value1));

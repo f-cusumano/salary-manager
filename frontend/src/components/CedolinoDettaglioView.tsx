@@ -26,6 +26,8 @@ import {
   formatPercentuale,
 } from '../format/format';
 import { testi } from '../i18n';
+import { AiutoCampo } from './AiutoCampo';
+import { aiutoDi } from './aiuti';
 import { ElencoValori, type RigaValore } from './ElencoValori';
 import { ErroreConRiprova } from './ErroreConRiprova';
 
@@ -57,6 +59,11 @@ export function CedolinoDettaglioView({ cedolinoId, abilitato }: Props) {
   return <Busta cedolino={cedolino.data} />;
 }
 
+/** La riga con la spiegazione del campo del cedolino (stesse spiegazioni del modulo di inserimento a mano). */
+function spiegata<T extends RigaValore | null | false>(percorso: string, riga: T): T {
+  return riga ? { ...riga, aiuto: aiutoDi(percorso) } : riga;
+}
+
 function importoORiga(etichetta: string, valore: number | null, enfasi = false): RigaValore | null {
   return valore === null ? null : { etichetta, valore: formatImporto(valore), enfasi };
 }
@@ -79,19 +86,24 @@ function Busta({ cedolino: c }: { cedolino: CedolinoDettaglio }) {
         <Sezione titolo={t.generale}>
           <ElencoValori
             righe={[
-              { etichetta: t.periodoRetribuzione, valore: formatMese(c.periodoRetribuzione) },
+              {
+                etichetta: t.periodoRetribuzione,
+                valore: formatMese(c.periodoRetribuzione),
+                aiuto: aiutoDi('periodo.mese'),
+              },
               c.meseVariabili !== null &&
                 c.meseVariabili !== c.periodoRetribuzione && {
                   etichetta: t.meseVariabili,
                   valore: formatMese(c.meseVariabili),
+                  aiuto: aiutoDi('periodo.meseVariabili'),
                 },
               c.dataElaborazione !== null && {
                 etichetta: t.dataElaborazione,
                 valore: formatData(c.dataElaborazione),
               },
-              testoORiga(t.qualifica, c.inquadramento.qualifica),
-              testoORiga(t.livello, c.inquadramento.livello),
-              testoORiga(t.ccnlTesto, c.inquadramento.ccnlTesto),
+              spiegata('datiContrattuali.qualifica', testoORiga(t.qualifica, c.inquadramento.qualifica)),
+              spiegata('datiContrattuali.livello', testoORiga(t.livello, c.inquadramento.livello)),
+              spiegata('datiContrattuali.ccnl', testoORiga(t.ccnlTesto, c.inquadramento.ccnlTesto)),
               c.inquadramento.dataAssunzione !== null && {
                 etichetta: t.dataAssunzione,
                 valore: formatData(c.inquadramento.dataAssunzione),
@@ -113,44 +125,60 @@ function Busta({ cedolino: c }: { cedolino: CedolinoDettaglio }) {
         <Sezione titolo={t.totali}>
           <ElencoValori
             righe={[
-              importoORiga(t.lordo, c.totali.lordo),
-              importoORiga(t.totaleCompetenze, c.totali.totaleCompetenze),
-              importoORiga(t.totaleTrattenute, c.totali.totaleTrattenute),
+              spiegata('totali.lordo', importoORiga(t.lordo, c.totali.lordo)),
+              spiegata(
+                'totali.totaleCompetenze',
+                importoORiga(t.totaleCompetenze, c.totali.totaleCompetenze),
+              ),
+              spiegata(
+                'totali.totaleTrattenute',
+                importoORiga(t.totaleTrattenute, c.totali.totaleTrattenute),
+              ),
               c.totali.arrotondamento !== null &&
                 c.totali.arrotondamento !== 0 &&
-                importoORiga(t.arrotondamento, c.totali.arrotondamento),
-              importoORiga(t.netto, c.totali.netto, true),
+                spiegata('totali.arrotondamento', importoORiga(t.arrotondamento, c.totali.arrotondamento)),
+              spiegata('totali.netto', importoORiga(t.netto, c.totali.netto, true)),
             ]}
           />
         </Sezione>
         <Sezione titolo={t.elementiRetributivi}>
           <ElencoValori
             righe={[
-              importoORiga(t.retribuzioneBase, e.retribuzioneBase),
-              importoORiga(t.minimo, e.minimo),
-              importoORiga(t.contingenza, e.contingenza),
+              spiegata('retribuzione.retribuzioneBase', importoORiga(t.retribuzioneBase, e.retribuzioneBase)),
+              spiegata('retribuzione.minimo', importoORiga(t.minimo, e.minimo)),
+              spiegata('retribuzione.contingenza', importoORiga(t.contingenza, e.contingenza)),
               e.superminimo !== null && {
+                aiuto: aiutoDi('retribuzione.superminimo'),
                 etichetta: e.superminimoAssorbibile
                   ? `${t.superminimo} (${t.superminimoAssorbibile})`
                   : t.superminimo,
                 valore: formatImporto(e.superminimo),
               },
-              importoORiga(t.importoScatti, e.importoScatti),
-              importoORiga(t.altriElementiFissi, e.altriElementiFissi),
-              importoORiga(t.totaleElementi, e.totale, true),
-              importoORiga(t.pagaGiornaliera, e.pagaGiornaliera),
-              importoORiga(t.pagaOraria, e.pagaOraria),
-              numeroORiga(t.divisoreGiornaliero, e.divisoreGiornaliero),
-              numeroORiga(t.divisoreOrario, e.divisoreOrario),
+              spiegata('retribuzione.importoScatti', importoORiga(t.importoScatti, e.importoScatti)),
+              spiegata(
+                'retribuzione.altriElementiFissi',
+                importoORiga(t.altriElementiFissi, e.altriElementiFissi),
+              ),
+              spiegata('retribuzione.totale', importoORiga(t.totaleElementi, e.totale, true)),
+              spiegata('retribuzione.pagaGiornaliera', importoORiga(t.pagaGiornaliera, e.pagaGiornaliera)),
+              spiegata('retribuzione.pagaOraria', importoORiga(t.pagaOraria, e.pagaOraria)),
+              spiegata(
+                'retribuzione.divisoreGiornaliero',
+                numeroORiga(t.divisoreGiornaliero, e.divisoreGiornaliero),
+              ),
+              spiegata('retribuzione.divisoreOrario', numeroORiga(t.divisoreOrario, e.divisoreOrario)),
             ]}
           />
         </Sezione>
         <Sezione titolo={t.presenze}>
           <ElencoValori
             righe={[
-              numeroORiga(t.giorniLavorati, c.presenze.giorniLavorati),
-              numeroORiga(t.oreLavorate, c.presenze.oreLavorate),
-              numeroORiga(t.giorniRetribuiti, c.presenze.giorniRetribuiti),
+              spiegata('presenze.giorniLavorati', numeroORiga(t.giorniLavorati, c.presenze.giorniLavorati)),
+              spiegata('presenze.oreLavorate', numeroORiga(t.oreLavorate, c.presenze.oreLavorate)),
+              spiegata(
+                'presenze.giorniRetribuiti',
+                numeroORiga(t.giorniRetribuiti, c.presenze.giorniRetribuiti),
+              ),
             ]}
           />
           {c.presenze.voci.length > 0 && <TabellaVoci voci={c.presenze.voci} senzaImporti />}
@@ -161,39 +189,67 @@ function Busta({ cedolino: c }: { cedolino: CedolinoDettaglio }) {
         </Sezione>
       </SimpleGrid>
 
-      <SezioneVoci titolo={t.competenze} voci={c.competenze} />
-      <SezioneVoci titolo={t.trattenutePrevidenziali} voci={c.trattenutePrevidenziali} />
-      <SezioneVoci titolo={t.trattenuteFiscali} voci={c.trattenuteFiscali} />
-      <SezioneVoci titolo={t.altreTrattenute} voci={c.altreTrattenute} />
+      <SezioneVoci titolo={t.competenze} voci={c.competenze} aiuto={testi.aiuti.categorie.COMPETENZA} />
+      <SezioneVoci
+        titolo={t.trattenutePrevidenziali}
+        voci={c.trattenutePrevidenziali}
+        aiuto={testi.aiuti.categorie.TRATTENUTA_PREVIDENZIALE}
+      />
+      <SezioneVoci
+        titolo={t.trattenuteFiscali}
+        voci={c.trattenuteFiscali}
+        aiuto={testi.aiuti.categorie.TRATTENUTA_FISCALE}
+      />
+      <SezioneVoci
+        titolo={t.altreTrattenute}
+        voci={c.altreTrattenute}
+        aiuto={testi.aiuti.categorie.ALTRA_TRATTENUTA}
+      />
       <SezioneVoci
         titolo={t.vociNonRetributive}
         voci={c.vociNonRetributive}
         nota={t.vociNonRetributiveNota}
+        aiuto={testi.aiuti.categorie.NON_RETRIBUTIVA}
       />
-      <SezioneVoci titolo={t.vociInformative} voci={c.vociInformative} />
+      <SezioneVoci
+        titolo={t.vociInformative}
+        voci={c.vociInformative}
+        aiuto={testi.aiuti.categorie.INFORMATIVA}
+      />
 
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
         {tfr && (
           <Sezione titolo={t.tfr}>
             <ElencoValori
               righe={[
-                importoORiga(t.tfrFondoPrecedente, tfr.fondo31DicembreAnnoPrecedente),
-                importoORiga(t.tfrRivalutazione, tfr.rivalutazione),
-                importoORiga(t.tfrImpostaSostitutiva, tfr.impostaSostitutiva),
-                importoORiga(t.tfrQuotaAnno, tfr.quotaAnno),
-                importoORiga(t.tfrQuotaMese, tfr.quotaMese),
-                tfr.quotaFondi !== 0 && importoORiga(t.tfrQuotaFondi, tfr.quotaFondi),
-                tfr.quotaBusta !== 0 && importoORiga(t.tfrQuotaBusta, tfr.quotaBusta),
-                tfr.anticipi !== 0 && importoORiga(t.tfrAnticipi, tfr.anticipi),
-                importoORiga(t.tfrRetribuzioneUtile, tfr.retribuzioneUtile),
-                importoORiga(t.tfrLiquidatoLordo, tfr.liquidatoLordo),
-                importoORiga(t.tfrRitenuta, tfr.ritenuta),
+                spiegata(
+                  'tfr.fondo31DicembreAnnoPrecedente',
+                  importoORiga(t.tfrFondoPrecedente, tfr.fondo31DicembreAnnoPrecedente),
+                ),
+                spiegata('tfr.rivalutazione', importoORiga(t.tfrRivalutazione, tfr.rivalutazione)),
+                spiegata(
+                  'tfr.impostaSostitutiva',
+                  importoORiga(t.tfrImpostaSostitutiva, tfr.impostaSostitutiva),
+                ),
+                spiegata('tfr.quotaAnno', importoORiga(t.tfrQuotaAnno, tfr.quotaAnno)),
+                spiegata('tfr.quotaMese', importoORiga(t.tfrQuotaMese, tfr.quotaMese)),
+                tfr.quotaFondi !== 0 &&
+                  spiegata('tfr.quotaFondi', importoORiga(t.tfrQuotaFondi, tfr.quotaFondi)),
+                tfr.quotaBusta !== 0 &&
+                  spiegata('tfr.quotaBusta', importoORiga(t.tfrQuotaBusta, tfr.quotaBusta)),
+                tfr.anticipi !== 0 && spiegata('tfr.anticipi', importoORiga(t.tfrAnticipi, tfr.anticipi)),
+                spiegata(
+                  'tfr.retribuzioneUtile',
+                  importoORiga(t.tfrRetribuzioneUtile, tfr.retribuzioneUtile),
+                ),
+                spiegata('tfr.liquidatoLordo', importoORiga(t.tfrLiquidatoLordo, tfr.liquidatoLordo)),
+                spiegata('tfr.ritenuta', importoORiga(t.tfrRitenuta, tfr.ritenuta)),
               ]}
             />
           </Sezione>
         )}
         {c.ratei.length > 0 && (
-          <Sezione titolo={t.ratei}>
+          <Sezione titolo={t.ratei} aiuto={testi.aiuti.sezioni.ratei}>
             <TabellaRatei ratei={c.ratei} />
           </Sezione>
         )}
@@ -203,6 +259,7 @@ function Busta({ cedolino: c }: { cedolino: CedolinoDettaglio }) {
               c.scatti.numeroScatti !== null && {
                 etichetta: t.numeroScatti,
                 valore: String(c.scatti.numeroScatti),
+                aiuto: aiutoDi('scatti.numeroScatti'),
               },
               c.scatti.prossimoScatto !== null && {
                 etichetta: t.prossimoScatto,
@@ -212,18 +269,27 @@ function Busta({ cedolino: c }: { cedolino: CedolinoDettaglio }) {
                 etichetta: t.buoniPasto,
                 valore: c.buoniPasto.presenti ? testi.comune.si : testi.comune.no,
               },
-              numeroORiga(t.buoniNumero, c.buoniPasto.numero),
-              importoORiga(t.buoniValore, c.buoniPasto.valoreUnitario),
-              importoORiga(t.buoniImporto, c.buoniPasto.importo),
+              spiegata('buoniPasto.numero', numeroORiga(t.buoniNumero, c.buoniPasto.numero)),
+              spiegata('buoniPasto.valoreUnitario', importoORiga(t.buoniValore, c.buoniPasto.valoreUnitario)),
+              spiegata('buoniPasto.importo', importoORiga(t.buoniImporto, c.buoniPasto.importo)),
             ]}
           />
         </Sezione>
         <Sezione titolo={t.progressivi}>
           <ElencoValori
             righe={[
-              importoORiga(t.imponibilePrevidenziale, c.progressivi.imponibilePrevidenziale),
-              importoORiga(t.imponibileIrpef, c.progressivi.imponibileIrpef),
-              importoORiga(t.irpefTrattenuta, c.progressivi.irpefTrattenuta),
+              spiegata(
+                'progressivi.imponibilePrevidenziale',
+                importoORiga(t.imponibilePrevidenziale, c.progressivi.imponibilePrevidenziale),
+              ),
+              spiegata(
+                'progressivi.imponibileIrpef',
+                importoORiga(t.imponibileIrpef, c.progressivi.imponibileIrpef),
+              ),
+              spiegata(
+                'progressivi.irpefTrattenuta',
+                importoORiga(t.irpefTrattenuta, c.progressivi.irpefTrattenuta),
+              ),
             ]}
           />
           {c.progressivi.imponibilePrevidenziale === null &&
@@ -235,11 +301,11 @@ function Busta({ cedolino: c }: { cedolino: CedolinoDettaglio }) {
       <Text size="xs" c="dimmed">
         {t.acquisitoIl} {formatIstante(c.acquisitoIl)}
         {/* senza lettura l'affidabilita' non ha senso: si dice che i dati sono stati inseriti a mano */}
-        {c.inseritoAMano ? (
+        {c.inseritoAMano || c.modificatoAMano ? (
           <>
             {' · '}
             <Text span inherit fw={600}>
-              {t.inseritoAMano}
+              {c.modificatoAMano ? testi.modifica.modificatoAMano : t.inseritoAMano}
             </Text>
           </>
         ) : (
@@ -281,15 +347,20 @@ interface SezioneProps {
   titolo: string;
   children: ReactNode;
   nota?: string;
+  /** Spiegazione della sezione (icona "i" accanto al titolo). */
+  aiuto?: string;
 }
 
-function Sezione({ titolo, children, nota }: SezioneProps) {
+function Sezione({ titolo, children, nota, aiuto }: SezioneProps) {
   const id = useId();
   return (
     <Paper withBorder p="sm" component="section" aria-labelledby={id}>
-      <Title order={5} size="sm" id={id} mb={4} c="marchio.8">
-        {titolo}
-      </Title>
+      <Group gap={0} mb={4} wrap="nowrap">
+        <Title order={5} size="sm" id={id} c="marchio.8">
+          {titolo}
+        </Title>
+        {aiuto && <AiutoCampo campo={titolo} testo={aiuto} />}
+      </Group>
       {nota && (
         <Text size="xs" c="dimmed" mb={4}>
           {nota}
@@ -300,12 +371,19 @@ function Sezione({ titolo, children, nota }: SezioneProps) {
   );
 }
 
-function SezioneVoci({ titolo, voci, nota }: { titolo: string; voci: Voce[]; nota?: string }) {
+interface SezioneVociProps {
+  titolo: string;
+  voci: Voce[];
+  nota?: string;
+  aiuto?: string;
+}
+
+function SezioneVoci({ titolo, voci, nota, aiuto }: SezioneVociProps) {
   if (voci.length === 0) {
     return null;
   }
   return (
-    <Sezione titolo={titolo} {...(nota ? { nota } : {})}>
+    <Sezione titolo={titolo} {...(nota ? { nota } : {})} {...(aiuto ? { aiuto } : {})}>
       <TabellaVoci voci={voci} />
     </Sezione>
   );

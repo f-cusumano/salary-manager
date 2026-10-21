@@ -391,6 +391,7 @@ class JooqCedoliniRepository implements CedoliniRepository {
                         r.getAcquisitoIl(),
                         r.getConfidenza(),
                         ModelliEstrazione.inseritoAMano(r.getModelloEstrazione()),
+                        ModelliEstrazione.modificatoAMano(r.getModelloEstrazione()),
                         righe(r.getCampiNonTrovati()),
                         righe(r.getAvvisiEstrazione())));
     }
@@ -402,6 +403,17 @@ class JooqCedoliniRepository implements CedoliniRepository {
                 .join(CEDOLINO_PDF).on(CEDOLINO_PDF.CEDOLINO_ID.eq(CEDOLINO.ID))
                 .where(CEDOLINO.WORKSPACE_ID.eq(workspace.valore()), CEDOLINO.ID.eq(id.valore()))
                 .fetchOptional(r -> new PdfCedolino(r.value1(), r.value2()));
+    }
+
+    @Override
+    public Optional<DocumentoArchiviato> documento(WorkspaceId workspace, CedolinoId id) {
+        return dsl.select(CEDOLINO.HASH_CONTENUTO, CEDOLINO_PDF.CONTENUTO, CEDOLINO_PDF.PROTETTO,
+                        CEDOLINO.ESTRATTO_JSON, CEDOLINO.MODELLO_ESTRAZIONE)
+                .from(CEDOLINO)
+                .join(CEDOLINO_PDF).on(CEDOLINO_PDF.CEDOLINO_ID.eq(CEDOLINO.ID))
+                .where(CEDOLINO.WORKSPACE_ID.eq(workspace.valore()), CEDOLINO.ID.eq(id.valore()))
+                .fetchOptional(r -> new DocumentoArchiviato(r.value1(), r.value2(), r.value3(), r.value4(),
+                        r.value5()));
     }
 
     @Override

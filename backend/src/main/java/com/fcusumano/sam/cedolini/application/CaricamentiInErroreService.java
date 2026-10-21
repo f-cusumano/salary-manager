@@ -1,8 +1,6 @@
 package com.fcusumano.sam.cedolini.application;
 
-import com.fcusumano.sam.anagrafica.AziendaRiconosciuta;
 import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
-import com.fcusumano.sam.anagrafica.PersonaSintesi;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.cedolini.CaricamentiInErrore;
 import com.fcusumano.sam.cedolini.CaricamentiInErroreModificati;
@@ -16,16 +14,13 @@ import com.fcusumano.sam.cedolini.PdfCedolino;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
 import com.fcusumano.sam.cedolini.VerificaCedolinoManuale;
 import com.fcusumano.sam.cedolini.VerificaCedolinoManuale.Esito;
-import com.fcusumano.sam.cedolini.application.AnagraficheScelte.Scelte;
+import com.fcusumano.sam.cedolini.application.PreparazioneCedolinoManuale.Preparato;
 import com.fcusumano.sam.cedolini.application.AcquisizioneCedolino.RegistrazioneManuale;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.FileDelCaricamento;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.FileInCoda;
 import com.fcusumano.sam.cedolini.application.ElaborazioneCaricamenti.Lavoro;
 import com.fcusumano.sam.cedolini.application.EsitoAcquisizione.Acquisito;
 import com.fcusumano.sam.cedolini.application.EsitoAcquisizione.Scartato;
-import com.fcusumano.sam.cedolini.application.estrazione.EstrazioneCedolinoException;
-import com.fcusumano.sam.cedolini.application.estrazione.InterpreteRispostaEstrazione;
-import com.fcusumano.sam.cedolini.application.estrazione.LettoreCedolini.RisultatoEstrazione;
 import com.fcusumano.sam.cedolini.domain.DescrizioneCompetenza;
 import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.CurrentWorkspaceProvider;
@@ -34,7 +29,6 @@ import com.fcusumano.sam.shared.DatiNonValidiException.ErroreCampo;
 import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
 import com.fcusumano.sam.shared.WorkspaceId;
-import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Year;
 import java.util.ArrayList;
@@ -43,11 +37,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -84,8 +76,7 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
     private final CurrentWorkspaceProvider workspaceProvider;
     private final ApplicationEventPublisher eventi;
     private final Clock clock;
-    private final ValidazioneCedolinoManuale validazione;
-    private final InterpreteRispostaEstrazione interprete;
+    private final PreparazioneCedolinoManuale preparazione;
     private final SbloccoPdfArchiviati sbloccoArchiviati;
 
     CaricamentiInErroreService(CaricamentiRepository caricamenti, CedoliniRepository cedolini,
@@ -104,8 +95,7 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
         this.workspaceProvider = workspaceProvider;
         this.eventi = eventi;
         this.clock = clock;
-        this.validazione = new ValidazioneCedolinoManuale(clock);
-        this.interprete = InterpreteRispostaEstrazione.standard(clock);
+        this.preparazione = new PreparazioneCedolinoManuale(consultazione, clock);
         this.sbloccoArchiviati = sbloccoArchiviati;
     }
 
@@ -274,7 +264,7 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
     @Override
     public VerificaCedolinoManuale verifica(CaricamentoId id, CedolinoManuale dati) {
         var ws = workspaceProvider.corrente();
-        var preparato = prepara(dati);
+        var preparato = preparazione.prepara(dati, ModelliEstrazione.MODELLO_INSERIMENTO_MANUALE);
         var manuale = acquisisci(ws, id, preparato, true);
         var registrazione = manuale.registrazione();
         var avvisi = new ArrayList<>(preparato.risultato().avvisi());
@@ -295,7 +285,7 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
     @Override
     public Caricamento inserisci(CaricamentoId id, CedolinoManuale dati) {
         var ws = workspaceProvider.corrente();
-        var preparato = prepara(dati);
+        var preparato = preparazione.prepara(dati, ModelliEstrazione.MODELLO_INSERIMENTO_MANUALE);
         var manuale = acquisisci(ws, id, preparato, false);
         return switch (manuale.registrazione().esito()) {
             case Acquisito a -> {
@@ -312,85 +302,10 @@ class CaricamentiInErroreService implements CaricamentiInErrore {
         };
     }
 
-    /** Risultato equivalente a una lettura e anagrafiche scelte dall'elenco. */
-    private record Preparato(RisultatoEstrazione risultato, Scelte scelte) {
-    }
-
-    /**
-     * Anagrafiche scelte (in archivio, con i loro dati al posto di quelli inseriti), validazione bloccante (anche
-     * "gia' in archivio" per le anagrafiche nuove), normalizzazione, JSON dello schema di lettura e interpretazione
-     * (come per ogni lettore); confidenza azzerata (nessuna lettura) e avvisi propri dell'inserimento a mano aggiunti a
-     * quelli dei controlli.
-     *
-     * @throws DatiNonValidiException se ci sono errori bloccanti: prima, da soli, quelli delle anagrafiche scelte
-     */
-    private Preparato prepara(CedolinoManuale dati) {
-        var risolte = AnagraficheScelte.risolvi(consultazione, dati.personaId(), dati.aziendaId());
-        var conDati = AnagraficheScelte.conDatiInArchivio(dati, risolte);
-        var codiciFiscali = consultazione.elencoPersone().stream().map(PersonaSintesi::codiceFiscale)
-                .collect(Collectors.toSet());
-        var errori = validazione.verifica(conDati, codiciFiscali, datore -> AnagraficheScelte.datiAzienda(datore)
-                .flatMap(consultazione::aziendaRiconosciuta)
-                .map(AziendaRiconosciuta::dato), risolte.dataNascitaInArchivio());
-        if (!errori.isEmpty()) {
-            throw new DatiNonValidiException(errori);
-        }
-        var normalizzato = ValidazioneCedolinoManuale.normalizza(conDati);
-        RisultatoEstrazione letto;
-        try {
-            letto = interprete.interpreta(JsonCedolinoManuale.scrivi(normalizzato),
-                    ModelliEstrazione.MODELLO_INSERIMENTO_MANUALE);
-        } catch (EstrazioneCedolinoException e) {
-            // la validazione rende il JSON sempre conforme: e' un difetto, non un errore dell'utente
-            throw new IllegalStateException("Cedolino inserito a mano non interpretabile (" + e.motivo() + ")", e);
-        }
-        var avvisi = new ArrayList<>(letto.avvisi());
-        avvisi.addAll(ValidazioneCedolinoManuale.avvisi(normalizzato));
-        return new Preparato(new RisultatoEstrazione(letto.cedolino().conConfidenza(null), letto.jsonOriginale(),
-                letto.modello(), avvisi), risolte.scelte());
-    }
-
-    /**
-     * Acquisizione (o prova) del cedolino inserito. I dati indispensabili mancanti e i valori rifiutati da anagrafica o
-     * competenza, che la validazione dovrebbe gia' escludere, diventano errori sul campo corrispondente; gli errori
-     * delle anagrafiche ricontrollate nella transazione arrivano gia' campo per campo.
-     */
+    /** Acquisizione (o prova) del cedolino inserito, con gli errori sui campi. */
     private RegistrazioneManuale acquisisci(WorkspaceId ws, CaricamentoId id, Preparato preparato, boolean prova) {
-        try {
-            return acquisizione.acquisisciManuale(ws, id, preparato.risultato(), prova, preparato.scelte());
-        } catch (CedolinoNonAcquisibileException e) {
-            log.info("Inserimento a mano del caricamento {} non acquisibile: dato {}", id.valore(), e.dato());
-            throw new DatiNonValidiException(campo(e.dato()), e.getMessage());
-        } catch (IllegalArgumentException e) {
-            log.info("Inserimento a mano del caricamento {} rifiutato: {}", id.valore(), e.getClass().getSimpleName());
-            throw new DatiNonValidiException(null, e.getMessage());
-        } catch (DataAccessException e) {
-            if (!valoreFuoriColonna(e)) {
-                throw e;
-            }
-            // importi validi uno per uno ma con dati calcolati (RAL, valore dei ratei...) che non stanno nelle colonne
-            log.info("Inserimento a mano del caricamento {} rifiutato dal database: {}", id.valore(),
-                    e.getClass().getSimpleName());
-            throw new DatiNonValidiException(null, MessaggiCaricamento.VALORI_TROPPO_GRANDI);
-        }
-    }
-
-    /** Errore SQL della classe 22 (data exception: valore troppo lungo o fuori dall'intervallo della colonna). */
-    private static boolean valoreFuoriColonna(DataAccessException e) {
-        for (Throwable causa = e; causa != null; causa = causa.getCause()) {
-            if (causa instanceof SQLException sql && sql.getSQLState() != null && sql.getSQLState().startsWith("22")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String campo(CedolinoNonAcquisibileException.Dato dato) {
-        return switch (dato) {
-            case PERIODO -> "periodo.mese";
-            case CODICE_FISCALE -> "dipendente.codiceFiscale";
-            case DATORE -> "datoreLavoro.ragioneSociale";
-        };
+        return PreparazioneCedolinoManuale.conErroriSuiCampi("Inserimento a mano del caricamento " + id.valore(),
+                () -> acquisizione.acquisisciManuale(ws, id, preparato.risultato(), prova, preparato.scelte()));
     }
 
     /**

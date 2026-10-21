@@ -2,7 +2,6 @@ package com.fcusumano.sam.cedolini.application;
 
 import com.fcusumano.sam.anagrafica.CensimentoAnagrafica;
 import com.fcusumano.sam.anagrafica.ConsultazioneAnagrafica;
-import com.fcusumano.sam.anagrafica.DatiRapporto;
 import com.fcusumano.sam.anagrafica.RapportoLavoro;
 import com.fcusumano.sam.anagrafica.RapportoLavoroId;
 import com.fcusumano.sam.cedolini.ArchivioCedolini;
@@ -12,10 +11,6 @@ import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.CedolinoNormalizzato;
 import com.fcusumano.sam.cedolini.CedolinoSintesi;
 import com.fcusumano.sam.cedolini.PdfCedolino;
-import com.fcusumano.sam.cedolini.domain.DatiContrattualiCorrenti;
-import com.fcusumano.sam.cedolini.domain.EstremiCedolini;
-import com.fcusumano.sam.ccnl.CatalogoCcnl;
-import com.fcusumano.sam.ccnl.Ccnl;
 import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.CurrentWorkspaceProvider;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
@@ -40,27 +35,23 @@ class ArchivioCedoliniService implements ArchivioCedolini {
 
     private static final Comparator<CedolinoSintesi> SINTESI_CRONOLOGICA =
             Comparator.comparing(CedolinoSintesi::competenza, Competenza.ORDINE_CRONOLOGICO);
-    private static final Comparator<CedolinoNormalizzato> NORMALIZZATI_CRONOLOGICI =
-            Comparator.comparing(CedolinoNormalizzato::competenza, Competenza.ORDINE_CRONOLOGICO);
 
     private final CedoliniRepository cedolini;
     private final ConsultazioneAnagrafica consultazione;
     private final CensimentoAnagrafica censimento;
-    private final CatalogoCcnl catalogoCcnl;
-    private final ClassificazioneCedolini classificazioneCedolini;
+    private final RicostruzioneRapporto ricostruzione;
     private final ScrittureSerializzate scritture;
     private final CurrentWorkspaceProvider workspaceProvider;
     private final ApplicationEventPublisher eventi;
 
     ArchivioCedoliniService(CedoliniRepository cedolini, ConsultazioneAnagrafica consultazione,
-                            CensimentoAnagrafica censimento, CatalogoCcnl catalogoCcnl,
-                            ClassificazioneCedolini classificazioneCedolini, ScrittureSerializzate scritture,
+                            CensimentoAnagrafica censimento, RicostruzioneRapporto ricostruzione,
+                            ScrittureSerializzate scritture,
                             CurrentWorkspaceProvider workspaceProvider, ApplicationEventPublisher eventi) {
         this.cedolini = cedolini;
         this.consultazione = consultazione;
         this.censimento = censimento;
-        this.catalogoCcnl = catalogoCcnl;
-        this.classificazioneCedolini = classificazioneCedolini;
+        this.ricostruzione = ricostruzione;
         this.scritture = scritture;
         this.workspaceProvider = workspaceProvider;
         this.eventi = eventi;
@@ -119,7 +110,7 @@ class ArchivioCedoliniService implements ArchivioCedolini {
                 eventi.publishEvent(new CedolinoEliminato(cedolinoId, rapporto.id(), cedolino.competenza()));
                 censimento.eliminaRapporto(rapporto.id());
             } else {
-                aggiornaRapporto(ws, rapporto, rimasti);
+                ricostruzione.ricostruisci(ws, rapporto, rimasti);
                 eventi.publishEvent(new CedolinoEliminato(cedolinoId, rapporto.id(), cedolino.competenza()));
             }
             log.info("Eliminato cedolino {} (rapporto {}, cedolini rimasti {})", cedolinoId.valore(),
@@ -128,26 +119,7 @@ class ArchivioCedoliniService implements ArchivioCedolini {
         });
     }
 
-    private void aggiornaRapporto(WorkspaceId ws, RapportoLavoro rapporto, List<CedolinoNormalizzato> rimasti) {
-        var correnti = DatiContrattualiCorrenti.da(rimasti);
-        var ccnl = correnti.ccnlTesto() == null ? null
-                : catalogoCcnl.riconosci(correnti.ccnlTesto()).map(Ccnl::codice).orElse(null);
-        var aggiornato = censimento.sovrascriviDatiRapporto(rapporto.id(), new DatiRapporto(correnti.dataAssunzione(),
-                correnti.dataCessazione(), correnti.qualifica(), correnti.livello(), correnti.codiceDipendente(), ccnl,
-                correnti.riferimento()));
-        var classificazione = classificazioneCedolini.riclassifica(ws, aggiornato, aggiornato.dataCessazione(), null);
-        if (classificazione.modificati() > 0) {
-            log.info("Riclassificati o rinumerati {} cedolini del rapporto {}", classificazione.modificati(),
-                    rapporto.id().valore());
-        }
-        // Estremi dopo la riclassificazione: dipendono dalle mensilita' ordinarie
-        var estremi = EstremiCedolini.di(cedolini.periodi(ws, rapporto.id()));
-        censimento.aggiornaEstremiCedolini(rapporto.id(), estremi.primo(), estremi.ultimo());
-    }
-
     private List<CedolinoNormalizzato> normalizzati(WorkspaceId ws, RapportoLavoro rapporto) {
-        return cedolini.normalizzati(ws, rapporto.id(), rapporto.personaId(), rapporto.aziendaId()).stream()
-                .sorted(NORMALIZZATI_CRONOLOGICI)
-                .toList();
+        return ricostruzione.normalizzati(ws, rapporto);
     }
 }

@@ -45,6 +45,7 @@ export type CedolinoManuale = Schemi['CedolinoManuale'];
 export type VoceManuale = Schemi['VoceManuale'];
 export type CategoriaVoce = Schemi['CategoriaVoce'];
 export type VerificaCedolinoManuale = Schemi['VerificaCedolinoManuale'];
+export type CedolinoModificato = Schemi['CedolinoModificato'];
 
 /** Stati terminali di un caricamento (polling concluso per quel file). */
 export const STATI_TERMINALI: readonly StatoCaricamento[] = [

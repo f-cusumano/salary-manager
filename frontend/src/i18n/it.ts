@@ -577,6 +577,142 @@ export const it = {
     soloQuesto: 'Solo questo',
     errore: 'Impossibile avviare la nuova lettura',
   },
+  // Spiegazioni dei campi del cedolino (icona "i" accanto all'etichetta nel modulo e nel dettaglio), per percorso
+  // dello schema di lettura (per le liste senza indice). Le definizioni seguono quelle usate dalla lettura dei cedolini
+  // (prompts/cedolino-schema-v1.json ed estrazione-cedolino-v1.md) e i controlli di coerenza del modulo.
+  aiuti: {
+    apri: 'Spiegazione:',
+    campi: {
+      'dipendente.codiceFiscale': 'Il codice fiscale del dipendente: 16 caratteri, senza spazi.',
+      'dipendente.codiceDipendente':
+        'Il codice o la matricola con cui il software paghe identifica il dipendente.',
+      'datoreLavoro.ragioneSociale': 'Il nome dell’azienda come stampato nell’intestazione del cedolino.',
+      'datoreLavoro.partitaIva': 'La partita IVA dell’azienda: 11 cifre, senza il prefisso IT.',
+      'datoreLavoro.codiceFiscale':
+        'Il codice fiscale dell’azienda: 11 cifre (spesso uguale alla partita IVA) oppure 16 caratteri.',
+      'datoreLavoro.posizioneInps':
+        'La matricola o posizione INPS dell’azienda, come stampata (anche con il suffisso dopo la barra).',
+      'datoreLavoro.posizioneInail':
+        'La posizione assicurativa (PAT) INAIL dell’azienda: da non confondere con la matricola INPS.',
+      'datoreLavoro.indirizzo': 'L’indirizzo della sede dell’azienda, non quello del dipendente.',
+      'datoreLavoro.codiceAzienda': 'Il codice dell’azienda nel software paghe.',
+      'datiContrattuali.dataAssunzione': 'La data di assunzione stampata sul cedolino.',
+      'datiContrattuali.dataCessazione':
+        'Solo se il cedolino riporta la data di fine del rapporto di lavoro (dimissioni, licenziamento, fine contratto).',
+      'datiContrattuali.qualifica': 'La qualifica o mansione, ad esempio impiegato, operaio o quadro.',
+      'datiContrattuali.livello': 'Il livello di inquadramento come stampato, ad esempio “5”, “D1” o “3S”.',
+      'datiContrattuali.ccnl':
+        'Il contratto collettivo (CCNL) come stampato sul cedolino. Se non è stampato lascia vuoto: il contratto si sceglie una sola volta per il rapporto di lavoro.',
+      'datiContrattuali.codiceCnel': 'Il codice CNEL del contratto, solo se stampato (ad esempio “C018”).',
+      'periodo.tipo':
+        'Ordinaria per la mensilità del mese, anche con assunzione o cessazione a metà mese. Tredicesima o quattordicesima per un cedolino dedicato solo a quella mensilità. Fine rapporto per un cedolino emesso dopo la cessazione che liquida le competenze finali (ferie non godute, ratei, TFR).',
+      'periodo.mese':
+        'Il mese del periodo di retribuzione (“Periodo di retribuzione”, “Mese di retribuzione”): non la data di elaborazione né il mese delle variabili. Per la tredicesima di solito è dicembre.',
+      'periodo.anno': 'L’anno del periodo di retribuzione.',
+      'periodo.dataElaborazione': 'La data di elaborazione o di stampa del cedolino, se presente.',
+      'periodo.meseVariabili':
+        'Solo se il cedolino dice che le voci variabili o le presenze si riferiscono a un altro mese, ad esempio “Variabili di 10/2021”.',
+      contieneTredicesima:
+        'Il cedolino paga la tredicesima (o i suoi ratei) con una voce o un’intestazione esplicita, ad esempio la tredicesima nel cedolino di dicembre. I ratei solo maturati e non pagati non contano.',
+      contieneQuattordicesima:
+        'Il cedolino paga la quattordicesima (o i suoi ratei) con una voce o un’intestazione esplicita. I ratei solo maturati e non pagati non contano.',
+      'totali.totaleCompetenze':
+        'Il totale della colonna delle competenze, stampato in fondo al cedolino (sull’ultimo foglio se sono più di uno). Se non è stampato, somma la colonna delle competenze di tutte le voci, escluse quelle informative.',
+      'totali.totaleTrattenute':
+        'Il totale della colonna delle trattenute: contributi a carico del dipendente, IRPEF e addizionali, altre trattenute (sindacali, cessione del quinto…). Se non è stampato, somma la colonna delle trattenute di tutte le voci, escluse quelle informative.',
+      'totali.arrotondamento':
+        'L’effetto degli arrotondamenti sul netto: l’arrotondamento di questo mese meno quello del mese precedente. È negativo se riduce il netto.',
+      'totali.netto':
+        'Il netto in busta del mese, sull’ultimo foglio. Di solito è uguale a totale competenze meno totale trattenute, più l’arrotondamento.',
+      'totali.lordo':
+        'Per lordo si intende la retribuzione lorda del mese, prima di contributi e imposte, quando il cedolino la stampa come voce a sé (“Totale lordo”, “Imponibile lordo”). Se non c’è lascia vuoto: si usa il totale competenze.',
+      'retribuzione.minimo': 'Il minimo tabellare (paga base) mensile previsto dal contratto per il livello.',
+      'retribuzione.contingenza': 'L’indennità di contingenza, se stampata separatamente dal minimo.',
+      'retribuzione.superminimo':
+        'La parte della retribuzione fissa concordata in più rispetto ai minimi del contratto.',
+      'retribuzione.superminimoAssorbibile':
+        'Sì se il cedolino lo indica come assorbibile (ad esempio “SUP.ASS.”), No se lo indica come non assorbibile, altrimenti Non indicato.',
+      'retribuzione.importoScatti': 'L’importo mensile degli scatti di anzianità.',
+      'retribuzione.altriElementiFissi':
+        'La somma degli altri elementi fissi mensili, ad esempio EDR, terzo elemento o indennità di funzione.',
+      'retribuzione.retribuzioneBase':
+        'Solo se il cedolino stampa una retribuzione base senza scomporla in minimo, contingenza e superminimo.',
+      'retribuzione.totale': 'Il totale mensile degli elementi fissi della retribuzione, come stampato.',
+      'retribuzione.pagaOraria': 'La paga oraria, se stampata.',
+      'retribuzione.pagaGiornaliera': 'La paga giornaliera, se stampata.',
+      'retribuzione.divisoreOrario': 'Il divisore orario del contratto, se stampato (ad esempio 168 o 173).',
+      'retribuzione.divisoreGiornaliero':
+        'Il divisore giornaliero del contratto, se stampato (ad esempio 26).',
+      'presenze.giorniLavorati': 'I giorni lavorati del riepilogo presenze, se stampati.',
+      'presenze.oreLavorate': 'Le ore lavorate del riepilogo presenze, se stampate.',
+      'presenze.giorniRetribuiti': 'I giorni retribuiti del mese (giorni INPS), se stampati.',
+      'tfr.fondo31DicembreAnnoPrecedente':
+        'Il fondo TFR accantonato al 31 dicembre dell’anno precedente (“F.do 31/12”, “TFR al 31/12 A.P.”).',
+      'tfr.rivalutazione': 'La rivalutazione del fondo TFR (lorda se stampata).',
+      'tfr.impostaSostitutiva': 'L’imposta sostitutiva sulla rivalutazione del TFR.',
+      'tfr.quotaAnno': 'La quota di TFR maturata nell’anno (progressivo annuo).',
+      'tfr.quotaMese': 'La quota di TFR maturata nel mese.',
+      'tfr.quotaFondi': 'La quota versata a fondi pensione o al Fondo di Tesoreria INPS, come stampata.',
+      'tfr.quotaBusta': 'Il TFR pagato ogni mese in busta paga, se stampato.',
+      'tfr.anticipi': 'Le anticipazioni sul TFR già erogate, come stampate.',
+      'tfr.retribuzioneUtile': 'La retribuzione del mese utile al calcolo del TFR.',
+      'tfr.liquidatoLordo':
+        'Il TFR (o l’indennità di anzianità) liquidato lordo, nei cedolini di fine rapporto.',
+      'tfr.ritenuta': 'La ritenuta fiscale sul TFR liquidato.',
+      'scatti.numeroScatti': 'Il numero di scatti di anzianità maturati, solo se stampato.',
+      'scatti.dataProssimoScatto':
+        'La data del prossimo scatto di anzianità, se stampata; con solo mese e anno indica il primo giorno del mese.',
+      'buoniPasto.presenti':
+        'Compare una voce di buoni pasto o ticket restaurant, anche elettronici o solo informativa.',
+      'buoniPasto.numero': 'Il numero di buoni pasto del mese, se stampato.',
+      'buoniPasto.valoreUnitario': 'Il valore di un buono pasto, se stampato.',
+      'buoniPasto.importo': 'L’importo complessivo dei buoni pasto del mese, se stampato.',
+      'progressivi.imponibilePrevidenziale':
+        'Il progressivo da inizio anno dell’imponibile previdenziale (contributivo INPS).',
+      'progressivi.imponibileIrpef': 'Il progressivo da inizio anno dell’imponibile fiscale (IRPEF).',
+      'progressivi.irpefTrattenuta': 'Il progressivo da inizio anno dell’IRPEF trattenuta.',
+    },
+    // guide all'inizio delle sezioni del modulo
+    sezioni: {
+      totali:
+        'Copia i totali stampati in fondo al cedolino (sull’ultimo foglio se sono più di uno). Il netto di solito è uguale a totale competenze meno totale trattenute, più l’arrotondamento.',
+      voci: 'Riporta le righe del corpo del cedolino nell’ordine di stampa, con l’importo positivo nella colonna in cui compare (competenze o trattenute). Le somme in fondo escludono le voci informative e le presenze e si confrontano con i totali.',
+      ratei:
+        'Una riga per tipo (ferie, permessi, ROL, ex festività, banca ore) e per unità stampata, con le colonne come stampate, anche negative. Il saldo di solito è residuo dell’anno precedente più maturato meno goduto.',
+      tfr: 'Compila solo se il cedolino riporta i dati del TFR; nei cedolini di fine rapporto anche il TFR liquidato e la ritenuta.',
+    },
+    categorieTitolo: 'Come scegliere la categoria',
+    // categorie delle voci: nel modulo e come spiegazione delle sezioni di voci nel dettaglio
+    categorie: {
+      COMPETENZA:
+        'Retribuzione, straordinari, festività, ferie e permessi pagati, malattia a carico dell’azienda, premi, arretrati, tredicesima e quattordicesima, TFR liquidato.',
+      TRATTENUTA_PREVIDENZIALE:
+        'Contributi a carico del dipendente: INPS, fondi di assistenza sanitaria o di previdenza complementare.',
+      TRATTENUTA_FISCALE:
+        'IRPEF, addizionali regionali e comunali, conguagli fiscali, ritenuta sul TFR; anche detrazioni e crediti (ad esempio il trattamento integrativo), nella colonna in cui sono stampati.',
+      ALTRA_TRATTENUTA:
+        'Trattenute sindacali, cessione del quinto, pignoramenti, recupero di anticipi, trattenute per assenze.',
+      NON_RETRIBUTIVA:
+        'Somme che entrano nel netto ma non sono retribuzione: rimborsi spese e chilometrici, trasferte, buoni pasto, welfare erogato come rimborso.',
+      PRESENZA: 'Righe di presenze e assenze senza importo: giorni lavorati, malattia, ferie godute.',
+      INFORMATIVA:
+        'Righe che non cambiano il netto: imponibili, basi di calcolo, quote TFR, contributi a carico dell’azienda, totali parziali.',
+    },
+  },
+  // Modifica dei dati di un cedolino gia' archiviato (modulo dell'inserimento a mano precompilato)
+  modifica: {
+    titolo: 'Modifica dati',
+    modifica: 'Modifica',
+    introduzione:
+      'Correggi i dati del cedolino confrontandoli con il PDF, poi verifica e salva. Il cedolino viene sostituito con i nuovi dati e i dati dell’azienda vengono ricalcolati da zero.',
+    nonTrovato: 'Cedolino non trovato',
+    nonTrovatoTesto: 'Il cedolino non esiste più: forse è stato eliminato o modificato in un’altra finestra.',
+    erroreLettura: 'Impossibile leggere i dati del cedolino',
+    salvato: 'Cedolino modificato',
+    spostato: 'Il cedolino è passato a un altro rapporto di lavoro',
+    rapportoEliminato: 'Il rapporto di lavoro precedente è rimasto senza cedolini ed è stato eliminato',
+    modificatoAMano: 'Dati modificati a mano',
+  },
   // Inserimento a mano del cedolino di un file in errore
   manuale: {
     titolo: 'Inserisci a mano',

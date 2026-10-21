@@ -239,3 +239,9 @@
   gap: var(--mantine-spacing-xs) var(--mantine-spacing-lg);
   font-variant-numeric: tabular-nums;
 }
+
+/* categorie delle voci, aperte a richiesta */
+.guidaCategorie summary {
+  cursor: pointer;
+  color: var(--mantine-color-marchio-8);
+}

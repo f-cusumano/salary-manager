@@ -15,6 +15,7 @@ import java.util.List;
  * @param meseVariabili   mese a cui si riferiscono le voci variabili, se stampato
  * @param confidenza      confidenza complessiva dell'estrazione (0..1), null per i cedolini inseriti a mano
  * @param inseritoAMano   cedolino inserito a mano da un file in errore (nessuna lettura)
+ * @param modificatoAMano dati del cedolino modificati a mano (nessuna lettura)
  * @param avvisiEstrazione avvisi dell'estrazione (controlli di coerenza non superati, dati bancari rimossi, note)
  * @param vociNonRetributive rimborsi, diarie, buoni pasto (fuori dalla RAL)
  */
@@ -31,6 +32,7 @@ public record CedolinoDettaglioDto(
         OffsetDateTime acquisitoIl,
         BigDecimal confidenza,
         boolean inseritoAMano,
+        boolean modificatoAMano,
         List<String> campiNonTrovati,
         List<String> avvisiEstrazione,
         Inquadramento inquadramento,

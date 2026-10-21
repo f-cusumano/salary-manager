@@ -724,6 +724,7 @@ function generaCedolino(
     acquisitoIl: '2026-10-01T09:30:00Z',
     confidenza: arrotonda(0.86 + rumore(seme + 11) * 0.13),
     inseritoAMano: false,
+    modificatoAMano: false,
     campiNonTrovati: profilo.ccnlTesto ? [] : ['datiContrattuali.ccnl', 'datiContrattuali.codiceCnel'],
     avvisiEstrazione: profilo.avvisiEstrazione,
     inquadramento: {

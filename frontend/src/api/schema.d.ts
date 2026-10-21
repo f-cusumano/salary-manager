@@ -151,6 +151,59 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/cedolini/{cedolinoId}/dati': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Dati del cedolino nella forma del modulo di modifica
+     * @description Gli stessi campi dell'inserimento a mano (schema CedolinoManuale), dai dati da cui e' stato archiviato il
+     *     cedolino (lettura del PDF o inserimento/modifica a mano precedente), con persona e azienda del suo rapporto
+     *     (`personaId`, `aziendaId`). 409 se i dati archiviati non sono piu' interpretabili.
+     */
+    get: operations['datiCedolino'];
+    /**
+     * Salva i dati modificati del cedolino
+     * @description Il cedolino e' sostituito come se il suo PDF fosse caricato di nuovo con questi dati: competenza,
+     *     classificazione dei cedolini del rapporto e dati derivati vengono ricalcolati e il cedolino ha un nuovo id
+     *     (il PDF resta lo stesso). Con persona o azienda diverse va a un altro rapporto (creato se manca); il
+     *     rapporto precedente, se resta senza cedolini, e' eliminato con le anagrafiche orfane (la UI deve ricaricare
+     *     persone e rapporti). 400 con `errori` come nella verifica; 409 se con questi dati il cedolino sarebbe un
+     *     duplicato o un aggiuntivo di un altro cedolino (nulla cambia).
+     */
+    put: operations['modificaCedolino'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/cedolini/{cedolinoId}/dati/verifica': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Prova la modifica dei dati senza salvare (competenza, conflitti, nuove anagrafiche, avvisi)
+     * @description Esegue la sostituzione del cedolino e la annulla: nessun dato viene salvato. 400 con `errori` (percorsi
+     *     dello schema CedolinoManuale) come nella verifica dell'inserimento a mano. Gli avvisi sul contesto dicono
+     *     se cambierebbero la mensilita' o il rapporto e se il rapporto attuale verrebbe eliminato.
+     */
+    post: operations['verificaModificaCedolino'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/cedolini/{cedolinoId}/pdf': {
     parameters: {
       query?: never;
@@ -975,6 +1028,8 @@ export interface components {
       confidenza: number | null;
       /** @description Cedolino inserito a mano per un file in errore (nessuna lettura del PDF) */
       inseritoAMano: boolean;
+      /** @description Dati del cedolino modificati a mano (non sono piu' quelli letti dal PDF) */
+      modificatoAMano: boolean;
       campiNonTrovati: string[];
       /** @description Avvisi dell'estrazione (controlli di coerenza non superati, valori non interpretabili, dati bancari rimossi, note del modello); vuoto se nessuno */
       avvisiEstrazione: string[];
@@ -1159,6 +1214,22 @@ export interface components {
        *     persona, nuova azienda, nuovo rapporto tra persona e azienda gia' in archivio. Vuoto se nessuno
        */
       avvisi: string[];
+    };
+    /**
+     * @description Cedolino archiviato di nuovo con i dati modificati a mano: `cedolinoId` e' il nuovo id (il precedente non
+     *     esiste piu'), `rapportoId` il suo rapporto (diverso dal precedente se sono cambiate persona o azienda).
+     */
+    CedolinoModificato: {
+      cedolinoId: components['schemas']['Id'];
+      rapportoId: components['schemas']['Id'];
+      competenza: components['schemas']['Competenza'];
+      /**
+       * @description Titolo della competenza pronto per la UI
+       * @example Maggio 2023
+       */
+      titolo: string;
+      /** @description Il rapporto precedente e' stato eliminato perche' rimasto senza cedolini */
+      rapportoEliminato: boolean;
     };
     /**
      * @description Cedolino inserito a mano per un file in errore: stessi campi e percorsi dello schema di lettura
@@ -1495,6 +1566,89 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+      400: components['responses']['RichiestaNonValida'];
+      404: components['responses']['NonTrovato'];
+      409: components['responses']['Conflitto'];
+    };
+  };
+  datiCedolino: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        cedolinoId: components['parameters']['CedolinoId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Dati del cedolino */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CedolinoManuale'];
+        };
+      };
+      400: components['responses']['RichiestaNonValida'];
+      404: components['responses']['NonTrovato'];
+      409: components['responses']['Conflitto'];
+    };
+  };
+  modificaCedolino: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        cedolinoId: components['parameters']['CedolinoId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CedolinoManuale'];
+      };
+    };
+    responses: {
+      /** @description Cedolino modificato */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CedolinoModificato'];
+        };
+      };
+      400: components['responses']['RichiestaNonValida'];
+      404: components['responses']['NonTrovato'];
+      409: components['responses']['Conflitto'];
+    };
+  };
+  verificaModificaCedolino: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        cedolinoId: components['parameters']['CedolinoId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CedolinoManuale'];
+      };
+    };
+    responses: {
+      /** @description Esito della prova */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['VerificaCedolinoManuale'];
+        };
       };
       400: components['responses']['RichiestaNonValida'];
       404: components['responses']['NonTrovato'];

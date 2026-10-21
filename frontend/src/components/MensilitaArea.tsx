@@ -33,7 +33,7 @@ import { useApiClient } from '../api/context';
 import { scaricaPdfCedolino } from '../api/download';
 import { messaggioErrore } from '../api/errors';
 import { useCaricamentiInErrore, useEliminaCedolino } from '../api/queries';
-import type { CaricamentoInErrore, RigaMensilita } from '../api/types';
+import type { CaricamentoInErrore, CedolinoModificato, RigaMensilita } from '../api/types';
 import { formatImporto, formatQuantitaBreve } from '../format/format';
 import { completabileAMano } from '../hooks/useCedolinoManuale';
 import { testi } from '../i18n';
@@ -71,6 +71,17 @@ export function MensilitaArea({ rapportoId, mensilita }: Props) {
         nuove.delete(cedolinoId);
       } else {
         nuove.add(cedolinoId);
+      }
+      return nuove;
+    });
+
+  // il cedolino modificato e' sostituito da uno nuovo (nuovo id): la sua barra resta aperta
+  const sostituisci = (precedente: number, modificato: CedolinoModificato) =>
+    setEspanse((attuali) => {
+      const nuove = new Set(attuali);
+      nuove.delete(precedente);
+      if (modificato.rapportoId === rapportoId) {
+        nuove.add(modificato.cedolinoId);
       }
       return nuove;
     });
@@ -114,6 +125,7 @@ export function MensilitaArea({ rapportoId, mensilita }: Props) {
                     cedolinoId={riga.cedolinoId}
                     espansa={espanse.has(riga.cedolinoId)}
                     onAlterna={alterna}
+                    onModificato={sostituisci}
                   />
                 );
               case 'IN_ERRORE':
@@ -276,10 +288,19 @@ interface PresenteProps {
   cedolinoId: number;
   espansa: boolean;
   onAlterna: (cedolinoId: number) => void;
+  onModificato: (precedente: number, modificato: CedolinoModificato) => void;
 }
 
-function MensilitaPresente({ rapportoId, riga, cedolinoId, espansa, onAlterna }: PresenteProps) {
+function MensilitaPresente({
+  rapportoId,
+  riga,
+  cedolinoId,
+  espansa,
+  onAlterna,
+  onModificato,
+}: PresenteProps) {
   const api = useApiClient();
+  const azioni = useAzioniCaricamenti();
   const elimina = useEliminaCedolino();
   const [scaricando, setScaricando] = useState(false);
   const idCorpo = `cedolino-${rapportoId}-${cedolinoId}`;
@@ -390,6 +411,20 @@ function MensilitaPresente({ rapportoId, riga, cedolinoId, espansa, onAlterna }:
               onClick={() => void scarica()}
             >
               {t.scaricaPdf}
+            </Button>
+            <Button
+              size="xs"
+              variant="default"
+              leftSection={<IconPencil size={14} aria-hidden />}
+              onClick={() =>
+                azioni.apriModifica({
+                  cedolinoId,
+                  rapportoId,
+                  onModificato: (modificato) => onModificato(cedolinoId, modificato),
+                })
+              }
+            >
+              {testi.modifica.modifica}
             </Button>
             <Button
               size="xs"

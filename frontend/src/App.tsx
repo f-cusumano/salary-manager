@@ -13,21 +13,24 @@ import {
   chiavi,
   rileggiCaricamentiProtetti,
   useCaricamentiInErrore,
+  useLetture,
   usePersone,
   useRimuoviAssociazione,
   useRimuoviCaricamento,
 } from './api/queries';
-import type { Caricamento, LottoCaricamento } from './api/types';
+import type { Caricamento, CedolinoModificato, LottoCaricamento } from './api/types';
 import { AssociaMeseModal } from './components/AssociaMeseModal';
 import {
   AzioniCaricamentiContext,
   type AzioniCaricamenti,
   type OpzioniAssociazione,
+  type OpzioniModifica,
 } from './components/azioniCaricamenti';
 import { CaricamentiInErroreArea } from './components/CaricamentiInErroreArea';
 import { CaricamentoModal } from './components/CaricamentoModal';
 import { ErroreConRiprova } from './components/ErroreConRiprova';
 import { InserimentoManualeModal } from './components/InserimentoManualeModal';
+import { ModificaCedolinoModal } from './components/ModificaCedolinoModal';
 import { RapportiList } from './components/RapportiList';
 import { RiletturaModal } from './components/RiletturaModal';
 import { TopBar } from './components/TopBar';
@@ -66,6 +69,7 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
   const [inserimento, setInserimento] = useState<{ caricamentoId: number } | null>(null);
   const [associazione, setAssociazione] = useState<OpzioniAssociazione | null>(null);
   const [rilettura, setRilettura] = useState<{ caricamentoId: number } | null>(null);
+  const [modifica, setModifica] = useState<OpzioniModifica | null>(null);
   // lotto della rilettura di un file protetto con la password indicata: alla fine si propone di provarla sugli altri
   const riletturaConPassword = useRef<string | null>(null);
 
@@ -183,6 +187,31 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
     [selezionaPersona, nessunaPersonaSelezionata],
   );
 
+  // cedolino modificato: se e' passato a un'altra persona (anche quando la persona precedente e' sparita con il rapporto) si mostra la nuova
+  const letture = useLetture();
+  const cedolinoModificato = useCallback(
+    async (modificato: CedolinoModificato, rapportoPrecedente: number | null) => {
+      if (modificato.rapportoId === rapportoPrecedente) {
+        return;
+      }
+      notifications.show({
+        color: 'blue',
+        message: modificato.rapportoEliminato
+          ? `${testi.modifica.spostato}. ${testi.modifica.rapportoEliminato}.`
+          : `${testi.modifica.spostato}.`,
+      });
+      try {
+        const rapporto = await letture.rapporto(modificato.rapportoId);
+        if (rapporto.persona.id !== personaCorrente.current) {
+          selezionaPersona(rapporto.persona.id);
+        }
+      } catch {
+        // rapporto non leggibile: resta la persona attuale
+      }
+    },
+    [letture, selezionaPersona],
+  );
+
   const inErrore = useCaricamentiInErrore();
   const elencoInErrore = inErrore.data;
   const { mutate: rimuoviFile } = useRimuoviCaricamento();
@@ -236,6 +265,7 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
             }),
         }),
       caricaDiNuovo: apriModale,
+      apriModifica: setModifica,
     };
   }, [elencoInErrore, rimuoviFile, rimuoviAssociazione, apriModale]);
 
@@ -290,6 +320,14 @@ export function App({ intervalloPollingMs = INTERVALLO_POLLING_MS }: Props) {
           caricamentoId={inserimento?.caricamentoId ?? null}
           onChiudi={() => setInserimento(null)}
           onAcquisito={cedolinoInserito}
+        />
+        <ModificaCedolinoModal
+          cedolinoId={modifica?.cedolinoId ?? null}
+          onChiudi={() => setModifica(null)}
+          onModificato={(modificato) => {
+            modifica?.onModificato?.(modificato);
+            void cedolinoModificato(modificato, modifica?.rapportoId ?? null);
+          }}
         />
       </AppShell>
     </AzioniCaricamentiContext.Provider>

@@ -11,6 +11,8 @@ import com.fcusumano.sam.anagrafica.RapportoSintesi;
 import com.fcusumano.sam.cedolini.CaricamentiInErroreModificati;
 import com.fcusumano.sam.cedolini.CaricamentoId;
 import com.fcusumano.sam.cedolini.CedolinoAcquisito;
+import com.fcusumano.sam.cedolini.CedolinoEliminato;
+import com.fcusumano.sam.cedolini.CedolinoId;
 import com.fcusumano.sam.cedolini.StatoCaricamento;
 import com.fcusumano.sam.cedolini.application.AnagraficheScelte.Scelte;
 import com.fcusumano.sam.cedolini.application.CaricamentiRepository.AttribuzioneSalvata;
@@ -35,6 +37,7 @@ import com.fcusumano.sam.ccnl.Ccnl;
 import com.fcusumano.sam.shared.Competenza;
 import com.fcusumano.sam.shared.DatiNonValidiException;
 import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
+import com.fcusumano.sam.shared.RisorsaNonTrovataException;
 import com.fcusumano.sam.shared.WorkspaceId;
 import java.time.YearMonth;
 import java.util.Set;
@@ -74,12 +77,14 @@ class AcquisizioneCedolino {
     private final CatalogoCcnl catalogoCcnl;
     private final ClassificazioneCedolini classificazioneCedolini;
     private final NomeFileCedolinoStrategy nomeFile;
+    private final RicostruzioneRapporto ricostruzione;
     private final ApplicationEventPublisher eventi;
 
     AcquisizioneCedolino(ScrittureSerializzate scritture, CedoliniRepository cedolini, CaricamentiRepository caricamenti,
                          CensimentoAnagrafica censimento, ConsultazioneAnagrafica consultazione,
                          CatalogoCcnl catalogoCcnl, ClassificazioneCedolini classificazioneCedolini,
-                         NomeFileCedolinoStrategy nomeFile, ApplicationEventPublisher eventi) {
+                         NomeFileCedolinoStrategy nomeFile, RicostruzioneRapporto ricostruzione,
+                         ApplicationEventPublisher eventi) {
         this.scritture = scritture;
         this.cedolini = cedolini;
         this.caricamenti = caricamenti;
@@ -88,12 +93,15 @@ class AcquisizioneCedolino {
         this.catalogoCcnl = catalogoCcnl;
         this.classificazioneCedolini = classificazioneCedolini;
         this.nomeFile = nomeFile;
+        this.ricostruzione = ricostruzione;
         this.eventi = eventi;
     }
 
     /**
      * Documento caricato da archiviare.
      *
+     * @param caricamentoId caricamento che lo archivia, null per un cedolino archiviato di nuovo con i dati modificati
+     *                      a mano (i caricamenti che lo riguardano vengono ricollegati dal chiamante)
      * @param pdf         PDF da archiviare: quello caricato o, se era cifrato, la sua copia senza protezione
      * @param hash        hash SHA-256 del PDF caricato (anche quando si archivia la copia senza protezione)
      * @param pdfProtetto false se {@code pdf} e' senza password di apertura, null se non verificato
@@ -124,6 +132,17 @@ class AcquisizioneCedolino {
      */
     record RegistrazioneManuale(Registrazione registrazione, boolean nuovaPersona, boolean nuovaAzienda,
                                 boolean nuovoRapporto, AttribuzioneSalvata attribuzione) {
+    }
+
+    /**
+     * Esito di una modifica a mano. Anagrafiche e rapporti nuovi sono rilevati solo nelle prove (altrimenti false).
+     *
+     * @param altroRapporto     il cedolino va (o andrebbe) a un rapporto diverso da quello attuale
+     * @param rapportoEliminato il rapporto precedente del cedolino e' stato (o sarebbe) eliminato: era il suo unico
+     *                          cedolino e ora va a un altro rapporto
+     */
+    record RegistrazioneModifica(Registrazione registrazione, boolean nuovaPersona, boolean nuovaAzienda,
+                                 boolean nuovoRapporto, boolean altroRapporto, boolean rapportoEliminato) {
     }
 
     /**
@@ -187,6 +206,77 @@ class AcquisizioneCedolino {
             var rapporto = registrazione.rapporto();
             return new RegistrazioneManuale(registrazione, scelte.persona() == null, scelte.azienda() == null,
                     rapporto != null && !rapportiPrima.contains(rapporto.id()), attribuzione);
+        });
+    }
+
+    /**
+     * Modifica a mano: sostituisce il cedolino con i dati indicati, come se il suo PDF fosse caricato di nuovo con
+     * questi dati, in una sola transazione serializzata. Il cedolino e' eliminato e il rapporto ricostruito dai
+     * cedolini rimasti (come per un'eliminazione); poi il PDF archiviato, con il suo hash e il suo stato di protezione,
+     * e' registrato con i dati modificati e i caricamenti che riguardavano il cedolino vengono ricollegati al nuovo. Se
+     * il cedolino va a un altro rapporto, il precedente e' ricalcolato ({@link CedolinoEliminato}) o, rimasto senza
+     * cedolini, eliminato con le anagrafiche orfane. La transazione e' annullata se il cedolino e' scartato (duplicato o
+     * aggiuntivo di un altro) e sempre nelle prove.
+     *
+     * @param prova  true per la prova: modifica completa poi annullata, senza log
+     * @param scelte persona e azienda scelte dall'elenco; il cedolino ne riporta gia' i dati in archivio
+     * @throws com.fcusumano.sam.shared.RisorsaNonTrovataException se il cedolino non esiste nel workspace
+     * @throws com.fcusumano.sam.shared.DatiNonValidiException     se un'anagrafica scelta non e' piu' in archivio o
+     *                                                             una nuova lo e' (nulla viene scritto)
+     * @throws CedolinoNonAcquisibileException                     se mancano dati indispensabili
+     */
+    RegistrazioneModifica modificaManuale(WorkspaceId workspace, CedolinoId cedolinoId, RisultatoEstrazione estrazione,
+                                          boolean prova, Scelte scelte) {
+        return scritture.inTransazione(workspace, stato -> {
+            var vecchio = cedolini.trova(workspace, cedolinoId)
+                    .orElseThrow(() -> new RisorsaNonTrovataException("Cedolino", cedolinoId.valore()));
+            var documento = cedolini.documento(workspace, cedolinoId)
+                    .orElseThrow(() -> new IllegalStateException("PDF del cedolino " + cedolinoId.valore()
+                            + " non trovato"));
+            var precedente = consultazione.trovaRapporto(vecchio.rapportoId())
+                    .orElseThrow(() -> new IllegalStateException("Rapporto del cedolino " + cedolinoId.valore()
+                            + " non trovato"));
+            ricontrollaAnagrafiche(estrazione.cedolino(), scelte);
+            Set<RapportoLavoroId> rapportiPrima = Set.of();
+            if (prova && scelte.persona() != null) {
+                rapportiPrima = consultazione.rapportiDiPersona(scelte.persona()).stream()
+                        .map(RapportoSintesi::id).collect(Collectors.toSet());
+            }
+            var riferimenti = caricamenti.riferimenti(workspace, cedolinoId);
+
+            cedolini.elimina(workspace, cedolinoId);
+            var rimasti = ricostruzione.normalizzati(workspace, precedente);
+            if (rimasti.isEmpty()) {
+                ricostruzione.svuota(precedente);
+            } else {
+                ricostruzione.ricostruisci(workspace, precedente, rimasti);
+            }
+            var registrazione = registra(new DocumentoCaricato(workspace, null, documento.pdf(), documento.hash(),
+                    documento.pdfProtetto()), estrazione, !prova, scelte);
+            if (prova || registrazione.esito() instanceof Scartato) {
+                stato.setRollbackOnly();
+            }
+            var rapporto = registrazione.rapporto();
+            boolean altroRapporto = rapporto != null && !rapporto.id().equals(precedente.id());
+            if (registrazione.esito() instanceof Acquisito a) {
+                caricamenti.ricollega(workspace, riferimenti, a.cedolinoId());
+                if (altroRapporto) {
+                    eventi.publishEvent(new CedolinoEliminato(cedolinoId, precedente.id(), vecchio.competenza()));
+                    if (rimasti.isEmpty()) {
+                        censimento.eliminaRapporto(precedente.id());
+                    }
+                }
+                if (!prova) {
+                    log.info("Cedolino {} modificato a mano: ora cedolino {} (rapporto {})", cedolinoId.valore(),
+                            a.cedolinoId().valore(), rapporto.id().valore());
+                }
+            }
+            boolean eliminato = altroRapporto && rimasti.isEmpty();
+            if (!prova) {
+                return new RegistrazioneModifica(registrazione, false, false, false, altroRapporto, eliminato);
+            }
+            return new RegistrazioneModifica(registrazione, scelte.persona() == null, scelte.azienda() == null,
+                    altroRapporto && !rapportiPrima.contains(rapporto.id()), altroRapporto, eliminato);
         });
     }
 
@@ -274,19 +364,26 @@ class AcquisizioneCedolino {
         censimento.aggiornaEstremiCedolini(rapporto.id(), estremi.primo(), estremi.ultimo());
         // il file non e' piu' in errore: caricamento, PDF conservato e associazione si aggiornano prima degli eventi,
         // cosi' i listener sincroni (segnalazioni) vedono uno stato coerente
-        caricamenti.aggiorna(ws, documento.caricamentoId(), StatoCaricamento.ACQUISITO, null, id, null);
-        // tentativi in errore dello stesso file conclusi dopo questo (es. lo stesso PDF due volte nel lotto, inserito
-        // a mano dal primo): ora sono duplicati, cosi' eliminando il cedolino il file non torna in errore
-        caricamenti.chiudiErroriSuccessivi(ws, documento.hash(), documento.caricamentoId(), id,
-                MessaggiCaricamento.FILE_GIA_CARICATO);
+        if (documento.caricamentoId() != null) {
+            caricamenti.aggiorna(ws, documento.caricamentoId(), StatoCaricamento.ACQUISITO, null, id, null);
+            // tentativi in errore dello stesso file conclusi dopo questo (es. lo stesso PDF due volte nel lotto,
+            // inserito a mano dal primo): ora sono duplicati, cosi' eliminando il cedolino il file non torna in errore
+            caricamenti.chiudiErroriSuccessivi(ws, documento.hash(), documento.caricamentoId(), id,
+                    MessaggiCaricamento.FILE_GIA_CARICATO);
+        }
         caricamenti.eliminaPdf(ws, documento.hash());
         var associato = caricamenti.eliminaAttribuzione(ws, documento.hash());
         eventi.publishEvent(new CedolinoAcquisito(id, rapporto.id(), competenza));
         associato.filter(r -> !r.equals(rapporto.id()))
                 .ifPresent(r -> eventi.publishEvent(new CaricamentiInErroreModificati(Set.of(r))));
         if (registraLog) {
-            log.info("Acquisito cedolino {} (caricamento {}, rapporto {}, competenza {})", id.valore(),
-                    documento.caricamentoId().valore(), rapporto.id().valore(), competenza.codice());
+            if (documento.caricamentoId() != null) {
+                log.info("Acquisito cedolino {} (caricamento {}, rapporto {}, competenza {})", id.valore(),
+                        documento.caricamentoId().valore(), rapporto.id().valore(), competenza.codice());
+            } else {
+                log.info("Archiviato di nuovo il cedolino {} con i dati modificati (rapporto {}, competenza {})",
+                        id.valore(), rapporto.id().valore(), competenza.codice());
+            }
             if (classificazione.modificati() > 0) {
                 log.info("Riclassificati o rinumerati {} cedolini del rapporto {}", classificazione.modificati(),
                         rapporto.id().valore());
