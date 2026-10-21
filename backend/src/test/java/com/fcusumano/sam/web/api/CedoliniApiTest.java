@@ -5,6 +5,8 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -12,6 +14,8 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -24,6 +28,8 @@ import com.fcusumano.sam.cedolini.BuoniPasto;
 import com.fcusumano.sam.cedolini.CategoriaVoce;
 import com.fcusumano.sam.cedolini.CedolinoDettaglio;
 import com.fcusumano.sam.cedolini.CedolinoId;
+import com.fcusumano.sam.cedolini.CedolinoManuale;
+import com.fcusumano.sam.cedolini.CedolinoModificato;
 import com.fcusumano.sam.cedolini.CedolinoNormalizzato;
 import com.fcusumano.sam.cedolini.DatiTfr;
 import com.fcusumano.sam.cedolini.ElementiRetributivi;
@@ -34,8 +40,10 @@ import com.fcusumano.sam.cedolini.Rateo;
 import com.fcusumano.sam.cedolini.TipoRateo;
 import com.fcusumano.sam.cedolini.Voce;
 import com.fcusumano.sam.shared.Competenza;
+import com.fcusumano.sam.shared.DatiNonValidiException;
 import com.fcusumano.sam.shared.OperazioneNonConsentitaException;
 import com.fcusumano.sam.shared.RisorsaNonTrovataException;
+import com.fcusumano.sam.shared.TipoMensilita;
 import com.fcusumano.sam.shared.UnitaMisura;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -107,6 +115,63 @@ class CedoliniApiTest extends ApiWebMvcTest {
         mvc.perform(get("/api/v1/cedolini/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").value("Cedolino inesistente (id 99)."));
+    }
+
+    @Test
+    void datiPerIlModuloDiModifica() throws Exception {
+        when(modificaCedolini.dati(CEDOLINO)).thenReturn(new CedolinoManuale(3L, 5L,
+                new CedolinoManuale.Dipendente("RSSMRA80A01H501U", "Mario", "Rossi", null, "000123"),
+                new CedolinoManuale.DatoreLavoro(null, "01234567897", null, "98765432/10", "Alfa S.r.l.", null, null),
+                new CedolinoManuale.DatiContrattuali(LocalDate.of(2023, 1, 9), null, null, "5", "CCNL Commercio",
+                        null),
+                new CedolinoManuale.Periodo(2024, 1, TipoMensilita.ORDINARIA, null, null),
+                new CedolinoManuale.Totali(null, new BigDecimal("2350.00"), new BigDecimal("540.00000"), null,
+                        new BigDecimal("1810.00")),
+                ElementiRetributivi.VUOTI,
+                List.of(new Voce(null, "Retribuzione", CategoriaVoce.COMPETENZA, new BigDecimal("168.00000"), "ore",
+                        null, new BigDecimal("2350.00"), null)),
+                List.of(), null, Presenze.VUOTE, null, BuoniPasto.ASSENTI, ProgressiviAnnui.VUOTI, false, false));
+
+        mvc.perform(get("/api/v1/cedolini/16/dati"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.personaId").value(3))
+                .andExpect(jsonPath("$.aziendaId").value(5))
+                .andExpect(jsonPath("$.datoreLavoro.posizioneInail").value("98765432/10"))
+                .andExpect(jsonPath("$.periodo.tipo").value("ORDINARIA"))
+                .andExpect(jsonPath("$.totali.totaleTrattenute").value(540))
+                .andExpect(jsonPath("$.voci[0].quantita").value(168))
+                .andExpect(jsonPath("$.tfr").value(nullValue()));
+    }
+
+    @Test
+    void modificaDeiDati() throws Exception {
+        when(modificaCedolini.modifica(eq(CEDOLINO), any())).thenReturn(new CedolinoModificato(new CedolinoId(21),
+                new RapportoLavoroId(7), new Competenza.Mensilita(2024, 1), false));
+
+        mvc.perform(put("/api/v1/cedolini/16/dati").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"personaId\":3,\"aziendaId\":5,\"periodo\":{\"anno\":2024,\"mese\":1,"
+                                + "\"tipo\":\"ORDINARIA\"},\"totali\":{\"netto\":1810},\"contieneTredicesima\":false,"
+                                + "\"contieneQuattordicesima\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cedolinoId").value(21))
+                .andExpect(jsonPath("$.rapportoId").value(7))
+                .andExpect(jsonPath("$.titolo").value("Gennaio 2024"))
+                .andExpect(jsonPath("$.competenza.chiave").value("2024.01"))
+                .andExpect(jsonPath("$.rapportoEliminato").value(false));
+        verify(modificaCedolini).modifica(eq(CEDOLINO), argThat(c -> c.personaId() == 3L
+                && c.periodo().mese() == 1 && c.totali().netto().intValue() == 1810));
+    }
+
+    @Test
+    void verificaDellaModificaConErroriSuiCampi400() throws Exception {
+        when(modificaCedolini.verifica(eq(CEDOLINO), any()))
+                .thenThrow(new DatiNonValidiException("totali.netto", "Indica il netto"));
+
+        mvc.perform(post("/api/v1/cedolini/16/dati/verifica").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"contieneTredicesima\":false,\"contieneQuattordicesima\":false}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errori[0].campo").value("totali.netto"))
+                .andExpect(jsonPath("$.errori[0].messaggio").value("Indica il netto"));
     }
 
     @Test
@@ -232,7 +297,7 @@ class CedoliniApiTest extends ApiWebMvcTest {
                         new BigDecimal("160.00000")),
                 false, false,
                 new ProgressiviAnnui(new BigDecimal("2400.00000"), null, null));
-        return new CedolinoDettaglio(dati, "2024.01_3_1.pdf", DatiDiProva.ISTANTE, new BigDecimal("0.95"), false,
+        return new CedolinoDettaglio(dati, "2024.01_3_1.pdf", DatiDiProva.ISTANTE, new BigDecimal("0.95"), false, false,
                 List.of("codiceDipendente"), List.of("Partita IVA dell'azienda formalmente non valida"));
     }
 }

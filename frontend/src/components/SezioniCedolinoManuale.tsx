@@ -1,6 +1,7 @@
-import { Badge, Group, Text } from '@mantine/core';
+import { Badge, Group, List, Stack, Text } from '@mantine/core';
 import { useElencoCcnl, usePersone } from '../api/queries';
 import {
+  CATEGORIE_VOCE,
   compilatiSezione,
   controlliCoerenza,
   modoAzienda,
@@ -70,6 +71,37 @@ export function IntestazioneSezione({ sezione, errori }: PropsIntestazione) {
   );
 }
 
+type SezioneConGuida = keyof typeof testi.aiuti.sezioni;
+
+/** Come compilare una sezione (totali, voci, ratei, TFR), in testa ai suoi campi. */
+function GuidaSezione({ sezione }: { sezione: SezioneConGuida }) {
+  return (
+    <Text size="xs" c="dimmed">
+      {testi.aiuti.sezioni[sezione]}
+    </Text>
+  );
+}
+
+/** Le categorie delle voci, con cosa comprende ciascuna: aperte a richiesta. */
+function GuidaCategorie() {
+  return (
+    <details className={classes.guidaCategorie}>
+      <summary>
+        <Text span size="xs" fw={600}>
+          {testi.aiuti.categorieTitolo}
+        </Text>
+      </summary>
+      <List size="xs" spacing={2} mt={4}>
+        {CATEGORIE_VOCE.map((categoria) => (
+          <List.Item key={categoria}>
+            <strong>{t.categorie[categoria]}</strong>: {testi.aiuti.categorie[categoria]}
+          </List.Item>
+        ))}
+      </List>
+    </details>
+  );
+}
+
 /** Campi di una sezione del modulo (tabella di §9.7: nessun dato bancario). */
 export function ContenutoSezione({ sezione }: { sezione: SezioneModulo }) {
   switch (sezione) {
@@ -83,18 +115,32 @@ export function ContenutoSezione({ sezione }: { sezione: SezioneModulo }) {
       return <SezioneContratto />;
     case 'totali':
       return (
-        <div className={classes.campi}>
-          <CampoImporto percorso="totali.totaleCompetenze" obbligatorio />
-          <CampoImporto percorso="totali.totaleTrattenute" obbligatorio />
-          <CampoImporto percorso="totali.arrotondamento" negativi />
-          <CampoImporto percorso="totali.netto" obbligatorio negativi />
-          <CampoImporto percorso="totali.lordo" />
-        </div>
+        <Stack gap="xs">
+          <GuidaSezione sezione="totali" />
+          <div className={classes.campi}>
+            <CampoImporto percorso="totali.totaleCompetenze" obbligatorio />
+            <CampoImporto percorso="totali.totaleTrattenute" obbligatorio />
+            <CampoImporto percorso="totali.arrotondamento" negativi />
+            <CampoImporto percorso="totali.netto" obbligatorio negativi />
+            <CampoImporto percorso="totali.lordo" />
+          </div>
+        </Stack>
       );
     case 'voci':
-      return <TabellaVociModificabile />;
+      return (
+        <Stack gap="xs">
+          <GuidaSezione sezione="voci" />
+          <GuidaCategorie />
+          <TabellaVociModificabile />
+        </Stack>
+      );
     case 'ratei':
-      return <TabellaRateiModificabile />;
+      return (
+        <Stack gap="xs">
+          <GuidaSezione sezione="ratei" />
+          <TabellaRateiModificabile />
+        </Stack>
+      );
     case 'retribuzione':
       return (
         <div className={classes.campi}>
@@ -122,19 +168,22 @@ export function ContenutoSezione({ sezione }: { sezione: SezioneModulo }) {
       );
     case 'tfr':
       return (
-        <div className={classes.campi}>
-          <CampoImporto percorso="tfr.fondo31DicembreAnnoPrecedente" />
-          <CampoImporto percorso="tfr.rivalutazione" />
-          <CampoImporto percorso="tfr.impostaSostitutiva" />
-          <CampoImporto percorso="tfr.quotaAnno" />
-          <CampoImporto percorso="tfr.quotaMese" />
-          <CampoImporto percorso="tfr.quotaFondi" />
-          <CampoImporto percorso="tfr.quotaBusta" />
-          <CampoImporto percorso="tfr.anticipi" />
-          <CampoImporto percorso="tfr.retribuzioneUtile" />
-          <CampoImporto percorso="tfr.liquidatoLordo" />
-          <CampoImporto percorso="tfr.ritenuta" />
-        </div>
+        <Stack gap="xs">
+          <GuidaSezione sezione="tfr" />
+          <div className={classes.campi}>
+            <CampoImporto percorso="tfr.fondo31DicembreAnnoPrecedente" />
+            <CampoImporto percorso="tfr.rivalutazione" />
+            <CampoImporto percorso="tfr.impostaSostitutiva" />
+            <CampoImporto percorso="tfr.quotaAnno" />
+            <CampoImporto percorso="tfr.quotaMese" />
+            <CampoImporto percorso="tfr.quotaFondi" />
+            <CampoImporto percorso="tfr.quotaBusta" />
+            <CampoImporto percorso="tfr.anticipi" />
+            <CampoImporto percorso="tfr.retribuzioneUtile" />
+            <CampoImporto percorso="tfr.liquidatoLordo" />
+            <CampoImporto percorso="tfr.ritenuta" />
+          </div>
+        </Stack>
       );
     case 'scatti':
       return (

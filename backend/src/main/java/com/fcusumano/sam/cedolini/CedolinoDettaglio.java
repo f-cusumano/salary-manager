@@ -12,6 +12,7 @@ import java.util.List;
  * @param confidenza       confidenza complessiva dell'estrazione (0..1), null se non disponibile (sempre null per i
  *                         cedolini inseriti a mano)
  * @param inseritoAMano    true se il cedolino e' stato inserito a mano da un file in errore (nessuna lettura)
+ * @param modificatoAMano  true se i dati del cedolino sono stati modificati a mano (non sono piu' quelli letti)
  * @param campiNonTrovati  campi chiave non trovati nel documento
  * @param avvisiEstrazione avvisi dell'estrazione: controlli di coerenza non superati, valori non interpretabili, dati
  *                         bancari rimossi, note del modello
@@ -22,6 +23,7 @@ public record CedolinoDettaglio(
         OffsetDateTime acquisitoIl,
         BigDecimal confidenza,
         boolean inseritoAMano,
+        boolean modificatoAMano,
         List<String> campiNonTrovati,
         List<String> avvisiEstrazione) {
 

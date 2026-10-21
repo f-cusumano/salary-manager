@@ -12,4 +12,6 @@ export const chiavi = {
   lotto: (lotto: string) => ['lotto', lotto] as const,
   caricamentiInErrore: ['caricamenti', 'in-errore'] as const,
   pdfCaricamento: (caricamentoId: number) => ['caricamento-pdf', caricamentoId] as const,
+  pdfCedolino: (cedolinoId: number) => ['cedolino-pdf', cedolinoId] as const,
+  datiCedolino: (cedolinoId: number) => ['cedolino-dati', cedolinoId] as const,
 };

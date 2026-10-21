@@ -11,10 +11,17 @@ import {
   useCaricamentiInErrore,
   useInserisciCedolinoManuale,
   useLetture,
+  useModificaCedolino,
   usePersone,
   useVerificaCedolinoManuale,
+  useVerificaModificaCedolino,
 } from '../api/queries';
-import type { Caricamento, CaricamentoInErrore, VerificaCedolinoManuale } from '../api/types';
+import type {
+  Caricamento,
+  CaricamentoInErrore,
+  CedolinoModificato,
+  VerificaCedolinoManuale,
+} from '../api/types';
 import {
   applicaScelta,
   cambiaIdentita,
@@ -77,8 +84,16 @@ interface Problema {
   messaggio: string;
 }
 
+/**
+ * Cosa diventano i dati del modulo: il cedolino di un file in errore (inserimento a mano) o i nuovi dati di un cedolino
+ * gia' archiviato (modifica, con lo stesso PDF).
+ */
+export type DestinazioneModulo =
+  | { tipo: 'inserimento'; elemento: CaricamentoInErrore; onAcquisito: (caricamento: Caricamento) => void }
+  | { tipo: 'modifica'; cedolinoId: number; onModificato: (modificato: CedolinoModificato) => void };
+
 interface Props {
-  elemento: CaricamentoInErrore;
+  destinazione: DestinazioneModulo;
   /** Valori di partenza, gia' precompilati. */
   iniziali: ValoriCedolinoManuale;
   /** Campi precompilati con la loro provenienza. */
@@ -86,7 +101,6 @@ interface Props {
   /** Registra il controllo delle modifiche non salvate, chiesto alla chiusura della finestra. */
   registraModifiche: (modificato: () => boolean) => void;
   onChiudi: () => void;
-  onAcquisito: (caricamento: Caricamento) => void;
 }
 
 /** Errori bloccanti calcolati nel browser, sui percorsi del modulo. */
@@ -170,13 +184,13 @@ const ERRORE_ANAGRAFICHE =
  * possibile solo se l'ultima verifica riguarda esattamente i dati attuali ed e' acquisibile.
  */
 export function ModuloCedolinoManuale({
-  elemento,
+  destinazione,
   iniziali,
   copiatiIniziali,
   registraModifiche,
   onChiudi,
-  onAcquisito,
 }: Props) {
+  const elemento = destinazione.tipo === 'inserimento' ? destinazione.elemento : null;
   const azioni = useAzioniCaricamenti();
   const queryClient = useQueryClient();
   const persone = usePersone();
@@ -270,7 +284,8 @@ export function ModuloCedolinoManuale({
    */
   const compilaDalRapporto = async (numero: number, soloSeCambiato = false) => {
     const { persona, azienda } = anagraficheScelte(form.getValues());
-    if (!persona || !azienda) {
+    // nella modifica i dati sono gia' quelli del cedolino: nulla si copia da un altro
+    if (!persona || !azienda || destinazione.tipo === 'modifica') {
       return;
     }
     if (!soloSeCambiato) {
@@ -418,8 +433,11 @@ export function ModuloCedolinoManuale({
   const [verifica, setVerifica] = useState<Verifica | null>(null);
   // esito della verifica annunciato ai lettori di schermo (il contatore ripete l'annuncio di un esito uguale)
   const [annuncio, setAnnuncio] = useState<{ testo: string; numero: number }>({ testo: '', numero: 0 });
-  const verificaCedolino = useVerificaCedolinoManuale();
+  const verificaInserimento = useVerificaCedolinoManuale();
   const inserisci = useInserisciCedolinoManuale();
+  const verificaModifica = useVerificaModificaCedolino();
+  const modifica = useModificaCedolino();
+  const verificaCedolino = destinazione.tipo === 'modifica' ? verificaModifica : verificaInserimento;
   const [salvataggio, setSalvataggio] = useState<'singolo' | 'successivo' | null>(null);
 
   const erroriCampi = ordinaPerModulo(
@@ -444,7 +462,11 @@ export function ModuloCedolinoManuale({
 
   const gestisciErrore = (errore: unknown, valori: ValoriCedolinoManuale, titolo: string) => {
     if (errore instanceof ApiError && errore.status === 404) {
-      setProblema({ titolo: t.fileNonTrovato, messaggio: t.fileNonTrovatoTesto });
+      setProblema(
+        destinazione.tipo === 'modifica'
+          ? { titolo: testi.modifica.nonTrovato, messaggio: testi.modifica.nonTrovatoTesto }
+          : { titolo: t.fileNonTrovato, messaggio: t.fileNonTrovatoTesto },
+      );
       return;
     }
     const errori = erroriDiCampo(errore);
@@ -475,7 +497,7 @@ export function ModuloCedolinoManuale({
     }
   };
 
-  const occupato = verificaCedolino.isPending || inserisci.isPending;
+  const occupato = verificaCedolino.isPending || inserisci.isPending || modifica.isPending;
 
   const verificaDati = () => {
     if (occupato) {
@@ -491,20 +513,24 @@ export function ModuloCedolinoManuale({
     setRiepilogoVisibile(false);
     const valori = form.getValues();
     const dati = richiestaDa(valori);
-    verificaCedolino.mutate(
-      { caricamentoId: elemento.id, dati },
-      {
-        onSuccess: (esito) => {
-          setVerifica({ richiesta: JSON.stringify(dati), esito });
-          setAnnuncio((attuale) => ({ testo: annuncioVerifica(esito), numero: attuale.numero + 1 }));
-        },
-        onError: (errore) => gestisciErrore(errore, valori, t.erroreVerifica),
+    const callback = {
+      onSuccess: (esito: VerificaCedolinoManuale) => {
+        setVerifica({ richiesta: JSON.stringify(dati), esito });
+        setAnnuncio((attuale) => ({ testo: annuncioVerifica(esito), numero: attuale.numero + 1 }));
       },
-    );
+      onError: (errore: unknown) => gestisciErrore(errore, valori, t.erroreVerifica),
+    };
+    if (destinazione.tipo === 'modifica') {
+      verificaModifica.mutate({ cedolinoId: destinazione.cedolinoId, dati }, callback);
+    } else {
+      verificaInserimento.mutate({ caricamentoId: destinazione.elemento.id, dati }, callback);
+    }
   };
 
+  // "salva e apri il successivo" solo nell'inserimento dei file in errore
   const inErrore = useCaricamentiInErrore();
-  const successivi = (inErrore.data ?? []).filter((e) => e.id !== elemento.id && daCompletare(e));
+  const successivi =
+    elemento === null ? [] : (inErrore.data ?? []).filter((e) => e.id !== elemento.id && daCompletare(e));
 
   const salva = (apriSuccessivo: boolean) => {
     const valori = form.getValues();
@@ -517,8 +543,27 @@ export function ModuloCedolinoManuale({
     // il successivo si sceglie ora: dopo il salvataggio l'elenco viene riletto
     const successivo = apriSuccessivo ? (successivi[0]?.id ?? null) : null;
     setSalvataggio(apriSuccessivo ? 'successivo' : 'singolo');
+    if (destinazione.tipo === 'modifica') {
+      modifica.mutate(
+        { cedolinoId: destinazione.cedolinoId, dati },
+        {
+          onSuccess: (modificato) => {
+            notifications.show({
+              color: 'teal',
+              message: `${testi.modifica.salvato}: ${modificato.titolo}`,
+            });
+            destinazione.onModificato(modificato);
+            onChiudi();
+          },
+          onError: (errore) => gestisciErrore(errore, valori, t.erroreSalvataggio),
+          onSettled: () => setSalvataggio(null),
+        },
+      );
+      return;
+    }
+    const { onAcquisito } = destinazione;
     inserisci.mutate(
-      { caricamentoId: elemento.id, dati },
+      { caricamentoId: destinazione.elemento.id, dati },
       {
         onSuccess: (caricamento) => {
           notifications.show({ color: 'teal', message: titolo ? `${t.inserito}: ${titolo}` : t.inserito });
@@ -565,7 +610,7 @@ export function ModuloCedolinoManuale({
         onKeyDown={onKeyDown}
       >
         <Stack gap="md" className={classes.contenutoModulo}>
-          <Text size="sm">{t.introduzione}</Text>
+          <Text size="sm">{elemento === null ? testi.modifica.introduzione : t.introduzione}</Text>
           {Object.keys(copiati).length > 0 && (
             <Text size="xs" c="blue.8">
               <span className={classes.puntoCopiato} aria-hidden /> {t.copiatiNota}
@@ -614,7 +659,9 @@ export function ModuloCedolinoManuale({
           {verifica !== null && (
             <EsitoVerifica
               verifica={verifica}
-              onRimuoviFile={() => azioni.rimuovi(elemento.id, { onRimosso: onChiudi })}
+              onRimuoviFile={
+                elemento === null ? undefined : () => azioni.rimuovi(elemento.id, { onRimosso: onChiudi })
+              }
             />
           )}
           {/* regione sempre presente: un lettore di schermo annuncia i cambiamenti, non le regioni nuove */}
@@ -641,7 +688,7 @@ function useVerificaAttuale(verifica: Verifica | null): boolean {
   return useValoreModulo((v) => verifica !== null && JSON.stringify(richiestaDa(v)) === verifica.richiesta);
 }
 
-function EsitoVerifica({ verifica, onRimuoviFile }: { verifica: Verifica; onRimuoviFile: () => void }) {
+function EsitoVerifica({ verifica, onRimuoviFile }: { verifica: Verifica; onRimuoviFile?: () => void }) {
   const attuale = useVerificaAttuale(verifica);
   const pannello = useRef<HTMLDivElement>(null);
   useEffect(() => {

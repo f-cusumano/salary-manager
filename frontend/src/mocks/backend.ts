@@ -33,7 +33,13 @@ import {
   rimuovi,
   rimuoviAssociazione,
 } from './fileInErrore';
-import { inserisciManuale, verificaManuale } from './inserimentoManuale';
+import {
+  datiCedolino,
+  inserisciManuale,
+  modificaCedolino,
+  verificaManuale,
+  verificaModifica,
+} from './inserimentoManuale';
 
 /**
  * Backend simulato in memoria, usato SOLO in sviluppo (`npm run dev:mock`) e nei test: implementa il contratto
@@ -304,6 +310,8 @@ const ROTTE = {
   ccnlRapporto: /^\/api\/v1\/rapporti\/(\d+)\/ccnl$/,
   cedolino: /^\/api\/v1\/cedolini\/(\d+)$/,
   pdf: /^\/api\/v1\/cedolini\/(\d+)\/pdf$/,
+  datiCedolino: /^\/api\/v1\/cedolini\/(\d+)\/dati$/,
+  verificaModifica: /^\/api\/v1\/cedolini\/(\d+)\/dati\/verifica$/,
   caricamenti: /^\/api\/v1\/caricamenti$/,
   lotto: /^\/api\/v1\/caricamenti\/lotti\/([0-9a-f-]+)$/,
   inErrore: /^\/api\/v1\/caricamenti\/in-errore$/,
@@ -420,6 +428,15 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
       const cedolino = db.cedolini.get(Number(m[1]));
       return cedolino ? json(cedolino) : nonTrovato();
     }
+    if (metodo === 'GET' && (m = ROTTE.datiCedolino.exec(pathname))) {
+      return json(datiCedolino(db, Number(m[1])));
+    }
+    if (metodo === 'PUT' && (m = ROTTE.datiCedolino.exec(pathname))) {
+      return json(modificaCedolino(db, Number(m[1]), await request.json()));
+    }
+    if (metodo === 'POST' && (m = ROTTE.verificaModifica.exec(pathname))) {
+      return json(verificaModifica(db, Number(m[1]), await request.json()));
+    }
     if (metodo === 'DELETE' && (m = ROTTE.cedolino.exec(pathname))) {
       return eliminaCedolino(db, Number(m[1])) ? new Response(null, { status: 204 }) : nonTrovato();
     }
@@ -428,13 +445,7 @@ export function creaMockBackend(opzioni: OpzioniMock = {}): MockBackend {
       if (!cedolino) {
         return nonTrovato();
       }
-      return new Response(new Blob([PDF_MINIMO], { type: 'application/pdf' }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${cedolino.nomeFile}"`,
-        },
-      });
+      return await pdf(new Blob([PDF_MINIMO], { type: 'application/pdf' }), cedolino.nomeFile);
     }
     if (metodo === 'GET' && ROTTE.inErrore.test(pathname)) {
       return json(elencoInErrore(db));

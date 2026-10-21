@@ -10,7 +10,13 @@ import {
   invalidaSeFileInErroreCambiato,
   scartaPdfConservato,
 } from './invalidazioni';
-import type { CedolinoManuale, LottoCaricamento, RapportoDettaglio, RichiestaAttribuzione } from './types';
+import type {
+  CedolinoManuale,
+  CedolinoModificato,
+  LottoCaricamento,
+  RapportoDettaglio,
+  RichiestaAttribuzione,
+} from './types';
 
 export { chiavi };
 
@@ -347,6 +353,66 @@ export function useInserisciCedolinoManuale() {
       ]);
     },
     onError: (errore) => void invalidaSeFileInErroreCambiato(queryClient, errore),
+  });
+}
+
+/**
+ * Dati attuali di un cedolino nella forma del modulo, per modificarli: sempre riletti all'apertura (non restano in
+ * cache) perche' il modulo parta dai dati archiviati.
+ */
+export function useDatiCedolino(cedolinoId: number) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: chiavi.datiCedolino(cedolinoId),
+    queryFn: async ({ signal }) =>
+      esito(
+        await api.GET('/api/v1/cedolini/{cedolinoId}/dati', { params: { path: { cedolinoId } }, signal }),
+      ),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export interface RichiestaModificaCedolino {
+  cedolinoId: number;
+  dati: CedolinoManuale;
+}
+
+/** Prova della modifica dei dati di un cedolino (nulla viene salvato). */
+export function useVerificaModificaCedolino() {
+  const api = useApiClient();
+  return useMutation({
+    mutationFn: async ({ cedolinoId, dati }: RichiestaModificaCedolino) =>
+      esito(
+        await api.POST('/api/v1/cedolini/{cedolinoId}/dati/verifica', {
+          params: { path: { cedolinoId } },
+          body: dati,
+        }),
+      ),
+  });
+}
+
+/**
+ * Salvataggio dei dati modificati: il cedolino e' sostituito da uno nuovo (nuovo id), anche in un altro rapporto; il
+ * rapporto precedente puo' sparire con le anagrafiche orfane. Si rilegge cio' che cambierebbero un'eliminazione e
+ * un'acquisizione, prima di risolvere la mutazione.
+ */
+export function useModificaCedolino() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ cedolinoId, dati }: RichiestaModificaCedolino): Promise<CedolinoModificato> =>
+      esito(
+        await api.PUT('/api/v1/cedolini/{cedolinoId}/dati', {
+          params: { path: { cedolinoId } },
+          body: dati,
+        }),
+      ),
+    onSuccess: async (_modificato, { cedolinoId }) => {
+      queryClient.removeQueries({ queryKey: chiavi.cedolino(cedolinoId) });
+      await invalidaDopoAcquisizione(queryClient);
+    },
   });
 }
 

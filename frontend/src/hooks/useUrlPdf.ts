@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCallback, useSyncExternalStore } from 'react';
 import { chiavi } from '../api/chiavi';
 import { useApiClient } from '../api/context';
-import { leggiPdfCaricamento } from '../api/download';
+import { leggiPdfCaricamento, leggiPdfCedolino } from '../api/download';
 
 interface UrlCondiviso {
   url: string;
@@ -38,16 +38,20 @@ function usaUrl(contenuto: Blob | null, notifica: () => void): () => void {
   };
 }
 
+/** Di chi e' il PDF mostrato: il file in errore (PDF conservato) o il cedolino archiviato. */
+export type SorgentePdf = 'caricamento' | 'cedolino';
+
 /**
- * PDF conservato di un file in errore come URL `blob:` per l'anteprima in un iframe (un URL del backend verrebbe
- * bloccato da X-Frame-Options ed e' servito come allegato). Il PDF non resta in cache dopo la chiusura
- * dell'anteprima (gcTime 0) e l'URL viene revocato allo smontaggio o al cambio di contenuto.
+ * PDF conservato di un file in errore (o archiviato di un cedolino) come URL `blob:` per l'anteprima in un iframe (un
+ * URL del backend verrebbe bloccato da X-Frame-Options ed e' servito come allegato). Il PDF non resta in cache dopo la
+ * chiusura dell'anteprima (gcTime 0) e l'URL viene revocato allo smontaggio o al cambio di contenuto.
  */
-export function useUrlPdf(caricamentoId: number) {
+export function useUrlPdf(id: number, sorgente: SorgentePdf = 'caricamento') {
   const api = useApiClient();
   const pdf = useQuery({
-    queryKey: chiavi.pdfCaricamento(caricamentoId),
-    queryFn: ({ signal }) => leggiPdfCaricamento(api, caricamentoId, signal),
+    queryKey: sorgente === 'cedolino' ? chiavi.pdfCedolino(id) : chiavi.pdfCaricamento(id),
+    queryFn: ({ signal }) =>
+      sorgente === 'cedolino' ? leggiPdfCedolino(api, id, signal) : leggiPdfCaricamento(api, id, signal),
     staleTime: Infinity,
     gcTime: 0,
   });

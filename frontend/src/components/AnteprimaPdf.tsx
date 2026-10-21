@@ -1,7 +1,7 @@
 import { Alert, Button, Group, Skeleton, Stack } from '@mantine/core';
 import { IconDownload, IconExternalLink, IconLock } from '@tabler/icons-react';
 import type { MotivoErrore } from '../api/types';
-import { useUrlPdf } from '../hooks/useUrlPdf';
+import { useUrlPdf, type SorgentePdf } from '../hooks/useUrlPdf';
 import { testi } from '../i18n';
 import classes from './InserimentoManualeModal.module.css';
 import { ErroreConRiprova } from './ErroreConRiprova';
@@ -9,18 +9,20 @@ import { ErroreConRiprova } from './ErroreConRiprova';
 const t = testi.manuale;
 
 interface Props {
-  caricamentoId: number;
+  /** Id del file in errore (o del cedolino, con sorgente 'cedolino'). */
+  id: number;
+  sorgente?: SorgentePdf;
   /** Nome con cui il file era stato caricato (riserva se il backend non lo indica). */
   nomeFile: string;
-  motivo: MotivoErrore | null;
+  motivo?: MotivoErrore | null;
 }
 
 /**
  * Anteprima del PDF conservato accanto al modulo: URL `blob:` in un iframe (il visualizzatore del browser), con
  * l'apertura in una nuova scheda per i telefoni che non mostrano i PDF negli iframe e lo scaricamento.
  */
-export function AnteprimaPdf({ caricamentoId, nomeFile, motivo }: Props) {
-  const pdf = useUrlPdf(caricamentoId);
+export function AnteprimaPdf({ id, sorgente = 'caricamento', nomeFile, motivo }: Props) {
+  const pdf = useUrlPdf(id, sorgente);
 
   if (pdf.errore) {
     return <ErroreConRiprova titolo={t.pdfErrore} errore={pdf.errore} onRiprova={pdf.riprova} />;

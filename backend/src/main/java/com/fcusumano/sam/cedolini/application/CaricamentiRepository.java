@@ -82,6 +82,15 @@ public interface CaricamentiRepository {
     int chiudiErroriSuccessivi(WorkspaceId workspace, String hash, CaricamentoId acquisito, CedolinoId cedolino,
                                String messaggio);
 
+    /** Caricamenti che fanno riferimento al cedolino (acquisito, o gia' presente per un duplicato o un aggiuntivo). */
+    RiferimentiCedolino riferimenti(WorkspaceId workspace, CedolinoId cedolino);
+
+    /**
+     * Ricollega al cedolino indicato i caricamenti che facevano riferimento a un cedolino sostituito (modifica a mano:
+     * il cedolino e' eliminato e archiviato di nuovo, con un nuovo id).
+     */
+    void ricollega(WorkspaceId workspace, RiferimentiCedolino riferimenti, CedolinoId cedolino);
+
     /** Il file e' in errore: ultimo tentativo concluso in ERRORE e nessun cedolino archiviato con quell'hash. */
     boolean fileInErrore(WorkspaceId workspace, String hash);
 
@@ -147,6 +156,18 @@ public interface CaricamentiRepository {
     int eliminaErroriDelFile(WorkspaceId workspace, String hash);
 
     /** File da registrare: nome come caricato, dimensione in byte, hash SHA-256 esadecimale. */
+    /**
+     * @param acquisiti caricamenti che hanno archiviato il cedolino
+     * @param esistenti caricamenti scartati come duplicato o aggiuntivo del cedolino
+     */
+    record RiferimentiCedolino(List<CaricamentoId> acquisiti, List<CaricamentoId> esistenti) {
+
+        public RiferimentiCedolino {
+            acquisiti = List.copyOf(acquisiti);
+            esistenti = List.copyOf(esistenti);
+        }
+    }
+
     record FileInCoda(String nomeFileOriginale, long dimensione, String hash) {
     }
 

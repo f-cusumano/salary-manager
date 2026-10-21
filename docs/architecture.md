@@ -387,6 +387,26 @@ CedolinoManuale (personaId, aziendaId + stessi percorsi di prompts/cedolino-sche
 La verifica non lascia tracce perche' tutti i listener sono sincroni nella stessa transazione e non esiste un event
 publication registry: l'annullamento cancella anche riepiloghi e segnalazioni ricalcolati.
 
+**Modifica dei dati di un cedolino** (`ModificaCedolini`, implementata da `ModificaCedoliniService`; REST in
+`web.api.CedoliniController`): lo stesso modulo dell'inserimento a mano, precompilato.
+
+| Azione | Effetto |
+|--------|---------|
+| `GET /api/v1/cedolini/{id}/dati` | i campi di `CedolinoManuale` dal JSON archiviato (`DatiCedolinoArchiviato`), con persona e azienda del rapporto; 409 se il JSON non e' leggibile |
+| `POST /api/v1/cedolini/{id}/dati/verifica` | prova della modifica: sostituzione completa, poi annullata; avvisi su cambio di mensilita' o di rapporto |
+| `PUT /api/v1/cedolini/{id}/dati` | sostituzione: `CedolinoModificato` (id del cedolino nuovo, rapporto, competenza, rapporto precedente eliminato) |
+
+```
+CedolinoManuale ─► PreparazioneCedolinoManuale.prepara(dati, "modifica-manuale-1") (stessa catena dell'inserimento)
+  └─ AcquisizioneCedolino.modificaManuale (una transazione serializzata):
+       cedolino e documento archiviato (PDF, hash, sbloccato) ─► ricontrollo delle anagrafiche ─► riferimenti dei
+       caricamenti al cedolino ─► eliminazione del cedolino ─► RicostruzioneRapporto: ricostruisci dai cedolini
+       rimasti (o svuota) ─► registrazione con lo stesso PDF (nessun caricamento) ─► caricamenti ricollegati al
+       cedolino nuovo ─► se il cedolino e' passato a un altro rapporto: CedolinoEliminato per il precedente, eliminato
+       con le anagrafiche orfane se senza cedolini
+       verifica e scarto (duplicato, aggiuntivo): setRollbackOnly
+```
+
 **Mensilita' con un file in errore**: l'associazione scelta dall'utente (mai dedotta) entra in due viste:
 
 - lista mensilita' del rapporto (`web.api.ListaMensilita`): riga `IN_ERRORE` con `caricamentoId` e `motivoErrore`;

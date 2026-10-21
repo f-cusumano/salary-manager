@@ -4,6 +4,7 @@ import type {
   CategoriaVoce,
   CedolinoDettaglio,
   CedolinoManuale,
+  CedolinoModificato,
   Competenza,
   ErroreCampo,
   PersonaSintesi,
@@ -28,6 +29,7 @@ import {
 } from './dati';
 import {
   datiNonValidi,
+  eliminaAssociazioniDelRapporto,
   fileInErrore,
   MESSAGGI_FILE_IN_ERRORE,
   RifiutoMock,
@@ -642,9 +644,12 @@ function avvisiCoerenza(dati: CedolinoManuale): string[] {
 
 // ------------------------------------------------------------------ esito dell'acquisizione
 
-interface Esito {
-  dati: CedolinoManuale;
+interface Esito extends EsitoDati {
   file: FileInErrore;
+}
+
+interface EsitoDati {
+  dati: CedolinoManuale;
   /** Persona e azienda scelte (undefined = da creare). */
   persona: PersonaSintesi | undefined;
   azienda: AziendaSintesi | undefined;
@@ -714,6 +719,26 @@ function formaValida(corpo: unknown): corpo is CedolinoManuale {
 /** Controlli comuni, errori bloccanti e acquisizione simulata, senza modificare nulla. */
 function valuta(db: MockDb, caricamentoId: number, corpo: unknown): Esito {
   // come il backend: prima il corpo (400), poi le anagrafiche scelte e i campi (400), infine il file (404, 409)
+  const esito = valutaDati(db, corpo, null, () => {
+    const file = fileInErrore(db, caricamentoId);
+    if (!db.pdfFile.has(file.chiave)) {
+      throw new RifiutoMock(409, MESSAGGI_FILE_IN_ERRORE.pdfNonConservato);
+    }
+    return file;
+  });
+  return { ...esito.esito, file: esito.dati };
+}
+
+/**
+ * Valutazione dei dati (senza il file): `escluso` e' il cedolino che i dati sostituiscono (modifica), che non conta
+ * come gia' presente; `controlloDopoErrori` gira dopo gli errori bloccanti, come i controlli del file nel backend.
+ */
+function valutaDati<T>(
+  db: MockDb,
+  corpo: unknown,
+  escluso: number | null,
+  controlloDopoErrori: () => T,
+): { esito: EsitoDati; dati: T } {
   if (!formaValida(corpo)) {
     throw new RifiutoMock(400, 'Corpo della richiesta mancante o non valido (JSON atteso).');
   }
@@ -723,10 +748,7 @@ function valuta(db: MockDb, caricamentoId: number, corpo: unknown): Esito {
   if (errori.length > 0) {
     throw datiNonValidi(errori);
   }
-  const file = fileInErrore(db, caricamentoId);
-  if (!db.pdfFile.has(file.chiave)) {
-    throw new RifiutoMock(409, MESSAGGI_FILE_IN_ERRORE.pdfNonConservato);
-  }
+  const controllato = controlloDopoErrori();
   const anno = dati.periodo.anno ?? 0;
   const numeroMese = dati.periodo.mese ?? 1;
   const { persona, azienda } = scelte;
@@ -743,7 +765,9 @@ function valuta(db: MockDb, caricamentoId: number, corpo: unknown): Esito {
       competenza = competenzaSpeciale(anno, dati.periodo.tipo);
       break;
     case 'FINE_RAPPORTO': {
-      const precedenti = rapporto?.mensilita.filter((r) => r.competenza.tipo === 'FINE_RAPPORTO').length ?? 0;
+      const precedenti =
+        rapporto?.mensilita.filter((r) => r.competenza.tipo === 'FINE_RAPPORTO' && r.cedolinoId !== escluso)
+          .length ?? 0;
       competenza = competenzaFineRapporto(anno, precedenti + 1);
       break;
     }
@@ -751,7 +775,9 @@ function valuta(db: MockDb, caricamentoId: number, corpo: unknown): Esito {
       competenza = competenzaOrdinaria(anno, numeroMese);
   }
   const titolo = titoloCompetenza(competenza, periodo);
-  const presente = rapporto?.mensilita.find((r) => r.stato === 'PRESENTE' && r.chiave === competenza.chiave);
+  const presente = rapporto?.mensilita.find(
+    (r) => r.stato === 'PRESENTE' && r.chiave === competenza.chiave && r.cedolinoId !== escluso,
+  );
   const esistente = presente?.cedolinoId != null ? db.cedolini.get(presente.cedolinoId) : undefined;
   let scarto: Esito['scarto'] = null;
   if (esistente) {
@@ -772,7 +798,10 @@ function valuta(db: MockDb, caricamentoId: number, corpo: unknown): Esito {
           cedolinoId: esistente.id,
         };
   }
-  return { dati, file, persona, azienda, rapporto, competenza, titolo, periodo, scarto };
+  return {
+    esito: { dati, persona, azienda, rapporto, competenza, titolo, periodo, scarto },
+    dati: controllato,
+  };
 }
 
 /** Prova dell'inserimento a mano: competenza, conflitti, nuove anagrafiche e avvisi, senza salvare nulla. */
@@ -866,17 +895,9 @@ function nuovoRapporto(
   return rapporto;
 }
 
-/**
- * Inserimento a mano: il cedolino entra nel rapporto della persona e dell'azienda scelte (persona, azienda e rapporto
- * creati se nuovi), la mensilita' mancante o in errore lascia il posto alla presente e il tentativo indicato diventa
- * ACQUISITO. Un duplicato o un aggiuntivo viene rifiutato con 409 e il file resta in errore.
- */
-export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unknown): Caricamento {
-  const valutazione = valuta(db, caricamentoId, corpo);
-  const { dati, file, competenza, titolo, periodo, scarto } = valutazione;
-  if (scarto) {
-    throw new RifiutoMock(409, scarto.messaggio);
-  }
+/** Archivia il cedolino valutato (con persona, azienda e rapporto nuovi se servono) nel rapporto della coppia. */
+function archivia(db: MockDb, valutazione: EsitoDati, modificatoAMano: boolean) {
+  const { dati, competenza, titolo, periodo } = valutazione;
   const persona: PersonaSintesi = valutazione.persona ?? {
     id: db.contatori.prossimoIdAnagrafica++,
     nome: dati.dipendente.nome ?? '',
@@ -908,6 +929,7 @@ export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unkno
     acquisitoIl: adesso,
     confidenza: null,
     inseritoAMano: true,
+    modificatoAMano,
     campiNonTrovati: [],
     avvisiEstrazione: avvisiCoerenza(dati),
     inquadramento: {
@@ -942,6 +964,22 @@ export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unkno
     rigaDaCedolino(cedolino, { scattoInBusta: false, aumentoFuoriScatti: false }),
   ]);
   rinumeraFineRapporto(db, rapporto);
+  return { cedolino, persona, rapporto };
+}
+
+/**
+ * Inserimento a mano: il cedolino entra nel rapporto della persona e dell'azienda scelte (persona, azienda e rapporto
+ * creati se nuovi), la mensilita' mancante o in errore lascia il posto alla presente e il tentativo indicato diventa
+ * ACQUISITO. Un duplicato o un aggiuntivo viene rifiutato con 409 e il file resta in errore.
+ */
+export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unknown): Caricamento {
+  const valutazione = valuta(db, caricamentoId, corpo);
+  const { file, scarto } = valutazione;
+  if (scarto) {
+    throw new RifiutoMock(409, scarto.messaggio);
+  }
+  const { cedolino, persona, rapporto } = archivia(db, valutazione, false);
+  const adesso = cedolino.acquisitoIl;
 
   Object.assign(file.caricamento, {
     stato: 'ACQUISITO',
@@ -972,4 +1010,170 @@ export function inserisciManuale(db: MockDb, caricamentoId: number, corpo: unkno
   }
   risolviFile(db, file.chiave);
   return { ...file.caricamento };
+}
+
+// ------------------------------------------------------------------ modifica dei dati di un cedolino archiviato
+
+/** Gli stessi campi dell'inserimento a mano dai dati del cedolino archiviato (persona e azienda del suo rapporto). */
+export function datiCedolino(db: MockDb, cedolinoId: number): CedolinoManuale {
+  const c = db.cedolini.get(cedolinoId);
+  const rapporto = c ? db.rapporti.get(c.rapportoId) : undefined;
+  if (!c || !rapporto) {
+    throw new RifiutoMock(404, `Cedolino inesistente (id ${cedolinoId}).`);
+  }
+  const { persona, azienda } = rapporto;
+  const voci = (categoria: CategoriaVoce, elenco: Voce[]) =>
+    elenco.map((v) => ({ ...v, descrizione: v.descrizione, categoria }));
+  const tipo = c.competenza.tipo;
+  const [anno, numeroMese] = c.periodoRetribuzione.split('-').map(Number) as [number, number];
+  return {
+    personaId: persona.id,
+    aziendaId: azienda.id,
+    dipendente: {
+      codiceFiscale: persona.codiceFiscale,
+      nome: persona.nome,
+      cognome: persona.cognome,
+      dataNascita: persona.dataNascita,
+      codiceDipendente: c.inquadramento.codiceDipendente,
+    },
+    datoreLavoro: {
+      codiceFiscale: azienda.codiceFiscale,
+      partitaIva: azienda.partitaIva,
+      posizioneInps: azienda.posizioneInps,
+      posizioneInail: null,
+      ragioneSociale: azienda.ragioneSociale,
+      indirizzo: azienda.indirizzo,
+      codiceAzienda: null,
+    },
+    datiContrattuali: {
+      dataAssunzione: c.inquadramento.dataAssunzione,
+      dataCessazione: c.inquadramento.dataCessazione,
+      qualifica: c.inquadramento.qualifica,
+      livello: c.inquadramento.livello,
+      ccnl: c.inquadramento.ccnlTesto,
+      codiceCnel: null,
+    },
+    periodo: {
+      anno,
+      mese: numeroMese,
+      tipo,
+      dataElaborazione: c.dataElaborazione,
+      meseVariabili: c.meseVariabili,
+    },
+    totali: c.totali,
+    retribuzione: c.elementiRetributivi,
+    voci: [
+      ...voci('COMPETENZA', c.competenze),
+      ...voci('TRATTENUTA_PREVIDENZIALE', c.trattenutePrevidenziali),
+      ...voci('TRATTENUTA_FISCALE', c.trattenuteFiscali),
+      ...voci('ALTRA_TRATTENUTA', c.altreTrattenute),
+      ...voci('NON_RETRIBUTIVA', c.vociNonRetributive),
+      ...voci('INFORMATIVA', c.vociInformative),
+      ...voci('PRESENZA', c.presenze.voci),
+    ],
+    ratei: c.ratei,
+    tfr: c.tfr,
+    presenze: {
+      giorniLavorati: c.presenze.giorniLavorati,
+      oreLavorate: c.presenze.oreLavorate,
+      giorniRetribuiti: c.presenze.giorniRetribuiti,
+    },
+    scatti: { numeroScatti: c.scatti.numeroScatti, dataProssimoScatto: c.scatti.prossimoScatto },
+    buoniPasto: c.buoniPasto,
+    progressivi: c.progressivi,
+    contieneTredicesima: c.contieneTredicesima,
+    contieneQuattordicesima: c.contieneQuattordicesima,
+  };
+}
+
+function cedolinoDaModificare(db: MockDb, cedolinoId: number): CedolinoDettaglio {
+  const cedolino = db.cedolini.get(cedolinoId);
+  if (!cedolino) {
+    throw new RifiutoMock(404, `Cedolino inesistente (id ${cedolinoId}).`);
+  }
+  return cedolino;
+}
+
+/** Prova della modifica: come la verifica dell'inserimento, con il cedolino modificato che non conta come presente. */
+export function verificaModifica(db: MockDb, cedolinoId: number, corpo: unknown): VerificaCedolinoManuale {
+  const { esito, dati: attuale } = valutaDati(db, corpo, cedolinoId, () =>
+    cedolinoDaModificare(db, cedolinoId),
+  );
+  const { dati, persona, azienda, rapporto, scarto } = esito;
+  const avvisi = avvisiCoerenza(dati);
+  if (attuale.competenza.chiave !== esito.competenza.chiave) {
+    avvisi.push(`Il cedolino passerà da ${attuale.titolo} a ${esito.titolo}`);
+  }
+  const altroRapporto = rapporto?.id !== attuale.rapportoId;
+  if (altroRapporto) {
+    avvisi.push(
+      'Il cedolino passerà a un altro rapporto di lavoro: persona o azienda sono diverse da quelle attuali',
+    );
+    const precedente = db.rapporti.get(attuale.rapportoId);
+    const rimasti = precedente?.mensilita.filter(
+      (r) => r.stato === 'PRESENTE' && r.cedolinoId !== cedolinoId,
+    );
+    if (rimasti?.length === 0) {
+      avvisi.push('Il rapporto di lavoro attuale resterà senza cedolini e verrà eliminato');
+    }
+  }
+  if (!persona) {
+    avvisi.push('Verrà creata una nuova persona: controlla il codice fiscale');
+  }
+  if (!azienda) {
+    avvisi.push('Verrà creata una nuova azienda: controlla ragione sociale, partita IVA e codice fiscale');
+  }
+  return {
+    esito: scarto?.esito ?? 'ACQUISIBILE',
+    messaggio: scarto?.messaggio ?? null,
+    competenza: scarto ? null : esito.competenza,
+    titolo: scarto ? null : esito.titolo,
+    nuovaPersona: !persona,
+    nuovaAzienda: !azienda,
+    nuovoRapporto: !rapporto,
+    rapportoId: scarto ? null : (rapporto?.id ?? null),
+    cedolinoEsistenteId: scarto?.cedolinoId ?? null,
+    avvisi,
+  };
+}
+
+/**
+ * Modifica: il cedolino e' sostituito da uno nuovo (nuovo id) con i dati inviati, anche in un altro rapporto; il
+ * rapporto precedente rimasto senza cedolini sparisce (con la persona senza altri rapporti), come l'eliminazione.
+ */
+export function modificaCedolino(db: MockDb, cedolinoId: number, corpo: unknown): CedolinoModificato {
+  const { esito, dati: attuale } = valutaDati(db, corpo, cedolinoId, () =>
+    cedolinoDaModificare(db, cedolinoId),
+  );
+  if (esito.scarto) {
+    throw new RifiutoMock(409, esito.scarto.messaggio);
+  }
+  const precedente = db.rapporti.get(attuale.rapportoId);
+  db.cedolini.delete(cedolinoId);
+  if (precedente) {
+    precedente.mensilita = precedente.mensilita.filter((r) => r.cedolinoId !== cedolinoId);
+    rinumeraFineRapporto(db, precedente);
+  }
+  const { cedolino, rapporto } = archivia(db, esito, true);
+  let rapportoEliminato = false;
+  if (
+    precedente &&
+    precedente.id !== rapporto.id &&
+    !precedente.mensilita.some((r) => r.stato === 'PRESENTE')
+  ) {
+    db.rapporti.delete(precedente.id);
+    eliminaAssociazioniDelRapporto(db, precedente.id);
+    const personaId = precedente.persona.id;
+    if (![...db.rapporti.values()].some((r) => r.persona.id === personaId)) {
+      db.persone = db.persone.filter((p) => p.id !== personaId);
+    }
+    rapportoEliminato = true;
+  }
+  return {
+    cedolinoId: cedolino.id,
+    rapportoId: rapporto.id,
+    competenza: cedolino.competenza,
+    titolo: cedolino.titolo,
+    rapportoEliminato,
+  };
 }

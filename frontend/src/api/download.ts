@@ -55,6 +55,21 @@ export function leggiPdfCaricamento(
   );
 }
 
+/** PDF archiviato di un cedolino, con il nome normalizzato (anteprima della modifica a mano). */
+export function leggiPdfCedolino(
+  api: ApiClient,
+  cedolinoId: number,
+  signal?: AbortSignal,
+): Promise<PdfLetto> {
+  return leggiPdf(
+    api.GET('/api/v1/cedolini/{cedolinoId}/pdf', {
+      params: { path: { cedolinoId } },
+      parseAs: 'blob',
+      signal,
+    }),
+  );
+}
+
 /** Fa salvare al browser un contenuto con il nome indicato (link temporaneo con attributo download). */
 function salvaFile(contenuto: Blob, nome: string): void {
   const url = URL.createObjectURL(contenuto);

@@ -14,6 +14,8 @@ import {
 import { useId, type ReactNode } from 'react';
 import { DATA_INCOMPLETA, type SceltaSuperminimo } from '../hooks/useCedolinoManuale';
 import { testi } from '../i18n';
+import { AiutoCampo } from './AiutoCampo';
+import { aiutoDi } from './aiuti';
 import { CampoNumero } from './CampoNumero';
 import classes from './InserimentoManualeModal.module.css';
 import { etichettaCampo, useModulo, useValoreModulo, valoreDi } from './moduloCedolino';
@@ -47,20 +49,37 @@ interface PropsBase {
 export function PuntoCopiato({ nota }: { nota: string }) {
   return (
     <Tooltip label={nota} withArrow multiline maw={280}>
-      <span className={classes.puntoCopiato} aria-hidden />
+      <span className={classes.puntoCopiato} aria-hidden data-copiato />
     </Tooltip>
   );
 }
 
-function Etichetta({ testo, copiato }: { testo: string; copiato: string | undefined }) {
-  return copiato ? (
+interface PropsEtichetta {
+  testo: string;
+  copiato: string | undefined;
+  /** Spiegazione del campo (icona "i"); null o assente se non prevista. */
+  aiuto?: string | null;
+}
+
+function Etichetta({ testo, copiato, aiuto }: PropsEtichetta) {
+  if (!copiato && !aiuto) {
+    return testo;
+  }
+  return (
     <>
       {testo}
-      <PuntoCopiato nota={copiato} />
+      {copiato && <PuntoCopiato nota={copiato} />}
+      {aiuto && <AiutoCampo campo={testo} testo={aiuto} />}
     </>
-  ) : (
-    testo
   );
+}
+
+/**
+ * Nome accessibile esplicito dei campi con la spiegazione: senza, il nome del pulsante "i" dentro l'etichetta
+ * entrerebbe nel nome del campo.
+ */
+function nomeAccessibile(testo: string, aiuto: string | null) {
+  return aiuto ? { 'aria-label': testo } : {};
 }
 
 /** Proprieta' comuni dei campi collegati al modulo. */
@@ -77,6 +96,9 @@ function useCampo({
   const inputProps = form.getInputProps(percorso);
   const aggiorna = inputProps.onChange as (valore: unknown) => void;
   const copiato = soloLettura ? undefined : copiati[percorso];
+  const testo = etichetta ?? etichettaCampo(percorso);
+  // nelle righe di voci e ratei le spiegazioni sono nella guida della sezione, non ripetute su ogni riga
+  const aiuto = inRiga ? null : aiutoDi(percorso);
   return {
     key: form.key(percorso),
     props: {
@@ -87,7 +109,8 @@ function useCampo({
           rimuoviCopiato(percorso);
         }
       },
-      label: <Etichetta testo={etichetta ?? etichettaCampo(percorso)} copiato={copiato} />,
+      label: <Etichetta testo={testo} copiato={copiato} aiuto={aiuto} />,
+      ...nomeAccessibile(testo, aiuto),
       withAsterisk: !soloLettura && (obbligatorio ?? false),
       description: descrizione,
       className,
@@ -269,9 +292,12 @@ export function CampoFlagMensilita({
   const { form, copiati, rimuoviCopiato } = useModulo();
   const valore = useValoreModulo((v) => v[percorso]);
   const imposto = useValoreModulo((v) => v.periodo.tipo === tipo);
+  const testo = etichettaCampo(percorso);
+  const aiuto = aiutoDi(percorso);
   return (
     <Checkbox
-      label={<Etichetta testo={etichettaCampo(percorso)} copiato={copiati[percorso]} />}
+      label={<Etichetta testo={testo} copiato={copiati[percorso]} aiuto={aiuto} />}
+      {...nomeAccessibile(testo, aiuto)}
       checked={valore || imposto}
       disabled={imposto}
       data-path={percorso}
@@ -292,7 +318,9 @@ export function CampoSuperminimoAssorbibile() {
   const idEtichetta = useId();
   return (
     <Input.Wrapper
-      label={<Etichetta testo={etichettaCampo(percorso)} copiato={copiati[percorso]} />}
+      label={
+        <Etichetta testo={etichettaCampo(percorso)} copiato={copiati[percorso]} aiuto={aiutoDi(percorso)} />
+      }
       labelElement="div"
       labelProps={{ id: idEtichetta }}
     >
@@ -322,7 +350,10 @@ export function CampoBuoniPasto({ children }: { children: ReactNode }) {
     <>
       <Switch
         className={classes.largo}
-        label={<Etichetta testo={etichettaCampo(percorso)} copiato={copiati[percorso]} />}
+        label={
+          <Etichetta testo={etichettaCampo(percorso)} copiato={copiati[percorso]} aiuto={aiutoDi(percorso)} />
+        }
+        {...nomeAccessibile(etichettaCampo(percorso), aiutoDi(percorso))}
         checked={presenti}
         data-path={percorso}
         onChange={(evento) => {
@@ -370,7 +401,10 @@ export function CampoMeseVariabili({ datiMesi }: { datiMesi: ComboboxData }) {
   return (
     <Group key={form.key(percorso)} gap="sm" align="flex-start" wrap="nowrap" className={classes.largo}>
       <Select
-        label={<Etichetta testo={t.meseVariabiliMese} copiato={copiati[percorso]} />}
+        label={
+          <Etichetta testo={t.meseVariabiliMese} copiato={copiati[percorso]} aiuto={aiutoDi(percorso)} />
+        }
+        {...nomeAccessibile(t.meseVariabiliMese, aiutoDi(percorso))}
         data={datiMesi}
         defaultValue={iniziale.mese}
         onChange={(mese) => aggiorna({ mese })}
